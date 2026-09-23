@@ -2474,7 +2474,10 @@ class ToolManager:
         return base64.b64encode(text.encode()).decode() if action=="encode" else base64.b64decode(text).decode("utf-8",errors="replace")
 
     def _word_count(self, text):
-        return f"字符{len(text)} 中文{len(re.findall(r'[\u4e00-\u9fff]',text))} 英文词{len(re.findall(r'[a-zA-Z]+',text))} 行{text.count(chr(10))+1}"
+        _cn = "[一-鿿]"
+        _en = "[a-zA-Z]+"
+        return (f"字符{len(text)} 中文{len(re.findall(_cn, text))} "
+                f"英文词{len(re.findall(_en, text))} 行{text.count(chr(10))+1}")
 
     def _translate(self, text, target_lang="zh"):
         try:
