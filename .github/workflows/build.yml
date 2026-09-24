@@ -24,10 +24,12 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then SEP=";"; else SEP=":"; fi
           pyinstaller --noconfirm --clean --onefile \
             --name XiaoLing \
+            --icon assets/icon.ico \
             --add-data "core${SEP}core" \
             --add-data "renderer${SEP}renderer" \
             --add-data "角色模型${SEP}角色模型" \
             --add-data "动作资产${SEP}动作资产" \
+            --add-data "assets${SEP}assets" \
             --collect-all PySide6 \
             xl.py
       - name: 重命名产物
