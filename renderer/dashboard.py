@@ -75,7 +75,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     if renderer is None:
         try:
             from renderer.renderer import AvatarRenderer
-            renderer = AvatarRenderer(backend='auto', width=460, height=620,
+            renderer = AvatarRenderer(backend='auto', width=320, height=440,
                                       focus='bust', log=log)
             own_renderer = True
         except Exception as e:
@@ -685,7 +685,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
 
     render_timer = QtCore.QTimer(win)
     render_timer.timeout.connect(render_one_frame)
-    render_timer.start(33)  # ~30fps
+    render_timer.start(50)  # ~20fps，减少卡顿
 
     # ---------- 进度刷新（每秒读一次训练状态） ----------
     def refresh_progress():
@@ -927,13 +927,62 @@ def build_dashboard(renderer=None, engine=None, log=print):
 
 
 def run_dashboard(log=print):
-    """启动工作台（阻塞）。"""
-    win = build_dashboard(log=log)
-    if win is None:
+    """启动工作台（阻塞）。先显示启动画面，再加载主界面。"""
+    try:
+        from PySide6 import QtCore, QtGui, QtWidgets
+    except Exception as e:
+        log(f'  [工作台] PySide6 不可用：{e}')
         return False
-    from PySide6 import QtWidgets
-    QtWidgets.QApplication.instance().exec()
-    return True
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+    app.setApplicationName('小凌工作台')
+
+    # 启动画面（先显示，让用户知道程序在启动）
+    splash = QtWidgets.QWidget()
+    splash.setFixedSize(360, 200)
+    splash.setWindowTitle('小凌正在唤醒…')
+    splash.setStyleSheet('background:#faf6f7;border-radius:16px;')
+    splash.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
+    splash.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+    sl = QtWidgets.QVBoxLayout(splash)
+    sl.setContentsMargins(30, 30, 30, 30)
+    sl.setSpacing(12)
+    st = QtWidgets.QLabel('小凌 XIAOLING')
+    st.setStyleSheet('color:#d4385c;font-size:24px;font-weight:800;')
+    st.setAlignment(QtCore.Qt.AlignCenter)
+    sl.addWidget(st)
+    ss = QtWidgets.QLabel('正在唤醒数字生命…')
+    ss.setStyleSheet('color:#9a8a90;font-size:13px;')
+    ss.setAlignment(QtCore.Qt.AlignCenter)
+    sl.addWidget(ss)
+    sp = QtWidgets.QProgressBar()
+    sp.setRange(0, 0)  # 不确定进度
+    sp.setTextVisible(False)
+    sp.setFixedHeight(6)
+    sp.setStyleSheet('''
+        QProgressBar { background:#f0e4e8; border-radius:3px; }
+        QProgressBar::chunk { background:#d4385c; border-radius:3px; }
+    ''')
+    sl.addWidget(sp)
+    # 居中
+    screen = app.primaryScreen().geometry()
+    splash.move((screen.width() - 360) // 2, (screen.height() - 200) // 2)
+    splash.show()
+    app.processEvents()
+
+    # 延迟一帧后构建主窗口（让splash先渲染出来）
+    result = {'win': None}
+    def _build():
+        try:
+            result['win'] = build_dashboard(log=log)
+        except Exception as e:
+            log(f'  [工作台] 构建失败：{e}')
+        splash.close()
+        if result['win']:
+            result['win'].show()
+    QtCore.QTimer.singleShot(50, _build)
+    app.exec()
+    return result['win'] is not None
 
 
 if __name__ == '__main__':
