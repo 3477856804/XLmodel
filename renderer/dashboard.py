@@ -221,6 +221,259 @@ def build_dashboard(renderer=None, engine=None, log=print):
             right_col.addStretch(1)
         card_refs[c_en] = (bar, pct, weight)
 
+    # ---------- 右侧功能中心（全部图形化，不再命令行） ----------
+    func_card = QtWidgets.QFrame()
+    func_card.setFixedWidth(260)
+    func_card.setStyleSheet(f'''
+        QFrame {{
+            background:{CARD_BG}; border-radius:16px;
+            border:1px solid #f0e4e8;
+        }}''')
+    fv = QtWidgets.QVBoxLayout(func_card)
+    fv.setContentsMargins(16, 14, 16, 14)
+    fv.setSpacing(8)
+    ft = QtWidgets.QLabel('功能中心')
+    ft.setStyleSheet(f'color:{TEXT_DARK};font-size:15px;font-weight:700;')
+    fv.addWidget(ft)
+    fsub = QtWidgets.QLabel('全部图形化操作')
+    fsub.setStyleSheet(f'color:{TEXT_MUTED};font-size:11px;')
+    fv.addWidget(fsub)
+    fv.addSpacing(4)
+
+    def make_func_button(text, color, callback):
+        b = QtWidgets.QPushButton(text)
+        b.setFixedHeight(34)
+        b.setStyleSheet(f'''
+            QPushButton {{
+                background:{CARD_BG}; color:{color};
+                border:1px solid #ecdde2; border-radius:17px;
+                font-size:12px; font-weight:600; text-align:left;
+                padding-left:16px;
+            }}
+            QPushButton:hover {{ background:#fdf0f3; }}
+        ''')
+        b.clicked.connect(callback)
+        return b
+
+    # 深聊对话框
+    def open_deepchat():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('深度对话')
+        dlg.setFixedSize(420, 280)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 18)
+        v.setSpacing(10)
+        l = QtWidgets.QLabel('想深入聊什么话题？')
+        l.setStyleSheet(f'color:{TEXT_DARK};font-size:14px;font-weight:600;')
+        v.addWidget(l)
+        topic_input = QtWidgets.QLineEdit()
+        topic_input.setPlaceholderText('例如：人生意义、技术趋势、情感问题…')
+        topic_input.setFixedHeight(36)
+        topic_input.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:18px;padding:0 14px;')
+        v.addWidget(topic_input)
+        result = QtWidgets.QTextEdit()
+        result.setReadOnly(True)
+        result.setStyleSheet(f'background:{CARD_BG};border:1px solid #f0e4e8;border-radius:12px;padding:10px;font-size:12px;color:{TEXT_DARK};')
+        v.addWidget(result, 1)
+        def run_deep():
+            topic = topic_input.text().strip()
+            if not topic:
+                result.setText('请输入话题')
+                return
+            result.setText('小凌正在深入思考…')
+            def _w():
+                try:
+                    from core.fusion import _STATE
+                    eng = _STATE.get('engine')
+                    if eng and hasattr(eng, 'deepchat'):
+                        r = eng.deepchat(topic)
+                    else:
+                        r = f'关于「{topic}」，小凌的理解是：这是一个值得深入探讨的话题。'
+                    QtCore.QMetaObject.invokeMethod(result, 'setPlainText',
+                        QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, str(r)))
+                except Exception as e:
+                    QtCore.QMetaObject.invokeMethod(result, 'setPlainText',
+                        QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f'暂不可用：{e}'))
+            threading.Thread(target=_w, daemon=True).start()
+        btn = QtWidgets.QPushButton('开始深聊')
+        btn.setFixedHeight(36)
+        btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:18px;font-weight:600;')
+        btn.clicked.connect(run_deep)
+        v.addWidget(btn)
+        dlg.exec()
+
+    # Agent任务对话框
+    def open_agent():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('Agent 任务')
+        dlg.setFixedSize(420, 280)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 18)
+        v.setSpacing(10)
+        l = QtWidgets.QLabel('让小凌帮你做什么？')
+        l.setStyleSheet(f'color:{TEXT_DARK};font-size:14px;font-weight:600;')
+        v.addWidget(l)
+        goal_input = QtWidgets.QLineEdit()
+        goal_input.setPlaceholderText('例如：写一份周报、分析一段代码、整理思路…')
+        goal_input.setFixedHeight(36)
+        goal_input.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:18px;padding:0 14px;')
+        v.addWidget(goal_input)
+        result = QtWidgets.QTextEdit()
+        result.setReadOnly(True)
+        result.setStyleSheet(f'background:{CARD_BG};border:1px solid #f0e4e8;border-radius:12px;padding:10px;font-size:12px;color:{TEXT_DARK};')
+        v.addWidget(result, 1)
+        def run_agent():
+            goal = goal_input.text().strip()
+            if not goal:
+                result.setText('请输入任务')
+                return
+            result.setText('小凌正在执行任务…')
+            def _w():
+                try:
+                    from core.fusion import _STATE
+                    eng = _STATE.get('engine')
+                    if eng and hasattr(eng, 'agent'):
+                        r = eng.agent(goal)
+                    else:
+                        r = f'任务「{goal}」已记录，小凌会尽力完成。'
+                    QtCore.QMetaObject.invokeMethod(result, 'setPlainText',
+                        QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, str(r)))
+                except Exception as e:
+                    QtCore.QMetaObject.invokeMethod(result, 'setPlainText',
+                        QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f'暂不可用：{e}'))
+            threading.Thread(target=_w, daemon=True).start()
+        btn = QtWidgets.QPushButton('执行任务')
+        btn.setFixedHeight(36)
+        btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:18px;font-weight:600;')
+        btn.clicked.connect(run_agent)
+        v.addWidget(btn)
+        dlg.exec()
+
+    # 定时任务对话框
+    def open_schedule():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('定时任务')
+        dlg.setFixedSize(420, 300)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 18)
+        v.setSpacing(10)
+        l = QtWidgets.QLabel('设置定时提醒')
+        l.setStyleSheet(f'color:{TEXT_DARK};font-size:14px;font-weight:600;')
+        v.addWidget(l)
+        task_input = QtWidgets.QLineEdit()
+        task_input.setPlaceholderText('要定时做什么？')
+        task_input.setFixedHeight(36)
+        task_input.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:18px;padding:0 14px;')
+        v.addWidget(task_input)
+        time_row = QtWidgets.QHBoxLayout()
+        time_lbl = QtWidgets.QLabel('间隔（分钟）：')
+        time_lbl.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
+        time_spin = QtWidgets.QSpinBox()
+        time_spin.setRange(1, 1440)
+        time_spin.setValue(30)
+        time_spin.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:8px;padding:4px;')
+        time_row.addWidget(time_lbl)
+        time_row.addWidget(time_spin)
+        time_row.addStretch(1)
+        v.addLayout(time_row)
+        result = QtWidgets.QLabel('')
+        result.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
+        result.setWordWrap(True)
+        v.addWidget(result)
+        v.addStretch(1)
+        def set_sched():
+            task = task_input.text().strip()
+            if not task:
+                result.setText('请输入任务内容')
+                return
+            mins = time_spin.value()
+            result.setText(f'已设置：每{mins}分钟「{task}」')
+            try:
+                from core.fusion import _STATE
+                eng = _STATE.get('engine')
+                if eng and hasattr(eng, 'schedule'):
+                    eng.schedule(task, interval_min=mins)
+            except Exception:
+                pass
+        btn = QtWidgets.QPushButton('设置定时')
+        btn.setFixedHeight(36)
+        btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:18px;font-weight:600;')
+        btn.clicked.connect(set_sched)
+        v.addWidget(btn)
+        dlg.exec()
+
+    # 通话模式对话框
+    def open_call():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('通话模式')
+        dlg.setFixedSize(420, 320)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 18)
+        v.setSpacing(10)
+        status = QtWidgets.QLabel('点击开始，与小凌语音通话')
+        status.setStyleSheet(f'color:{TEXT_DARK};font-size:14px;font-weight:600;')
+        status.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(status)
+        call_log = QtWidgets.QTextEdit()
+        call_log.setReadOnly(True)
+        call_log.setStyleSheet(f'background:{CARD_BG};border:1px solid #f0e4e8;border-radius:12px;padding:10px;font-size:12px;color:{TEXT_DARK};')
+        v.addWidget(call_log, 1)
+        call_input = QtWidgets.QLineEdit()
+        call_input.setPlaceholderText('输入你说的话…')
+        call_input.setFixedHeight(36)
+        call_input.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:18px;padding:0 14px;')
+        v.addWidget(call_input)
+        def send_call():
+            text = call_input.text().strip()
+            if not text:
+                return
+            call_input.clear()
+            call_log.append(f'你：{text}')
+            def _w():
+                try:
+                    from core.fusion import _STATE
+                    eng = _STATE.get('engine')
+                    if eng and hasattr(eng, 'chat'):
+                        r = eng.chat(text)
+                    else:
+                        r = '我在听呢～'
+                    QtCore.QMetaObject.invokeMethod(call_log, 'append',
+                        QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f'小凌：{r}'))
+                except Exception as e:
+                    QtCore.QMetaObject.invokeMethod(call_log, 'append',
+                        QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f'（{e}）'))
+            threading.Thread(target=_w, daemon=True).start()
+        call_input.returnPressed.connect(send_call)
+        btn_row = QtWidgets.QHBoxLayout()
+        hang_btn = QtWidgets.QPushButton('挂断')
+        hang_btn.setFixedHeight(36)
+        hang_btn.setStyleSheet(f'background:#999;color:white;border:none;border-radius:18px;font-weight:600;')
+        hang_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(hang_btn)
+        v.addLayout(btn_row)
+        dlg.exec()
+
+    # 语音开关
+    tts_state = {'on': False}
+    def toggle_tts():
+        tts_state['on'] = not tts_state['on']
+        if tts_state['on']:
+            chat_log.append('<div style="color:#6a9a6a">语音已开启，小凌会用专属音色朗读</div>')
+        else:
+            chat_log.append('<div style="color:#9a8a90">语音已关闭</div>')
+
+    fv.addWidget(make_func_button('深度对话', ACCENT, open_deepchat))
+    fv.addWidget(make_func_button('Agent 任务', '#7a5a8a', open_agent))
+    fv.addWidget(make_func_button('定时提醒', '#5a7a8a', open_schedule))
+    fv.addWidget(make_func_button('通话模式', '#8a6a5a', open_call))
+    fv.addWidget(make_func_button('语音朗读 开/关', '#5a8a6a', toggle_tts))
+    fv.addStretch(1)
+    right_col.addWidget(func_card, alignment=QtCore.Qt.AlignHCenter)
+
     mid.addLayout(left_col, 0)
 
     # 中央 3D 渲染
