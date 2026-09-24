@@ -221,39 +221,152 @@ def build_dashboard(renderer=None, engine=None, log=print):
             right_col.addStretch(1)
         card_refs[c_en] = (bar, pct, weight)
 
-    # ---------- 右侧功能中心（全部图形化，不再命令行） ----------
-    func_card = QtWidgets.QFrame()
-    func_card.setFixedWidth(260)
-    func_card.setStyleSheet(f'''
-        QFrame {{
-            background:{CARD_BG}; border-radius:16px;
-            border:1px solid #f0e4e8;
-        }}''')
-    fv = QtWidgets.QVBoxLayout(func_card)
-    fv.setContentsMargins(16, 14, 16, 14)
-    fv.setSpacing(8)
-    ft = QtWidgets.QLabel('功能中心')
-    ft.setStyleSheet(f'color:{TEXT_DARK};font-size:15px;font-weight:700;')
-    fv.addWidget(ft)
-    fsub = QtWidgets.QLabel('全部图形化操作')
-    fsub.setStyleSheet(f'color:{TEXT_MUTED};font-size:11px;')
-    fv.addWidget(fsub)
-    fv.addSpacing(4)
+    # ---------- 插件系统（万物皆插件，右下角 + 号开启） ----------
+    # 插件定义：id, 名称, 颜色, 回调
+    _plugins = [
+        ('deepchat', '深度对话', ACCENT, None),
+        ('agent', 'Agent 任务', '#7a5a8a', None),
+        ('schedule', '定时提醒', '#5a7a8a', None),
+        ('call', '通话模式', '#8a6a5a', None),
+        ('tts', '语音朗读', '#5a8a6a', None),
+        ('distill', '蒸馏训练', '#8a7a5a', None),
+    ]
+    _enabled = {pid: False for pid, _, _, _ in _plugins}
 
-    def make_func_button(text, color, callback):
-        b = QtWidgets.QPushButton(text)
-        b.setFixedHeight(34)
-        b.setStyleSheet(f'''
-            QPushButton {{
-                background:{CARD_BG}; color:{color};
-                border:1px solid #ecdde2; border-radius:17px;
-                font-size:12px; font-weight:600; text-align:left;
-                padding-left:16px;
+    # 底部已启用插件快捷按钮栏
+    plugin_bar = QtWidgets.QHBoxLayout()
+    plugin_bar.setSpacing(8)
+    plugin_bar.addStretch(1)
+    _plugin_btns = {}
+
+    def _refresh_plugin_bar():
+        # 清空旧按钮
+        while plugin_bar.count():
+            item = plugin_bar.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        plugin_bar.addStretch(1)
+        for pid, name, color, _ in _plugins:
+            if _enabled.get(pid):
+                b = QtWidgets.QPushButton(name)
+                b.setFixedHeight(30)
+                b.setStyleSheet(f'''
+                    QPushButton {{
+                        background:{color}; color:white; border:none;
+                        border-radius:15px; padding:0 16px;
+                        font-size:12px; font-weight:600;
+                    }}
+                    QPushButton:hover {{ background:{color}; opacity:0.8; }}
+                ''')
+                b.clicked.connect(lambda checked, p=pid: _run_plugin(p))
+                plugin_bar.addWidget(b)
+        plugin_bar.addStretch(1)
+
+    def _run_plugin(pid):
+        if pid == 'deepchat':
+            open_deepchat()
+        elif pid == 'agent':
+            open_agent()
+        elif pid == 'schedule':
+            open_schedule()
+        elif pid == 'call':
+            open_call()
+        elif pid == 'tts':
+            toggle_tts()
+        elif pid == 'distill':
+            start_distill()
+
+    # 右下角浮动 + 按钮
+    plus_btn = QtWidgets.QPushButton('+')
+    plus_btn.setFixedSize(56, 56)
+    plus_btn.setStyleSheet(f'''
+        QPushButton {{
+            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+                stop:0 {ACCENT}, stop:1 #ff7a9c);
+            color:white; border:none; border-radius:28px;
+            font-size:28px; font-weight:300;
+        }}
+        QPushButton:hover {{
+            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+                stop:0 #b01e40, stop:1 {ACCENT});
+        }}
+    ''')
+    plus_btn.setParent(central)
+    plus_btn.raise_()
+
+    # 插件面板（弹出）
+    plugin_panel = QtWidgets.QFrame(central)
+    plugin_panel.setFixedWidth(280)
+    plugin_panel.setStyleSheet(f'''
+        QFrame {{
+            background:rgba(255,255,255,0.95);
+            border-radius:18px; border:1px solid #f0e4e8;
+        }}
+    ''')
+    plugin_panel.hide()
+    pp_layout = QtWidgets.QVBoxLayout(plugin_panel)
+    pp_layout.setContentsMargins(18, 16, 18, 16)
+    pp_layout.setSpacing(6)
+    pp_title = QtWidgets.QLabel('插件中心')
+    pp_title.setStyleSheet(f'color:{TEXT_DARK};font-size:16px;font-weight:700;')
+    pp_layout.addWidget(pp_title)
+    pp_sub = QtWidgets.QLabel('万物皆插件，开启后显示在底部')
+    pp_sub.setStyleSheet(f'color:{TEXT_MUTED};font-size:11px;')
+    pp_layout.addWidget(pp_sub)
+    pp_layout.addSpacing(6)
+
+    _plugin_switches = {}
+    for pid, name, color, _ in _plugins:
+        row = QtWidgets.QHBoxLayout()
+        lbl = QtWidgets.QLabel(name)
+        lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:13px;')
+        sw = QtWidgets.QCheckBox()
+        sw.setStyleSheet(f'''
+            QCheckBox::indicator {{
+                width:40px; height:22px; border-radius:11px;
+                background:#ddd;
             }}
-            QPushButton:hover {{ background:#fdf0f3; }}
+            QCheckBox::indicator:checked {{
+                background:{color};
+            }}
         ''')
-        b.clicked.connect(callback)
-        return b
+        def _toggle(checked, p=pid):
+            _enabled[p] = checked
+            _refresh_plugin_bar()
+        sw.stateChanged.connect(_toggle)
+        row.addWidget(lbl)
+        row.addStretch(1)
+        row.addWidget(sw)
+        pp_layout.addLayout(row)
+        _plugin_switches[pid] = sw
+    pp_layout.addStretch(1)
+
+    def _toggle_panel():
+        if plugin_panel.isVisible():
+            plugin_panel.hide()
+        else:
+            # 定位到 + 按钮上方
+            pb = plus_btn.geometry()
+            panel_w = 280
+            panel_h = 320
+            x = central.width() - panel_w - 20
+            y = central.height() - panel_h - 76
+            plugin_panel.setGeometry(x, y, panel_w, panel_h)
+            plugin_panel.show()
+            plugin_panel.raise_()
+    plus_btn.clicked.connect(_toggle_panel)
+
+    def _resize_plus():
+        plus_btn.move(central.width() - 76, central.height() - 76)
+        if plugin_panel.isVisible():
+            _toggle_panel()
+            _toggle_panel()
+    central.installEventFilter(win)
+    # 用定时器跟踪大小变化
+    _resize_plus()
+
+    mid.addLayout(left_col, 0)
 
     # 深聊对话框
     def open_deepchat():
@@ -465,14 +578,6 @@ def build_dashboard(renderer=None, engine=None, log=print):
             chat_log.append('<div style="color:#6a9a6a">语音已开启，小凌会用专属音色朗读</div>')
         else:
             chat_log.append('<div style="color:#9a8a90">语音已关闭</div>')
-
-    fv.addWidget(make_func_button('深度对话', ACCENT, open_deepchat))
-    fv.addWidget(make_func_button('Agent 任务', '#7a5a8a', open_agent))
-    fv.addWidget(make_func_button('定时提醒', '#5a7a8a', open_schedule))
-    fv.addWidget(make_func_button('通话模式', '#8a6a5a', open_call))
-    fv.addWidget(make_func_button('语音朗读 开/关', '#5a8a6a', toggle_tts))
-    fv.addStretch(1)
-    right_col.addWidget(func_card, alignment=QtCore.Qt.AlignHCenter)
 
     mid.addLayout(left_col, 0)
 
@@ -793,6 +898,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     func_row.addWidget(btn_setting)
     func_row.addWidget(btn_about)
     func_row.addStretch(1)
+    root.addLayout(plugin_bar)
     root.addLayout(func_row)
 
     # ---------- 后台预加载引擎（UI先显示，不卡用户） ----------
