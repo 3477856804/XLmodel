@@ -6898,6 +6898,22 @@ except Exception as _fusion_err:      # noqa: BLE001
 
 
 if __name__ == "__main__":
+    # 打包后的 exe：双击直接开训练工作台（不进命令行、不弹黑窗）
+    if getattr(sys, "frozen", False) and not any(_a.startswith("--") for _a in sys.argv[1:]):
+        try:
+            from renderer.dashboard import run_dashboard
+            sys.exit(0 if run_dashboard() else 1)
+        except SystemExit:
+            raise
+        except Exception as _dash_err:      # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            try:
+                input(f"\n启动失败：{_dash_err}\n按回车退出…")
+            except Exception:
+                pass
+            sys.exit(1)
+
     # v1.0 融合层：--growth / --avatar-only 只做对应动作，不触发基底模型下载与档位选择
     _fusion_only = any(_a in ("--growth", "--avatar-only", "--probe", "--showcase",
                               "--selftest") for _a in sys.argv[1:])
