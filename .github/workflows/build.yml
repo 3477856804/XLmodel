@@ -28,7 +28,7 @@ jobs:
             --add-data "renderer${SEP}renderer" \
             --add-data "角色模型${SEP}角色模型" \
             --add-data "动作资产${SEP}动作资产" \
-            --collect-submodules PySide6 \
+            --collect-all PySide6 \
             xl.py
       - name: 重命名产物
         shell: bash
