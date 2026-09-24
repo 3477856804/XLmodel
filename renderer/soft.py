@@ -85,7 +85,7 @@ class SoftRenderer:
     """CPU 光栅渲染器。"""
 
     def __init__(self, model, width=320, height=480, background=(0.96, 0.96, 0.97),
-                 decimate=True, max_triangles=30000):
+                 decimate=False, max_triangles=30000):
         self.model = model
         self.w, self.h = width, height
         self.bg = np.array(background, np.float32)
@@ -94,12 +94,12 @@ class SoftRenderer:
         self.frame_ms = 0.0
         self._build(max_triangles)
 
-    def _build(self, max_triangles=30000):
+    def _build(self, max_triangles=100000):
         total = self.model.triangle_count()
-        # 面数过多时按倍率加大聚簇网格
-        base_eps = 0.0025
+        # 面数过多时按倍率加大聚簇网格（eps 要小，避免过度简化破坏模型）
+        base_eps = 0.0008
         if total > max_triangles:
-            base_eps = 0.0025 * (total / max_triangles) ** 0.5
+            base_eps = 0.0008 * (total / max_triangles) ** 0.4
         for prim in self.model.primitives:
             mat = (self.model.materials[prim.material]
                    if 0 <= prim.material < len(self.model.materials) else None)
@@ -107,7 +107,7 @@ class SoftRenderer:
                 continue
             pos, uv, idx = prim.positions, prim.uvs, prim.indices
             if self.decimate:
-                factor = {'hair': 1.6, 'cloth': 1.3, 'shoes': 1.0}.get(_kind(mat.name), 1.0)
+                factor = {'hair': 1.2, 'cloth': 1.1, 'shoes': 1.0}.get(_kind(mat.name), 1.0)
                 pos, uv, idx = cluster_decimate(pos, uv, idx, base_eps * factor)
             uv_tri = uv[idx] if len(idx) else np.zeros((0, 3, 2), np.float32)
             tex_lin = tex_a = None
