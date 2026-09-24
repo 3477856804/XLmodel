@@ -64,6 +64,7 @@ class Primitive:
     joints: np.ndarray | None              # (N,4) int32（skin.joints 下标）
     weights: np.ndarray | None             # (N,4) float32
     morphs: list = field(default_factory=list)   # [(dpos (N,3), dnrm (N,3) 或 None)]
+    skin_index: int = 0                   # 关联的 skin（从 node.skin 读取）
 
 
 class VRMModel:
@@ -93,8 +94,16 @@ class VRMModel:
                 emissive=np.array(m.get('emissiveFactor', [0, 0, 0]), dtype=np.float32)))
 
         # ---- 图元 ----
+        # 先建立 mesh_index -> skin_index 映射（从 node.skin 读取）
+        mesh_skin = {}
+        for node in g.nodes:
+            mi = node.get('mesh')
+            if mi is not None and 'skin' in node:
+                mesh_skin[mi] = node['skin']
+
         self.primitives: list[Primitive] = []
         for mi, mesh in enumerate(g.meshes):
+            skin_idx = mesh_skin.get(mi, 0)
             for pi, p in enumerate(mesh.get('primitives', [])):
                 at = p['attributes']
                 pos = g.accessor(at['POSITION']).astype(np.float32)
@@ -118,6 +127,7 @@ class VRMModel:
                     morphs.append((dp, dn))
                 self.primitives.append(Primitive(
                     index=len(self.primitives), mesh_index=mi, material=p.get('material', -1),
+                    skin_index=skin_idx,
                     positions=pos, normals=nrm, uvs=uvs,
                     indices=idx.reshape(-1, 3).astype(np.int32), joints=joints, weights=weights,
                     morphs=morphs))

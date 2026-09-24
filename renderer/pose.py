@@ -147,7 +147,8 @@ def apply_morphs(prim, weights: dict[int, float]):
 def deform_primitive(prim, pose: Pose, skin_index: int = 0, morph_weights=None):
     """完整变形：形变目标 → 蒙皮 → 返回世界空间的 (positions, normals)。"""
     pos, nrm = apply_morphs(prim, morph_weights or {})
-    mats = pose.skin_matrices(skin_index, prim)
+    actual_skin = getattr(prim, 'skin_index', skin_index)
+    mats = pose.skin_matrices(actual_skin, prim)
     if mats is None:
         return pos, nrm
     n = len(pos)
