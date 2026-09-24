@@ -6785,6 +6785,9 @@ def _ensure_deps():
     失败不阻塞启动（降级规则引擎）。
     """
     try:
+        # PyInstaller 打包后的 exe：依赖已全部内嵌，禁止再调 pip（sys.executable 是 exe 不是 Python）
+        if getattr(sys, "frozen", False):
+            return True
         # 桌宠/渲染/语音必需依赖：缺了自动装（保证中文目录与 3D 模型正常起、不乱码）
         _pet_missing = []
         for _mod, _pkg in (("PySide6", "PySide6"), ("PIL", "Pillow"),
