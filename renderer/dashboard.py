@@ -97,9 +97,14 @@ def build_dashboard(renderer=None, engine=None, log=print):
     if renderer is None:
         try:
             from renderer.renderer import AvatarRenderer
-            renderer = AvatarRenderer(backend='auto', width=460, height=620,
-                                      focus='bust', log=log)
+            # 软件渲染时降低内部分辨率（显示时平滑放大）：约 3~4 倍提速，显著减少卡顿
+            res = max(0.3, min(1.0,
+                      float(os.environ.get('XIAOLING_DASH_RES', '0.55') or 0.55)))
+            renderer = AvatarRenderer(backend='auto', width=int(460 * res),
+                                      height=int(620 * res), focus='bust', log=log)
             own_renderer = True
+            log(f"  [渲染] 后端：{renderer.backend_kind}，画布 {renderer.width}x{renderer.height}"
+                f"（可用环境变量 XIAOLING_DASH_RES 调节清晰度/流畅度）")
         except Exception as e:
             log(f'  [工作台] 渲染层初始化失败：{e}')
             return None
@@ -601,21 +606,105 @@ def build_dashboard(renderer=None, engine=None, log=print):
         else:
             chat_log.append('<div style="color:#9a8a90">语音已关闭</div>')
 
+    # ------------------------------------------------------------------
+    # 通用小按钮工厂（控制条 / 功能行共用）
+    def make_func_btn(text, color):
+        b = QtWidgets.QPushButton(text)
+        b.setFixedHeight(32)
+        b.setStyleSheet(f'''
+            QPushButton {{
+                background:{CARD_BG}; color:{color};
+                border:1px solid #ecdde2; border-radius:16px;
+                padding:0 18px; font-size:12px; font-weight:600;
+            }}
+            QPushButton:hover {{ background:#fdf0f3; }}
+        ''')
+        return b
+
     mid.addLayout(left_col, 0)
 
-    # 中央 3D 渲染
+    # 中央 3D 渲染（左列已在上方加入 mid，此处不再重复 addLayout(left_col)）
     center_box = QtWidgets.QVBoxLayout()
     center_box.setSpacing(10)
     center_box.setAlignment(QtCore.Qt.AlignHCenter)
 
-    view = QtWidgets.QLabel()
-    view.setFixedSize(460, 620)
-    view.setStyleSheet(f'background:transparent;border:none;')
-    view.setAlignment(QtCore.Qt.AlignCenter)
+    class _ZoomLabel(QtWidgets.QLabel):
+        """支持滚轮缩放的渲染画布。"""
 
-    # 角色选择下拉框（图形化选模型，不再命令行输1/2）
+        def wheelEvent(self, ev):
+            step = 0.05 if ev.angleDelta().y() > 0 else -0.05
+            renderer.scale = max(0.4, min(2.5, float(renderer.scale) + step))
+            zoom_slider.blockSignals(True)
+            zoom_slider.setValue(int(renderer.scale * 100))
+            zoom_slider.blockSignals(False)
+
+    view = _ZoomLabel()
+    view.setFixedSize(460, 620)
+    view.setStyleSheet('background:transparent;border:none;')
+    view.setAlignment(QtCore.Qt.AlignCenter)
+    view.setToolTip('滚轮缩放角色')
+
+    # ---------- GPU 直绘视口：Qt 有 OpenGL 时优先走 GPU，失败自动回退 QLabel 贴图 ----------
+    outer_dash = {'gl_active': False}
+
+    # PySide6 里 QOpenGLWidget 在 QtOpenGLWidgets 模块（PyQt5 在 QtWidgets）
+    _QOpenGLWidget = None
+    try:
+        from PySide6.QtOpenGLWidgets import QOpenGLWidget as _QOpenGLWidget
+    except Exception:                                                 # noqa: BLE001
+        try:
+            from PyQt5.QtWidgets import QOpenGLWidget as _QOpenGLWidget
+        except Exception:                                             # noqa: BLE001
+            _QOpenGLWidget = None
+
+    class _DashGLView(_QOpenGLWidget if _QOpenGLWidget else object):
+        """工作台内的 GL 直绘视口：真 GPU 渲染（QOpenGLWidget 上下文）。"""
+
+        def __init__(self):
+            super().__init__()
+            self._gl = None
+            self.setFixedSize(460, 620)
+
+        def initializeGL(self):
+            try:
+                from renderer.gl import ExistingContext, GLRenderer
+                ctx = ExistingContext(self.width(), self.height(), readback=False)
+                self._gl = GLRenderer(renderer.model, ctx, background=(0, 0, 0, 0))
+                renderer.context = ctx
+                renderer.gl_renderer = self._gl
+                renderer.backend_kind = 'gl'
+                outer_dash['gl_active'] = True
+                log('  [工作台] GPU 直绘已启用（QOpenGLView）')
+            except Exception as e:                                    # noqa: BLE001
+                self._gl = None
+                outer_dash['gl_active'] = False
+                log(f'  [工作台] GL 直绘不可用（{e}），继续用 CPU 贴图模式')
+
+        def resizeGL(self, w, h):
+            renderer.width, renderer.height = max(w, 1), max(h, 1)
+
+        def paintGL(self):
+            if self._gl is not None:
+                renderer.frame()          # 直接画进当前帧缓冲，不需要回读
+
+        def _tick(self):
+            self.update()
+
+    gl_view = None
+    if _QOpenGLWidget is not None and \
+            os.environ.get('XIAOLING_DASH_GL', '1').strip().lower() not in ('0', 'false'):
+        try:
+            gl_view = _DashGLView()
+        except Exception as e:                                        # noqa: BLE001
+            log(f'  [工作台] GL 视口创建失败（{e}），使用 CPU 贴图模式')
+            gl_view = None
+
+    # ---------- 角色控制条：选模型 / 导入模型 / 正面 / 转身 / 缩放 ----------
+    ctrl_row = QtWidgets.QHBoxLayout()
+    ctrl_row.setSpacing(8)
+
     model_combo = QtWidgets.QComboBox()
-    model_combo.setFixedWidth(240)
+    model_combo.setFixedWidth(160)
     model_combo.setStyleSheet(f'''
         QComboBox {{
             background:{CARD_BG}; color:{TEXT_DARK};
@@ -623,29 +712,113 @@ def build_dashboard(renderer=None, engine=None, log=print):
             padding:6px 16px; font-size:13px;
         }}
         QComboBox::drop-down {{ border:none; width:24px; }}
+        QComboBox QAbstractItemView {{
+            background:{CARD_BG}; color:{TEXT_DARK};
+            selection-background-color:{ACCENT_SOFT};
+        }}
     ''')
-    try:
-        for m in renderer.list_models():
-            model_combo.addItem(m['name'] if isinstance(m, dict) else (m.stem if hasattr(m, 'stem') else str(m)))
-    except Exception:
-        pass
+
+    def _refresh_model_combo():
+        try:
+            models = renderer.list_models()
+        except Exception:                                             # noqa: BLE001
+            models = []
+        cur = str(Path(renderer.model_path).stem)
+        model_combo.blockSignals(True)
+        model_combo.clear()
+        for m in models:
+            model_combo.addItem(m['name'] if isinstance(m, dict) else str(m))
+        idx = model_combo.findText(cur)
+        if idx >= 0:
+            model_combo.setCurrentIndex(idx)
+        model_combo.blockSignals(False)
+    _refresh_model_combo()
 
     def on_model_pick(idx):
+        """真正切换角色：重建模型/骨骼/相机 + 绑定专属音色。"""
         try:
             name = model_combo.itemText(idx)
+            if not name:
+                return
             from core.paths import resource
             p = resource('角色模型') / f'{name}.vrm'
             if p.exists():
-                renderer.model_path = p
+                renderer.switch_model(str(p))
                 from core import voices
-                voices.set_current_model(p)
-        except Exception:
-            pass
+                voices.set_current_model(renderer.model_path)
+                # GL 直绘的顶点缓冲属于旧模型 → 重建
+                if gl_view is not None and gl_view._gl is not None:
+                    try:
+                        from renderer.gl import GLRenderer
+                        gl_view._gl = GLRenderer(renderer.model, renderer.context,
+                                                 background=(0, 0, 0, 0))
+                        renderer.gl_renderer = gl_view._gl
+                    except Exception:                             # noqa: BLE001
+                        pass
+                chat_log.append(f'<div style="color:#9a8a90">已切换角色：{name}</div>')
+        except Exception as e:                                        # noqa: BLE001
+            chat_log.append(f'<div style="color:#9a8a90">切换失败：{e}</div>')
     model_combo.currentIndexChanged.connect(on_model_pick)
 
-    center_box.addWidget(model_combo, alignment=QtCore.Qt.AlignHCenter)
+    def _import_model():
+        """图形化导入 .vrm：拷进「角色模型」目录并立即切换。"""
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            win, '选择 VRM 角色模型', '', 'VRM 模型 (*.vrm)')
+        if not path:
+            return
+        try:
+            from core.paths import resource
+            dst_dir = resource('角色模型')
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            dst = dst_dir / Path(path).name
+            import shutil as _sh
+            _sh.copy2(path, dst)
+            renderer.switch_model(str(dst))
+            _refresh_model_combo()
+            chat_log.append(f'<div style="color:#6a9a6a">模型已导入：{dst.stem}</div>')
+        except Exception as e:                                        # noqa: BLE001
+            chat_log.append(f'<div style="color:#9a8a90">导入失败：{e}</div>')
+
+    btn_import = make_func_btn('导入模型', ACCENT)
+    btn_import.clicked.connect(_import_model)
+
+    def _face_front():
+        renderer.face_front()
+
+    def _turn_around():
+        renderer.turn_around()
+
+    btn_front = make_func_btn('正面', TEXT_MUTED)
+    btn_front.clicked.connect(_face_front)
+    btn_turn = make_func_btn('转身', TEXT_MUTED)
+    btn_turn.clicked.connect(_turn_around)
+
+    zoom_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+    zoom_slider.setRange(40, 250)              # 0.4x ~ 2.5x
+    zoom_slider.setValue(int(renderer.scale * 100))
+    zoom_slider.setFixedWidth(120)
+    zoom_slider.setToolTip('缩放角色（也可用滚轮）')
+    zoom_slider.valueChanged.connect(lambda v: setattr(renderer, 'scale', v / 100.0))
+
+    ctrl_row.addWidget(model_combo)
+    ctrl_row.addWidget(btn_import)
+    ctrl_row.addWidget(btn_front)
+    ctrl_row.addWidget(btn_turn)
+    ctrl_row.addWidget(QtWidgets.QLabel('缩放'))
+    ctrl_row.addWidget(zoom_slider)
+
+    center_box.addLayout(ctrl_row)
     center_box.addSpacing(6)
-    center_box.addWidget(view, alignment=QtCore.Qt.AlignHCenter)
+    # 画布容器：GL 直绘可用时显示 GL 视口，失败自动切回 QLabel 贴图
+    canvas_holder = QtWidgets.QWidget()
+    canvas_holder.setFixedSize(460, 620)
+    canvas_stack = QtWidgets.QStackedLayout(canvas_holder)
+    if gl_view is not None:
+        canvas_stack.addWidget(gl_view)
+    canvas_stack.addWidget(view)
+    if gl_view is None:
+        canvas_stack.setCurrentWidget(view)
+    center_box.addWidget(canvas_holder, alignment=QtCore.Qt.AlignHCenter)
 
     # 底部状态文案
     status_main = QtWidgets.QLabel('正在唤醒小凌…')
@@ -691,6 +864,11 @@ def build_dashboard(renderer=None, engine=None, log=print):
 
     # ---------- 渲染帧刷新 ----------
     def render_one_frame():
+        if gl_view is not None:
+            if outer_dash['gl_active']:
+                canvas_stack.setCurrentWidget(gl_view)
+                return              # GPU 直绘模式下由 GL 视口自己刷新
+            canvas_stack.setCurrentWidget(view)   # GL 失败 → 回退贴图
         try:
             frame = renderer.frame(dt=1/30.0)  # numpy HxWx3 uint8 RGB
             if frame is None:
@@ -707,7 +885,76 @@ def build_dashboard(renderer=None, engine=None, log=print):
 
     render_timer = QtCore.QTimer(win)
     render_timer.timeout.connect(render_one_frame)
-    render_timer.start(50)  # ~20fps，减少卡顿
+    # 软件渲染按画布大小自适应节流：小画布跑得快，就刷得更勤
+    render_timer.start(50 if (renderer.width * renderer.height) < 460 * 620 else 66)
+
+    # GL 视口刷新定时器（未激活时空转，激活后接手刷新）
+    if gl_view is not None:
+        gl_timer = QtCore.QTimer(win)
+        gl_timer.timeout.connect(gl_view._tick)
+        gl_timer.start(33)
+
+    # ---------- 基底模型说明（"大脑"权重，不是 VRM 形象） ----------
+    def show_base_model_help():
+        try:
+            from core.growth import GrowthEngine
+            from core.paths import APP_DIR
+            st = GrowthEngine(base_dir=APP_DIR).status()
+        except Exception:                                                 # noqa: BLE001
+            st = {'stage': '未知', 'base_human': '0 B', 'adapter_human': '0 B'}
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('什么是基底模型？')
+        dlg.setFixedSize(520, 430)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(24, 20, 24, 20)
+        v.setSpacing(10)
+        t = QtWidgets.QLabel('「基底模型」＝ 小凌的大脑（LLM 权重）')
+        t.setStyleSheet(f'color:{ACCENT};font-size:16px;font-weight:700;')
+        t.setWordWrap(True)
+        v.addWidget(t)
+        body = QtWidgets.QTextEdit()
+        body.setReadOnly(True)
+        body.setStyleSheet(f'background:{CARD_BG};color:{TEXT_DARK};'
+                           f'border:1px solid #f0e4e8;border-radius:12px;'
+                           f'padding:10px;font-size:12px;')
+        try:
+            from core.paths import APP_DIR as _AD
+            base_dir_str = str(Path(_AD) / '.star_core' / 'XLmodel')
+        except Exception:                                                 # noqa: BLE001
+            base_dir_str = '.star_core/XLmodel'
+        body.setHtml(
+            '<p><b>形象模型</b>（VRM）是屏幕上的 3D 角色，放在 <code>角色模型/</code> 目录，'
+            '点「导入模型」即可添加；</p>'
+            '<p><b>基底模型</b>是大语言模型权重，小凌用它思考与对话。安装方式：</p>'
+            '<p>① 首次启动时程序会<b>自动下载</b>基底权重（进度显示在气泡里）；<br>'
+            '② 也可以手动把 HuggingFace 格式模型文件（<code>config.json</code> + '
+            '<code>*.safetensors</code>）放进：</p>'
+            f'<p><code>{base_dir_str}</code></p>'
+            '<p>小凌的 LoRA 适配器（<code>.star_core/adapter/</code>）随蒸馏训练不断长大，'
+            '体积达到基底后<b>自动合并晋升</b>——基底可以退休，小凌从此跑在自己的模型上。</p>')
+        v.addWidget(body, 1)
+        st_lbl = QtWidgets.QLabel(f"当前状态：{st['stage']}\n"
+                                  f"基底 {st['base_human']} · 适配器 {st['adapter_human']}")
+        st_lbl.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
+        v.addWidget(st_lbl)
+        close_btn = QtWidgets.QPushButton('我知道了')
+        close_btn.setFixedHeight(34)
+        close_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;'
+                                f'border-radius:17px;font-weight:600;')
+        close_btn.clicked.connect(dlg.accept)
+        v.addWidget(close_btn)
+        dlg.exec()
+
+    btn_base_help = make_func_btn('基底模型?', ACCENT)
+    btn_base_help.clicked.connect(show_base_model_help)
+
+    # 基底状态行加一个入口：点击状态文案也能打开说明
+    def _status_click(event):
+        show_base_model_help()
+    status_main.mousePressEvent = _status_click
+    status_main.setCursor(QtCore.Qt.PointingHandCursor)
+    status_sub.setToolTip('点击状态文案可查看基底模型说明')
 
     # ---------- 进度刷新（每秒读一次训练状态） ----------
     def refresh_progress():
@@ -815,19 +1062,6 @@ def build_dashboard(renderer=None, engine=None, log=print):
     func_row = QtWidgets.QHBoxLayout()
     func_row.setSpacing(10)
 
-    def make_func_btn(text, color):
-        b = QtWidgets.QPushButton(text)
-        b.setFixedHeight(32)
-        b.setStyleSheet(f'''
-            QPushButton {{
-                background:{CARD_BG}; color:{color};
-                border:1px solid #ecdde2; border-radius:16px;
-                padding:0 18px; font-size:12px; font-weight:600;
-            }}
-            QPushButton:hover {{ background:#fdf0f3; }}
-        ''')
-        return b
-
     btn_distill = make_func_btn('开始蒸馏训练', ACCENT)
     btn_setting = make_func_btn('设置', TEXT_MUTED)
     btn_about = make_func_btn('关于', TEXT_MUTED)
@@ -853,7 +1087,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     def show_setting():
         dlg = QtWidgets.QDialog(win)
         dlg.setWindowTitle('设置')
-        dlg.setFixedSize(360, 200)
+        dlg.setFixedSize(420, 320)
         dlg.setStyleSheet(f'background:{PALETTE_BG};')
         v = QtWidgets.QVBoxLayout(dlg)
         v.setContentsMargins(24, 20, 24, 20)
@@ -861,6 +1095,16 @@ def build_dashboard(renderer=None, engine=None, log=print):
         lbl = QtWidgets.QLabel('小凌工作台设置')
         lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:16px;font-weight:700;')
         v.addWidget(lbl)
+        # 算力信息（GPU 检测结果）
+        try:
+            from core.device import describe as _dev_desc
+            dev_txt = _dev_desc()
+        except Exception:                                                 # noqa: BLE001
+            dev_txt = '算力检测不可用'
+        dev_lbl = QtWidgets.QLabel('⚙ ' + dev_txt)
+        dev_lbl.setWordWrap(True)
+        dev_lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
+        v.addWidget(dev_lbl)
         # 渲染后端选择
         be_lbl = QtWidgets.QLabel('渲染后端')
         be_lbl.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
@@ -878,7 +1122,16 @@ def build_dashboard(renderer=None, engine=None, log=print):
         ok_btn = QtWidgets.QPushButton('保存')
         ok_btn.setFixedHeight(34)
         ok_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:17px;font-weight:600;')
-        ok_btn.clicked.connect(dlg.accept)
+        def _save():
+            be = {'自动': 'auto', 'CPU 软件渲染': 'soft', 'OpenGL': 'gl'}.get(be_combo.currentText(), 'auto')
+            os.environ['XIAOLING_RENDER_BACKEND'] = '' if be == 'auto' else be
+            try:
+                renderer._init_backend(be)
+                chat_log.append(f'<div style="color:#9a8a90">渲染后端已切换：{renderer.backend_kind}</div>')
+            except Exception as e:                                    # noqa: BLE001
+                chat_log.append(f'<div style="color:#9a8a90">后端切换失败：{e}</div>')
+            dlg.accept()
+        ok_btn.clicked.connect(_save)
         v.addWidget(ok_btn)
         dlg.exec()
 
@@ -917,6 +1170,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
 
     func_row.addStretch(1)
     func_row.addWidget(btn_distill)
+    func_row.addWidget(btn_base_help)
     func_row.addWidget(btn_setting)
     func_row.addWidget(btn_about)
     func_row.addStretch(1)

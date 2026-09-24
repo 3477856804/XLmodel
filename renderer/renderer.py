@@ -60,7 +60,7 @@ class AvatarRenderer:
         self.model = VRMModel(self.model_path)
         self.pose = Pose(self.model)
         self.springs = SpringBones(self.model)
-        self.camera = OrbitCamera(self.model.bbox_max[1], focus=focus)
+        self.camera = self._make_camera(focus=focus)
         self.lipsync = LipSync()
         self.backend_kind = 'none'
         self.gl_renderer = None
@@ -86,6 +86,29 @@ class AvatarRenderer:
         self._init_backend(backend)
 
     # ------------------------------------------------------------------ 基础
+    def _make_camera(self, focus='bust') -> OrbitCamera:
+        """按当前模型的包围盒/头骨高度自适应建相机（保证正面 + 居中 + 合适大小）。"""
+        head_node = self.model.humanoid.get('head')
+        head_y = (float(self.model.rest_world[head_node][1, 3])
+                  if head_node is not None else None)
+        front = float(os.environ.get('XIAOLING_FRONT_YAW', '180') or 180)
+        return OrbitCamera(self.model.bbox_max[1], focus=focus, front_yaw=front,
+                           bbox_min_y=float(self.model.bbox_min[1]), head_y=head_y,
+                           center_x=float((self.model.bbox_min[0] + self.model.bbox_max[0]) / 2),
+                           center_z=float((self.model.bbox_min[2] + self.model.bbox_max[2]) / 2))
+
+    def face_front(self):
+        """转到正面。"""
+        self.camera.yaw = self.camera.front_yaw
+        return True
+
+    def turn_around(self):
+        """转身（正面 ↔ 背面）。"""
+        self.camera.yaw = self.camera.front_yaw + (0.0 if
+                            abs(((self.camera.yaw - self.camera.front_yaw) % 360 + 360) % 360) < 90
+                            else 180.0)
+        return True
+
     def _default_model(self) -> Path:
         p = self.model_dir / '小凌.vrm'
         if p.exists():
@@ -115,7 +138,8 @@ class AvatarRenderer:
             try:
                 if kind == 'gl':
                     from renderer.gl import GLRenderer, make_context
-                    self.context = make_context(['osmesa'], self.width, self.height)
+                    # EGL（真 GPU）优先，OSMesa（软件 GL）兜底
+                    self.context = make_context(['egl', 'osmesa'], self.width, self.height)
                     self.gl_renderer = GLRenderer(self.model, self.context,
                                                   background=(0, 0, 0, 0))
                     self.backend_kind = 'gl'
@@ -130,7 +154,11 @@ class AvatarRenderer:
                 return
             except Exception as e:                                        # noqa: BLE001
                 self.last_error = f'{kind}: {type(e).__name__}: {e}'
-                self.log(f'  [渲染] {kind} 后端不可用：{self.last_error}')
+                hint = ''
+                if kind == 'gl':
+                    hint = ('（提示：Linux 可尝试 sudo apt install libosmesa6 libegl1 mesa-utils '
+                            '启用 GL；或在设置/环境变量 XIAOLING_RENDER_BACKEND=soft 强制软件渲染）')
+                self.log(f'  [渲染] {kind} 后端不可用：{self.last_error} {hint}')
         self.backend_kind = 'none'
 
     def stats(self) -> dict:
@@ -152,7 +180,7 @@ class AvatarRenderer:
         self.model_path = Path(path)
         self.pose = Pose(self.model)
         self.springs = SpringBones(self.model)
-        self.camera = OrbitCamera(self.model.bbox_max[1], focus=self.focus)
+        self.camera = self._make_camera(focus=self.focus)
         self.clips.clear()
         self.current_clip = None
         self._init_backend('gl' if self.backend_kind == 'gl' else 'soft')
@@ -306,8 +334,8 @@ class AvatarRenderer:
         return img
 
     # ------------------------------------------------------------ 无头/离线出图
-    def render_png(self, path, yaw=0.0, pitch=2.0, focus=None, zoom=None):
-        """离线出图（无头模式 / 文档配图）。zoom 直接映射到角色缩放。"""
+    def render_png(self, path, yaw=None, pitch=2.0, focus=None, zoom=None):
+        """离线出图（无头模式 / 文档配图）。zoom 直接映射到角色缩放。yaw 缺省=正面。"""
         from PIL import Image
         if focus:
             self.camera.set_focus(focus)

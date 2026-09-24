@@ -61,10 +61,17 @@ def _format_prompt(tok, q, a):
 def train_lora(base_dir: Path, adapter_dir: Path, corpus: Path | None = None,
                epochs: int = 2, batch_size: int = 2, lr: float = 1e-4,
                max_len: int = 512, lora_r: int = 8, log=print) -> dict:
-    """在已有（或新建）LoRA 适配器上继续训练。返回统计信息。"""
+    """在已有（或新建）LoRA 适配器上继续训练。返回统计信息。
+
+    算力策略：检测到 GPU 就把模型铺上 GPU（device_map=auto，装不下的层自动
+    offload 到 CPU），没有 GPU 再整体走 CPU——训练不再永远固定在 fp32 CPU 上。
+    """
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import LoraConfig, PeftModel, get_peft_model
+
+    from core.device import best_torch_device, device_kwargs
+    device = best_torch_device()
 
     rows = load_corpus(corpus) if corpus else []
     if not rows:
@@ -73,8 +80,8 @@ def train_lora(base_dir: Path, adapter_dir: Path, corpus: Path | None = None,
     tok = AutoTokenizer.from_pretrained(str(base_dir), trust_remote_code=True)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        str(base_dir), dtype=torch.float32, trust_remote_code=True, low_cpu_mem_usage=True)
+    log(f'  [训练] 算力检测：{device}' + ('（GPU 优先加载，溢出自动回落 CPU）' if device == 'cuda' else ''))
+    model = AutoModelForCausalLM.from_pretrained(str(base_dir), **device_kwargs(device))
     has_adapter = (Path(adapter_dir) / 'adapter_config.json').exists()
     if has_adapter:
         log(f'  [训练] 续训已有适配器：{adapter_dir}')

@@ -473,6 +473,12 @@ def install(g):
     wrap_main(g)
     g.setdefault('FUSION_BOOTSTRAP', bootstrap)
     _log("融合层安装完成：3D 数字人 / RAG / 视觉 / 搜索 / 提醒 / 生图 / 成长闭环 已接入")
+    # 算力探测：启动即告知 GPU/CPU 策略（渲染与训练都会用到）
+    try:
+        from core.device import describe as _dev_desc
+        _log(_dev_desc())
+    except Exception:                                                 # noqa: BLE001
+        pass
     print(HELP_TEXT)
 
 
