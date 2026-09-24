@@ -365,6 +365,183 @@ def build_dashboard(renderer=None, engine=None, log=print):
     act_next.triggered.connect(switch_next_model)
     view.addAction(act_next)
 
+    # ---------- 对话历史显示（图形化，不再命令行） ----------
+    chat_log = QtWidgets.QTextEdit()
+    chat_log.setReadOnly(True)
+    chat_log.setFixedHeight(90)
+    chat_log.setStyleSheet(f'''
+        QTextEdit {{
+            background:{CARD_BG}; color:{TEXT_DARK};
+            border:1px solid #f0e4e8; border-radius:12px;
+            padding:8px 12px; font-size:12px;
+        }}''')
+    chat_log.setHtml('<div style="color:#9a8a90">小凌已唤醒，和她说说话吧～</div>')
+    center_box.addWidget(chat_log)
+
+    # ---------- 底部对话输入栏 ----------
+    chat_row = QtWidgets.QHBoxLayout()
+    chat_input = QtWidgets.QLineEdit()
+    chat_input.setPlaceholderText('对小凌说点什么…（回车发送）')
+    chat_input.setFixedHeight(36)
+    chat_input.setStyleSheet(f'''
+        QLineEdit {{
+            background:{CARD_BG}; color:{TEXT_DARK};
+            border:1px solid #ecdde2; border-radius:18px;
+            padding:0 16px; font-size:13px;
+        }}
+        QLineEdit:focus {{ border:1px solid {ACCENT}; }}
+    ''')
+    send_btn = QtWidgets.QPushButton('发送')
+    send_btn.setFixedSize(72, 36)
+    send_btn.setStyleSheet(f'''
+        QPushButton {{
+            background:{ACCENT}; color:white; border:none;
+            border-radius:18px; font-size:13px; font-weight:600;
+        }}
+        QPushButton:hover {{ background:#b01e40; }}
+    ''')
+
+    def send_chat():
+        text = chat_input.text().strip()
+        if not text:
+            return
+        chat_input.clear()
+        chat_log.append(f'<div style="color:#3a2a30"><b>你：</b>{text}</div>')
+        # 后台线程处理对话，不卡 UI
+        def _worker():
+            try:
+                from core.fusion import _STATE
+                engine = _STATE.get('engine')
+                if engine and hasattr(engine, 'chat'):
+                    reply = engine.chat(text)
+                else:
+                    reply = '我在呢～'
+                QtCore.QMetaObject.invokeMethod(chat_log, 'append',
+                    QtCore.Qt.QueuedConnection,
+                    QtCore.Q_ARG(str, f'<div style="color:#d4385c"><b>小凌：</b>{reply}</div>'))
+            except Exception as e:
+                QtCore.QMetaObject.invokeMethod(chat_log, 'append',
+                    QtCore.Qt.QueuedConnection,
+                    QtCore.Q_ARG(str, f'<div style="color:#9a8a90">（{e}）</div>'))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    send_btn.clicked.connect(send_chat)
+    chat_input.returnPressed.connect(send_chat)
+    chat_row.addWidget(chat_input, 1)
+    chat_row.addWidget(send_btn)
+    center_box.addLayout(chat_row)
+
+    # ---------- 功能按钮行（蒸馏/设置/关于，全部图形化） ----------
+    func_row = QtWidgets.QHBoxLayout()
+    func_row.setSpacing(10)
+
+    def make_func_btn(text, color):
+        b = QtWidgets.QPushButton(text)
+        b.setFixedHeight(32)
+        b.setStyleSheet(f'''
+            QPushButton {{
+                background:{CARD_BG}; color:{color};
+                border:1px solid #ecdde2; border-radius:16px;
+                padding:0 18px; font-size:12px; font-weight:600;
+            }}
+            QPushButton:hover {{ background:#fdf0f3; }}
+        ''')
+        return b
+
+    btn_distill = make_func_btn('开始蒸馏训练', ACCENT)
+    btn_setting = make_func_btn('设置', TEXT_MUTED)
+    btn_about = make_func_btn('关于', TEXT_MUTED)
+
+    def start_distill():
+        chat_log.append('<div style="color:#d4385c"><b>小凌：</b>开始自我进化训练…</div>')
+        def _worker():
+            try:
+                from core.growth import GrowthEngine
+                from core.paths import APP_DIR
+                eng = GrowthEngine(base_dir=APP_DIR)
+                res = eng.train_round(epochs=2)
+                msg = res.get('message', '训练完成')
+                QtCore.QMetaObject.invokeMethod(chat_log, 'append',
+                    QtCore.Qt.QueuedConnection,
+                    QtCore.Q_ARG(str, f'<div style="color:#d4385c"><b>小凌：</b>{msg}</div>'))
+            except Exception as e:
+                QtCore.QMetaObject.invokeMethod(chat_log, 'append',
+                    QtCore.Qt.QueuedConnection,
+                    QtCore.Q_ARG(str, f'<div style="color:#9a8a90">训练暂不可用：{e}</div>'))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def show_setting():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('设置')
+        dlg.setFixedSize(360, 200)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(24, 20, 24, 20)
+        v.setSpacing(12)
+        lbl = QtWidgets.QLabel('小凌工作台设置')
+        lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:16px;font-weight:700;')
+        v.addWidget(lbl)
+        # 渲染后端选择
+        be_lbl = QtWidgets.QLabel('渲染后端')
+        be_lbl.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
+        v.addWidget(be_lbl)
+        be_combo = QtWidgets.QComboBox()
+        be_combo.addItems(['自动', 'CPU 软件渲染', 'OpenGL'])
+        be_combo.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:8px;padding:6px;')
+        v.addWidget(be_combo)
+        # 自动训练开关
+        auto_chk = QtWidgets.QCheckBox('开启后台自动训练（每5分钟）')
+        auto_chk.setChecked(True)
+        auto_chk.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
+        v.addWidget(auto_chk)
+        v.addStretch(1)
+        ok_btn = QtWidgets.QPushButton('保存')
+        ok_btn.setFixedHeight(34)
+        ok_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:17px;font-weight:600;')
+        ok_btn.clicked.connect(dlg.accept)
+        v.addWidget(ok_btn)
+        dlg.exec()
+
+    def show_about():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('关于小凌')
+        dlg.setFixedSize(340, 220)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(24, 20, 24, 20)
+        v.setAlignment(QtCore.Qt.AlignCenter)
+        t = QtWidgets.QLabel('小凌 XIAOLING')
+        t.setStyleSheet(f'color:{ACCENT};font-size:22px;font-weight:800;')
+        t.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(t)
+        v2 = QtWidgets.QLabel('会成长的数字生命\nv2.0.5 · 训练工作台版')
+        v2.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
+        v2.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(v2)
+        v.addSpacing(12)
+        info = QtWidgets.QLabel('7 个角色 · 46 个动作 · 蒸馏成长\nPySide6 纯 Python 3D 渲染')
+        info.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
+        info.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(info)
+        v.addStretch(1)
+        close_btn = QtWidgets.QPushButton('关闭')
+        close_btn.setFixedHeight(34)
+        close_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:17px;font-weight:600;')
+        close_btn.clicked.connect(dlg.accept)
+        v.addWidget(close_btn)
+        dlg.exec()
+
+    btn_distill.clicked.connect(start_distill)
+    btn_setting.clicked.connect(show_setting)
+    btn_about.clicked.connect(show_about)
+
+    func_row.addStretch(1)
+    func_row.addWidget(btn_distill)
+    func_row.addWidget(btn_setting)
+    func_row.addWidget(btn_about)
+    func_row.addStretch(1)
+    root.addLayout(func_row)
+
     win.show()
     win._own_renderer = own_renderer
     win._render_timer = render_timer
