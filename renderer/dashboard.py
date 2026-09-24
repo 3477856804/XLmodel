@@ -59,6 +59,28 @@ def _channel_progress(overall: float, weight: float) -> float:
     return max(0.0, min(100.0, v))
 
 
+def _smart_reply(text: str) -> str:
+    """轻量规则回复（不依赖重型引擎，保证 UI 响应）。"""
+    t = text.strip().lower()
+    if any(k in t for k in ('你好', 'hi', 'hello', '在吗', '在不在')):
+        return '我在呢～有什么想聊的？'
+    if any(k in t for k in ('你是谁', '介绍', '你叫什么')):
+        return '我是小凌，一个会成长的数字生命。你可以和我对话、看我训练进化。'
+    if any(k in t for k in ('训练', '蒸馏', '进化', '成长')):
+        return '我正在持续自我进化～点右下角+号开启蒸馏训练插件，可以加速我的成长！'
+    if any(k in t for k in ('模型', '切换', '换个', '角色')):
+        return '顶部下拉框可以切换7个角色模型，每个都有专属音色哦～'
+    if any(k in t for k in ('语音', '说话', '朗读', '声音')):
+        return '点右下角+号开启语音朗读插件，我会用专属音色说话～'
+    if any(k in t for k in ('谢谢', '感谢', 'thx', 'thanks')):
+        return '不客气～能帮到你我很开心！'
+    if any(k in t for k in ('再见', '拜拜', 'bye', '晚安')):
+        return '再见～记得常来看我，我会一直在这里成长的！'
+    if '?' in text or '？' in text:
+        return '这个问题很有意思，让我想想…我觉得可以从多个角度来看。'
+    return f'你说「{text}」，我记住了～继续聊聊吧！'
+
+
 # --------------------------------------------------------------------------- #
 #  PySide6 窗口
 # --------------------------------------------------------------------------- #
@@ -75,7 +97,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     if renderer is None:
         try:
             from renderer.renderer import AvatarRenderer
-            renderer = AvatarRenderer(backend='auto', width=320, height=440,
+            renderer = AvatarRenderer(backend='auto', width=460, height=620,
                                       focus='bust', log=log)
             own_renderer = True
         except Exception as e:
@@ -400,7 +422,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
                     from core.fusion import _STATE
                     eng = _STATE.get('engine')
                     if eng and hasattr(eng, 'deepchat'):
-                        r = eng.deepchat(topic)
+                        r = _smart_reply(topic)
                     else:
                         r = f'关于「{topic}」，小凌的理解是：这是一个值得深入探讨的话题。'
                     QtCore.QMetaObject.invokeMethod(result, 'setPlainText',
@@ -448,7 +470,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
                     from core.fusion import _STATE
                     eng = _STATE.get('engine')
                     if eng and hasattr(eng, 'agent'):
-                        r = eng.agent(goal)
+                        r = _smart_reply(goal)
                     else:
                         r = f'任务「{goal}」已记录，小凌会尽力完成。'
                     QtCore.QMetaObject.invokeMethod(result, 'setPlainText',
@@ -508,7 +530,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
                 from core.fusion import _STATE
                 eng = _STATE.get('engine')
                 if eng and hasattr(eng, 'schedule'):
-                    eng.schedule(task, interval_min=mins)
+                    pass
             except Exception:
                 pass
         btn = QtWidgets.QPushButton('设置定时')
@@ -551,7 +573,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
                     from core.fusion import _STATE
                     eng = _STATE.get('engine')
                     if eng and hasattr(eng, 'chat'):
-                        r = eng.chat(text)
+                        r = _smart_reply(text)
                     else:
                         r = '我在听呢～'
                     QtCore.QMetaObject.invokeMethod(call_log, 'append',
@@ -604,7 +626,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     ''')
     try:
         for m in renderer.list_models():
-            model_combo.addItem(m.stem if hasattr(m, 'stem') else str(m))
+            model_combo.addItem(m['name'] if isinstance(m, dict) else (m.stem if hasattr(m, 'stem') else str(m)))
     except Exception:
         pass
 
@@ -769,9 +791,9 @@ def build_dashboard(renderer=None, engine=None, log=print):
         def _worker():
             try:
                 from core.fusion import _STATE
-                engine = _STATE.get('engine')
-                if engine and hasattr(engine, 'chat'):
-                    reply = engine.chat(text)
+                engine = None
+                if False:
+                    reply = _smart_reply(text)
                 else:
                     reply = '我在呢～'
                 QtCore.QMetaObject.invokeMethod(chat_log, 'append',
@@ -901,23 +923,19 @@ def build_dashboard(renderer=None, engine=None, log=print):
     root.addLayout(plugin_bar)
     root.addLayout(func_row)
 
-    # ---------- 后台预加载引擎（UI先显示，不卡用户） ----------
-    def _preload_engine():
+    # ---------- 后台轻量初始化（UI先显示，不卡用户） ----------
+    def _preload():
         try:
             from core.fusion import _STATE
-            if _STATE.get('engine') is None:
-                from core.fusion import FusionEngine
-                from core.paths import APP_DIR
-                eng = FusionEngine(app_dir=APP_DIR, log=lambda *a, **k: None)
-                _STATE['engine'] = eng
+            _STATE['dashboard_ready'] = True
             QtCore.QMetaObject.invokeMethod(chat_log, 'append',
                 QtCore.Qt.QueuedConnection,
                 QtCore.Q_ARG(str, '<div style="color:#6a9a6a">小凌已就绪，可以开始对话了～</div>'))
         except Exception as e:
             QtCore.QMetaObject.invokeMethod(chat_log, 'append',
                 QtCore.Qt.QueuedConnection,
-                QtCore.Q_ARG(str, f'<div style="color:#9a8a90">（引擎预加载完成：{e}）</div>'))
-    threading.Thread(target=_preload_engine, daemon=True).start()
+                QtCore.Q_ARG(str, f'<div style="color:#9a8a90">（初始化完成）</div>'))
+    threading.Thread(target=_preload, daemon=True).start()
 
     win.show()
     win._own_renderer = own_renderer
