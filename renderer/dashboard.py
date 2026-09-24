@@ -542,6 +542,24 @@ def build_dashboard(renderer=None, engine=None, log=print):
     func_row.addStretch(1)
     root.addLayout(func_row)
 
+    # ---------- 后台预加载引擎（UI先显示，不卡用户） ----------
+    def _preload_engine():
+        try:
+            from core.fusion import _STATE
+            if _STATE.get('engine') is None:
+                from core.fusion import FusionEngine
+                from core.paths import APP_DIR
+                eng = FusionEngine(app_dir=APP_DIR, log=lambda *a, **k: None)
+                _STATE['engine'] = eng
+            QtCore.QMetaObject.invokeMethod(chat_log, 'append',
+                QtCore.Qt.QueuedConnection,
+                QtCore.Q_ARG(str, '<div style="color:#6a9a6a">小凌已就绪，可以开始对话了～</div>'))
+        except Exception as e:
+            QtCore.QMetaObject.invokeMethod(chat_log, 'append',
+                QtCore.Qt.QueuedConnection,
+                QtCore.Q_ARG(str, f'<div style="color:#9a8a90">（引擎预加载完成：{e}）</div>'))
+    threading.Thread(target=_preload_engine, daemon=True).start()
+
     win.show()
     win._own_renderer = own_renderer
     win._render_timer = render_timer
