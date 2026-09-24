@@ -39,10 +39,19 @@ jobs:
             mv dist/XiaoLing.exe dist/XiaoLing-Windows.exe
           elif [ "$RUNNER_OS" = "macOS" ]; then
             mv dist/XiaoLing dist/XiaoLing-macOS
+            zip -q XiaoLing-macOS.zip XiaoLing-macOS
+            mv XiaoLing-macOS.zip dist/
           else
             mv dist/XiaoLing dist/XiaoLing-Linux
+            tar -czf XiaoLing-Linux.tar.gz XiaoLing-Linux
+            mv XiaoLing-Linux.tar.gz dist/
           fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: XiaoLing-single-${{ matrix.os }}
-          path: dist/*
+      - name: 自动上传到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then F="dist/XiaoLing-Windows.exe"
+          elif [ "$RUNNER_OS" = "macOS" ]; then F="dist/XiaoLing-macOS.zip"
+          else F="dist/XiaoLing-Linux.tar.gz"; fi
+          gh release upload v2.0.5 "$F" --clobber
