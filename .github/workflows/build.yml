@@ -79,3 +79,14 @@ jobs:
         with:
           name: XiaoLing-${{ matrix.os }}
           path: dist/*
+      - name: 上传到 Release v2.0.5
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.5
+          files: |
+            dist/XiaoLing-Windows.exe
+            dist/XiaoLing-Linux.tar.gz
+            dist/XiaoLing-macOS.zip
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
