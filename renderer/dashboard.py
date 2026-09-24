@@ -232,6 +232,39 @@ def build_dashboard(renderer=None, engine=None, log=print):
     view.setFixedSize(460, 620)
     view.setStyleSheet(f'background:transparent;border:none;')
     view.setAlignment(QtCore.Qt.AlignCenter)
+
+    # 角色选择下拉框（图形化选模型，不再命令行输1/2）
+    model_combo = QtWidgets.QComboBox()
+    model_combo.setFixedWidth(240)
+    model_combo.setStyleSheet(f'''
+        QComboBox {{
+            background:{CARD_BG}; color:{TEXT_DARK};
+            border:1px solid #ecdde2; border-radius:16px;
+            padding:6px 16px; font-size:13px;
+        }}
+        QComboBox::drop-down {{ border:none; width:24px; }}
+    ''')
+    try:
+        for m in renderer.list_models():
+            model_combo.addItem(m.stem if hasattr(m, 'stem') else str(m))
+    except Exception:
+        pass
+
+    def on_model_pick(idx):
+        try:
+            name = model_combo.itemText(idx)
+            from core.paths import resource
+            p = resource('角色模型') / f'{name}.vrm'
+            if p.exists():
+                renderer.model_path = p
+                from core import voices
+                voices.set_current_model(p)
+        except Exception:
+            pass
+    model_combo.currentIndexChanged.connect(on_model_pick)
+
+    center_box.addWidget(model_combo, alignment=QtCore.Qt.AlignHCenter)
+    center_box.addSpacing(6)
     center_box.addWidget(view, alignment=QtCore.Qt.AlignHCenter)
 
     # 底部状态文案
