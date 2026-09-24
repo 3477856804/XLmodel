@@ -18,7 +18,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller PySide6 pillow numpy edge-tts torch --extra-index-url https://download.pytorch.org/whl/cpu
-      - name: PyInstaller 单文件打包
+      - name: PyInstaller 单文件打包（精细打包，排除无用Qt模块）
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then SEP=";"; else SEP=":"; fi
@@ -30,7 +30,37 @@ jobs:
             --add-data "角色模型${SEP}角色模型" \
             --add-data "动作资产${SEP}动作资产" \
             --add-data "assets${SEP}assets" \
-            --collect-all PySide6 \
+            --collect-submodules PySide6.QtWidgets \
+            --collect-submodules PySide6.QtGui \
+            --collect-submodules PySide6.QtCore \
+            --exclude-module PySide6.QtWebEngine \
+            --exclude-module PySide6.QtWebEngineCore \
+            --exclude-module PySide6.QtWebEngineWidgets \
+            --exclude-module PySide6.QtMultimedia \
+            --exclude-module PySide6.QtMultimediaWidgets \
+            --exclude-module PySide6.Qt3DCore \
+            --exclude-module PySide6.Qt3DRender \
+            --exclude-module PySide6.Qt3DAnimation \
+            --exclude-module PySide6.Qt3DExtras \
+            --exclude-module PySide6.Qt3DInput \
+            --exclude-module PySide6.Qt3DLogic \
+            --exclude-module PySide6.QtCharts \
+            --exclude-module PySide6.QtDataVisualization \
+            --exclude-module PySide6.QtPdf \
+            --exclude-module PySide6.QtPdfWidgets \
+            --exclude-module PySide6.QtPositioning \
+            --exclude-module PySide6.QtLocation \
+            --exclude-module PySide6.QtSensors \
+            --exclude-module PySide6.QtSerialPort \
+            --exclude-module PySide6.QtBluetooth \
+            --exclude-module PySide6.QtNfc \
+            --exclude-module PySide6.QtTest \
+            --exclude-module PySide6.QtSql \
+            --exclude-module torch.cuda \
+            --exclude-module torch.distributed \
+            --exclude-module torch.distributions \
+            --exclude-module torch.onnx \
+            --exclude-module torch.jit \
             xl.py
       - name: 重命名
         shell: bash
