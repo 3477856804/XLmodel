@@ -32,26 +32,20 @@ jobs:
             --add-data "assets${SEP}assets" \
             --collect-all PySide6 \
             xl.py
-      - name: 重命名产物
+      - name: 重命名
         shell: bash
         run: |
+          cd dist
           if [ "$RUNNER_OS" = "Windows" ]; then
-            mv dist/XiaoLing.exe dist/XiaoLing-Windows.exe
+            mv XiaoLing.exe XiaoLing-Windows.exe
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            mv dist/XiaoLing dist/XiaoLing-macOS
+            mv XiaoLing XiaoLing-macOS
             zip -q XiaoLing-macOS.zip XiaoLing-macOS
-            mv XiaoLing-macOS.zip dist/
           else
-            mv dist/XiaoLing dist/XiaoLing-Linux
+            mv XiaoLing XiaoLing-Linux
             tar -czf XiaoLing-Linux.tar.gz XiaoLing-Linux
-            mv XiaoLing-Linux.tar.gz dist/
           fi
-      - name: 自动上传到 Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then F="dist/XiaoLing-Windows.exe"
-          elif [ "$RUNNER_OS" = "macOS" ]; then F="dist/XiaoLing-macOS.zip"
-          else F="dist/XiaoLing-Linux.tar.gz"; fi
-          gh release upload v2.0.5 "$F" --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XiaoLing-${{ matrix.os }}
+          path: dist/*
