@@ -360,9 +360,12 @@ class GrowthEngine:
                            f'可用 dry_run 演练流程')
         try:
             self.log('        加载基底 …')
-            dtype = torch.float16 if str(getattr(self, 'device', 'cpu')).startswith('cuda') else torch.float32
-            model = AutoModelForCausalLM.from_pretrained(str(self.base_model_dir), dtype=dtype,
-                                                        trust_remote_code=True, low_cpu_mem_usage=True)
+            from core.device import best_torch_device, device_kwargs
+            device = best_torch_device()
+            if device == 'cuda':
+                self.log('        算力检测：GPU 可用 → 合并也走 GPU（溢出自动回落 CPU）')
+            model = AutoModelForCausalLM.from_pretrained(str(self.base_model_dir),
+                                                         **device_kwargs(device))
             tok = AutoTokenizer.from_pretrained(str(self.base_model_dir), trust_remote_code=True)
             self.log('        挂载 LoRA 适配器 …')
             peft_model = PeftModel.from_pretrained(model, str(self.adapter_dir))

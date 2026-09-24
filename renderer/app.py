@@ -399,10 +399,11 @@ class PythonAvatar:
         self.renderer.idle()
         for i in range(3):
             self.renderer.frame()
-        shots.append(('front', dict(focus='bust', zoom=1.0, yaw=0)))
-        shots.append(('head', dict(focus='bust', zoom=2.2, yaw=0)))
-        shots.append(('side', dict(focus='bust', zoom=1.0, yaw=55)))
-        shots.append(('full', dict(focus='full', zoom=1.0, yaw=0)))
+        front = self.renderer.camera.front_yaw
+        shots.append(('front', dict(focus='bust', zoom=1.0, yaw=front)))
+        shots.append(('head', dict(focus='bust', zoom=2.2, yaw=front)))
+        shots.append(('side', dict(focus='bust', zoom=1.0, yaw=front + 55)))
+        shots.append(('full', dict(focus='full', zoom=1.0, yaw=front)))
         paths = []
         for name, kw in shots:
             p = outdir / f'xiaoling_{name}.png'

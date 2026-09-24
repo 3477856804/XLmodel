@@ -2050,7 +2050,13 @@ class LocalModel:
                     print(f"  [模型] 纯 Python tokenizer 也失败：{str(_te2)[:80]}")
                     raise
             if self.tokenizer.pad_token is None: self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                from core.device import best_torch_device as _btd
+                self.device = _btd()
+            except Exception:                                          # noqa: BLE001
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            if self.device == "cuda":
+                print("  [模型] GPU 检测成功：权重优先铺显存，装不下的层自动回落 CPU")
             # v0.0.5 fix：本地模型加载优化（小内存不OOM + 提速）
             # 1) CPU 用 low_cpu_mem_usage 分块加载，避免 2GB 内存加载 4.8GB 权重 OOM
             # 2) device_map=None 纯 CPU 推理（手机/低配电脑）

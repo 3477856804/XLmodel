@@ -87,6 +87,85 @@ class GLContextError(RuntimeError):
 
 
 # --------------------------------------------------------------------- 上下文
+class EGLContext:
+    """EGL 离屏上下文：Linux 有显卡驱动时走真 GPU（无需 X 窗口）。
+
+    优先级：EGL（GPU）→ OSMesa（软件 GL）。驱动不全时 EGL 初始化失败自动跳过。
+    可用 EGL_DEVICE_ID / EGL_PLATFORM 选择设备。
+    """
+
+    name = 'egl'
+
+    def __init__(self, width=420, height=680):
+        os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
+        try:
+            from OpenGL import EGL
+            from OpenGL.EGL import (EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
+                                    EGL_OPENGL_API, EGL_BLUE_SIZE, EGL_GREEN_SIZE,
+                                    EGL_RED_SIZE, EGL_ALPHA_SIZE, EGL_DEPTH_SIZE,
+                                    EGL_NONE, EGL_NO_DISPLAY, EGL_DEFAULT_DISPLAY,
+                                    EGL_CONTEXT_CLIENT_VERSION, eglGetDisplay,
+                                    eglInitialize, eglChooseConfig, eglBindAPI,
+                                    eglCreateContext, eglMakeCurrent, eglCreatePbufferSurface,
+                                    eglQuerySurface, eglTerminate, eglGetError)
+        except Exception as e:                                        # noqa: BLE001
+            raise GLContextError(f'PyOpenGL/EGL 不可用：{e}')
+        self.EGL = EGL
+        self.w, self.h = width, height
+        display = eglGetDisplay(EGL_DEFAULT_DISPLAY)
+        if display in (None, EGL_NO_DISPLAY):
+            raise GLContextError('eglGetDisplay 失败')
+        major, minor = EGL.EGLint(), EGL.EGLint()
+        if not eglInitialize(display, major, minor):
+            raise GLContextError('eglInitialize 失败（GPU 驱动/EGL 未安装？）')
+        attribs = [EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+                   EGL_RENDERABLE_TYPE, EGL_OPENGL_API,
+                   EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
+                   EGL_ALPHA_SIZE, 8, EGL_DEPTH_SIZE, 24, EGL_NONE]
+        config = (EGL.EGLConfig * 1)()
+        n_cfg = EGL.EGLint()
+        if not eglChooseConfig(display, attribs, config, 1, n_cfg) or n_cfg.value < 1:
+            raise GLContextError('eglChooseConfig 失败')
+        eglBindAPI(EGL_OPENGL_API)
+        ctx = eglCreateContext(display, config[0], EGL.EGL_NO_CONTEXT,
+                               [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE])
+        if not ctx:
+            raise GLContextError('eglCreateContext 失败')
+        pb_attribs = [EGL.EGL_WIDTH, width, EGL.EGL_HEIGHT, height, EGL_NONE]
+        surface = eglCreatePbufferSurface(display, config[0], pb_attribs)
+        if not surface:
+            raise GLContextError('eglCreatePbufferSurface 失败')
+        if not eglMakeCurrent(display, surface, surface, ctx):
+            raise GLContextError('eglMakeCurrent 失败')
+        self.display, self.surface, self.ctx = display, surface, ctx
+        try:
+            from OpenGL import GL
+        except Exception as e:                                        # noqa: BLE001
+            raise GLContextError(f'PyOpenGL/GL 不可用：{e}')
+        self.GL = GL
+
+    def make_current(self):
+        from OpenGL.EGL import eglMakeCurrent
+        eglMakeCurrent(self.display, self.surface, self.surface, self.ctx)
+
+    def resize(self, w, h):
+        self.w, self.h = w, h
+
+    def read_pixels(self) -> np.ndarray:
+        GL = self.GL
+        GL.glFinish()
+        data = GL.glReadPixels(0, 0, self.w, self.h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+        arr = np.frombuffer(data, np.uint8).reshape(self.h, self.w, 4)
+        return arr[::-1].copy()
+
+    def info(self):
+        GL = self.GL
+        return {'backend': 'egl',
+                'version': (GL.glGetString(GL.GL_VERSION) or b'?').decode(errors='replace'),
+                'renderer': (GL.glGetString(GL.GL_RENDERER) or b'?').decode(errors='replace'),
+                'glsl': (GL.glGetString(GL.GL_SHADING_LANGUAGE_VERSION) or b'?').decode(errors='replace')}
+
+
 class OSMesaContext:
     """基于 OSMesa 的离屏上下文（llvmpipe 全软件 OpenGL，无需 X/GPU）。"""
 
@@ -158,6 +237,8 @@ class ExistingContext:
         self.w, self.h = w, h
 
     def read_pixels(self):
+        if not self.readback:                 # Qt 直绘模式：内容已在屏幕帧缓冲，免回读
+            return np.zeros((1, 1, 4), np.uint8)
         GL = self.GL
         GL.glFinish()
         data = GL.glReadPixels(0, 0, self.w, self.h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
@@ -171,9 +252,15 @@ class ExistingContext:
                 'renderer': GL.glGetString(GL.GL_RENDERER).decode()}
 
 
-def make_context(prefer=('osmesa',), width=420, height=680):
+def make_context(prefer=('egl', 'osmesa'), width=420, height=680):
+    """创建离屏 GL 上下文：EGL（真 GPU）优先，OSMesa（软件 GL）兜底。"""
+    forced = os.environ.get('XIAOLING_GL_CONTEXT', '').strip().lower()
+    if forced in ('egl', 'osmesa'):
+        prefer = (forced,)
     for kind in prefer:
         try:
+            if kind == 'egl':
+                return EGLContext(width, height)
             if kind == 'osmesa':
                 return OSMesaContext(width, height)
         except GLContextError:

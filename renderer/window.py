@@ -113,14 +113,17 @@ class PetWindow:
     def _try_gl_widget(self, QtCore, QtGui, QtWidgets):
         if self.renderer.backend_kind != 'gl':
             return False
+        # PySide6 的 QOpenGLWidget 在 QtOpenGLWidgets 模块（PyQt5 在 QtWidgets）
         try:
-            class _GLWidget(QtWidgets.QOpenGLWidget):
-                pass
+            from PySide6.QtOpenGLWidgets import QOpenGLWidget as _QOpenGLWidget
         except Exception:                                                # noqa: BLE001
-            return False
+            try:
+                from PyQt5.QtWidgets import QOpenGLWidget as _QOpenGLWidget
+            except Exception:                                            # noqa: BLE001
+                return False
         outer = self
 
-        class PetGLWidget(QtWidgets.QOpenGLWidget):
+        class PetGLWidget(_QOpenGLWidget):
             def __init__(self):
                 super().__init__()
                 self.setWindowTitle('小凌')
@@ -203,7 +206,10 @@ class PetWindow:
                 if self._drag:
                     delta = ev.globalPos() - self._drag[0]
                     self.move(self._drag[1] + delta)
-                outer.renderer.camera.yaw = max(-60, min(60, (ev.x() / max(self.width(), 1) - 0.5) * 60))
+                # 拖拽转头：以"正面"为中心左右各 60°（正面机位在 +Z 侧）
+                front = getattr(outer.renderer.camera, 'front_yaw', 180.0)
+                outer.renderer.camera.yaw = front + max(
+                    -60, min(60, (ev.x() / max(self.width(), 1) - 0.5) * 60))
 
             def mouseReleaseEvent(self, ev):
                 self._drag = None
