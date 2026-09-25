@@ -571,6 +571,14 @@ def _preset_size_label(name):
 
 
 ADAPTER_DIR = BASE_DIR / ".star_core"
+# 乙-3：适配器目录此前写死成 .star_core（只认旧平铺布局），而 core/growth.py 用的是
+# .star_core/adapter/（新布局），两边对新旧布局的判断不一致。
+# 统一走 core.growth.detect_adapter_dir：以文件 marks 判定，两种布局都认。
+try:
+    from core.growth import detect_adapter_dir as _detect_adapter_dir
+    ADAPTER_DIR = _detect_adapter_dir(ADAPTER_DIR)
+except Exception:                                                     # noqa: BLE001
+    pass
 # v1.0 融合层：只读资源用 core.paths.resource()（打包后资源在 _internal/ 或 onefile 临时目录）
 try:
     from core.paths import resource as _resource
