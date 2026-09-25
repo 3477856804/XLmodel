@@ -259,12 +259,15 @@ detect_env() {
     case "$PY_VER" in
         3.10|3.11|3.12) ok "Python 版本适配良好" ;;
         3.13)
-            warn "Python 3.13 部分 wheel 可能未跟上（PyTorch 生态偶有缺失）"
-            echo_blank
+            # 实测结论（2026-09）：3.13 上 torch 2.11.0+cu128 可正常安装并在
+            # RTX 50 系（sm_120）跑通，6 个回归测试全部通过。
+            # 所以不再建议用户额外装 3.12（那会多装一份 Python 却未必需要）。
+            ok "Python 3.13：已验证可用（torch 2.11+cu128 / PySide6 6.11 实测通过）"
+            info "  若系统里存在 python3.12，本脚本会自动优先用它创建 venv"
             echo "  ╭──────────────────────────────────────────────────────────╮"
-            echo "  │  建议安装 Python 3.12 更稳妥（可选，不影响其他步骤）      │"
-            echo "  │    sudo apt install -y python3.12 python3.12-venv        │"
-            echo "  │  脚本下次运行会自动优先用 3.12 创建 venv                 │"
+            echo "  │  注意：Kali 默认就是 3.13，无需另装 3.12。                │"
+            echo "  │  只有遇到具体的 wheel 缺失时，才建议：                     │"
+            echo "  │    sudo apt install -y python3.12 python3.12-venv         │"
             echo "  ╰──────────────────────────────────────────────────────────╯"
             echo_blank
             ;;
