@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
 import numpy as np
@@ -45,6 +46,34 @@ QMenu { background: rgba(255,255,255,0.97); border-radius: 10px; padding: 6px; }
 QMenu::item { padding: 7px 22px; border-radius: 7px; }
 QMenu::item:selected { background: rgba(91,157,251,0.16); }
 """
+
+# 气泡样式模板：字号由 _bubble_font_size() 按文本长度决定（P2-6 自适应）
+BUBBLE_QLABEL_STYLE = (
+    'background: rgba(255,255,255,0.94); color:#2c3345;'
+    'border:1px solid rgba(180,205,240,0.75); border-radius:14px;'
+    'padding:10px 14px; font-size:{size}px;')
+
+
+def _bubble_font_size(text: str) -> int:
+    """气泡字号随文本长度自适应：短句正常，长句缩小，避免糊满整屏。"""
+    n = len(str(text or ''))
+    if n <= 26:
+        return 14
+    if n <= 60:
+        return 13
+    return 12
+
+
+def _bubble_width(text: str, avail: int) -> int:
+    """气泡宽度按文本长度伸缩（有上下限），不再一律 300px 封顶。
+
+    avail 是窗口可用宽度，保证气泡不会超出窗口。
+    """
+    n = len(str(text or ''))
+    want = int(n * 15 + 28)
+    lo = 120 if avail < 200 else 160
+    hi = max(lo, min(int(avail), 360))
+    return max(lo, min(hi, want))
 
 
 def _numpy_to_qimage_qt(img, QtGui):
@@ -80,6 +109,7 @@ class PetWindow:
         self.app = None
         self.widget = None
         self._drag = None
+        self._last_drag_delta = (0, 0)
         self._last_idle_report = time.time()
         self._running = False
 
@@ -187,8 +217,12 @@ class PetWindow:
                 outer._maybe_report_idle()
 
             def _place_bubble(self):
-                w = min(300, max(self.width() - 20, 120))
-                self._bubble.setFixedWidth(w)
+                # 气泡自适应：宽度按文本长度伸缩，长文本自动降字号（P2-6）
+                text = self._bubble.text() or ''
+                avail = max(self.width() - 20, 140)
+                self._bubble.setFixedWidth(_bubble_width(text, avail))
+                self._bubble.setStyleSheet(
+                    BUBBLE_QLABEL_STYLE.format(size=_bubble_font_size(text)))
                 self._bubble.move(10, 8)
                 self._bubble.adjustSize()
 
@@ -203,19 +237,16 @@ class PetWindow:
             # ---- 交互 ----
             def mousePressEvent(self, ev):
                 if ev.button() == QtCore.Qt.LeftButton:
-                    self._drag = (ev.globalPos(), self.pos())
+                    outer._drag_begin(self, ev)
 
             def mouseMoveEvent(self, ev):
-                if self._drag:
-                    delta = ev.globalPos() - self._drag[0]
-                    self.move(self._drag[1] + delta)
-                # 拖拽转头：以"正面"为中心左右各 60°（正面机位在 +Z 侧）
-                front = getattr(outer.renderer.camera, 'front_yaw', 180.0)
-                outer.renderer.camera.yaw = front + max(
-                    -60, min(60, (ev.x() / max(self.width(), 1) - 0.5) * 60))
+                # 拖拽位移（阈值节流 + 屏幕边界约束）
+                outer._drag_move(self, ev, turn_head=False)
+                # 视线跟随：悬停也生效（原来就在 if self._drag 之外），这里改为平滑插值
+                outer._turn_head(self, ev)
 
             def mouseReleaseEvent(self, ev):
-                self._drag = None
+                outer._drag = None
 
             def mouseDoubleClickEvent(self, ev):
                 outer.open_chat_input(self)
@@ -257,7 +288,6 @@ class PetWindow:
                 self._timer = QtCore.QTimer(self)
                 self._timer.timeout.connect(self._tick)
                 self._timer.start(120)                     # 软件后端帧率有限
-                self._drag = None
 
             def _tick(self):
                 img = outer.renderer.frame(dt=max(0.033, 0.12))
@@ -274,8 +304,13 @@ class PetWindow:
                 p.drawImage(0, 0, self._img)
 
             def show_bubble(self, text, seconds=None):
-                self._bubble.setText(str(text))
-                self._bubble.setFixedWidth(min(300, max(self.width() - 20, 120)))
+                text = str(text)
+                self._bubble.setText(text)
+                # 与 GL 模式一致的自适应规则（宽度伸缩 + 长文本降字号）
+                avail = max(self.width() - 20, 140)
+                self._bubble.setFixedWidth(_bubble_width(text, avail))
+                self._bubble.setStyleSheet(
+                    BUBBLE_QLABEL_STYLE.format(size=_bubble_font_size(text)))
                 self._bubble.adjustSize()
                 self._bubble.move(10, 8)
                 self._bubble.show()
@@ -283,14 +318,13 @@ class PetWindow:
 
             def mousePressEvent(self, ev):
                 if ev.button() == QtCore.Qt.LeftButton:
-                    self._drag = (ev.globalPos(), self.pos())
+                    outer._drag_begin(self, ev)
 
             def mouseMoveEvent(self, ev):
-                if self._drag:
-                    self.move(self._drag[1] + (ev.globalPos() - self._drag[0]))
+                outer._drag_move(self, ev, turn_head=False)
 
             def mouseReleaseEvent(self, ev):
-                self._drag = None
+                outer._drag = None
 
             def mouseDoubleClickEvent(self, ev):
                 outer.open_chat_input(self)
@@ -327,6 +361,7 @@ class PetWindow:
                    ('跳个舞', lambda: self.renderer.dance()),
                    ('回到待机', lambda: self.renderer.idle()),
                    ('换装（重新生成形象）', self._redress),
+                   ('训练', self._start_training),
                    ('成长状态', self._growth),
                    ('设置', self.open_settings),
                    ('隐藏', lambda: parent.hide()),
@@ -356,6 +391,26 @@ class PetWindow:
             act = menu.addAction(label)
             act.triggered.connect(fn)
         menu.exec_(pos) if hasattr(menu, 'exec_') else menu.exec(pos)
+
+    def _start_training(self):
+        """桌宠右键「训练」：后台跑一轮蒸馏训练（P2-6 菜单补项）。
+
+        训练放后台线程，且**不在工作线程里碰 Qt 控件**（那是不安全的），
+        结果只写日志；气泡在开跑前设置。
+        """
+        if self.widget is not None and hasattr(self.widget, 'show_bubble'):
+            self.widget.show_bubble('开始蒸馏训练…（进度可看训练工作台）')
+
+        def _worker():
+            try:
+                from core.growth import GrowthEngine
+                from core.paths import APP_DIR
+                res = GrowthEngine(base_dir=APP_DIR, log=lambda *a: None).train_round(epochs=2)
+                self.log(f"  [训练] {res.get('message') or res.get('summary') or '本轮完成'}")
+            except Exception as e:                                        # noqa: BLE001
+                self.log(f'  [训练] 失败：{e}')
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _switch_to_model(self, path, name):
         try:
@@ -443,6 +498,56 @@ class PetWindow:
                 self.engine.on_avatar_idle()
             except Exception:                                             # noqa: BLE001
                 pass
+
+    # ------------------------------------------------------------------ 拖拽
+    def _drag_begin(self, widget, ev):
+        """记下拖拽起点与窗口原位（两个绘制模式共用）。"""
+        self._drag = (ev.globalPos(), widget.pos())
+        self._last_drag_delta = (0, 0)
+
+    def _drag_move(self, widget, ev, turn_head=True):
+        """拖拽移动：阈值节流 + 屏幕边界约束（P2-5）。
+
+        这里刻意**不做位置插值**：窗口拖拽必须 1:1 跟手，位置插值会引入可感知延迟。
+        平滑处理放在相机朝向上（_turn_head 用指数插值），那才是抖动的来源。
+        """
+        if not self._drag:
+            return
+        delta = ev.globalPos() - self._drag[0]
+        # 阈值节流：位移变化不足 2px 的事件丢弃，省掉大量无意义的 setWindowPos
+        if (abs(delta.x() - self._last_drag_delta[0]) < 2
+                and abs(delta.y() - self._last_drag_delta[1]) < 2):
+            return
+        self._last_drag_delta = (delta.x(), delta.y())
+        widget.move(self._clamp_to_screen(widget, self._drag[1] + delta))
+        if turn_head:
+            self._turn_head(widget, ev)
+
+    def _turn_head(self, widget, ev):
+        """相机朝向跟随鼠标横向位置，用指数插值平滑（否则每像素一次跳变会很抖）。"""
+        try:
+            front = getattr(self.renderer.camera, 'front_yaw', 180.0)
+            want = front + max(-60, min(60, (ev.x() / max(widget.width(), 1) - 0.5) * 60))
+            cur = getattr(self.renderer.camera, 'yaw', front)
+            self.renderer.camera.yaw = cur + (want - cur) * 0.35
+        except Exception:                                                 # noqa: BLE001
+            pass
+
+    def _clamp_to_screen(self, widget, pos):
+        """把窗口夹进当前屏幕可用区域，避免被拖到屏幕外再也点不到。"""
+        try:
+            QtCore, QtGui, QtWidgets = self.qt
+            screen = (QtGui.QGuiApplication.screenAt(pos)
+                      or QtGui.QGuiApplication.primaryScreen())
+            if screen is None:
+                return pos
+            area = screen.availableGeometry()
+            w, h = widget.width(), widget.height()
+            x = max(area.left(), min(pos.x(), area.right() - w + 1))
+            y = max(area.top(), min(pos.y(), area.bottom() - h + 1))
+            return QtCore.QPoint(int(x), int(y))
+        except Exception:                                                 # noqa: BLE001
+            return pos
 
     def say(self, text, seconds=None):
         if self.widget is not None and hasattr(self.widget, 'show_bubble'):
