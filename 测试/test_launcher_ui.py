@@ -72,14 +72,28 @@ def test_is_ui_available_returns_bool():
 
 
 def test_dashboard_imports_launcher_presets():
-    """dashboard.py 应能正确从 launcher_ui 导入档位列表。"""
-    from core.launcher_ui import MODEL_PRESETS_PUBLIC        # noqa: E402
-    # 直接模拟 dashboard 中的导入路径
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'renderer'))
-    # 只需确保它能用于填充下拉框
-    assert len(MODEL_PRESETS_PUBLIC) >= 2
-    # 不重复导：跑完清理
-    sys.path.pop()
+    """工作台（renderer/dashboard.py）依赖的档位导入路径必须真实成立。
+
+    这个测试此前是**假测试**：名字说「dashboard 应能正确从 launcher_ui 导入档位列表」，
+    实际既没有导入 dashboard，也只是把 launcher_ui 又 import 了一遍再断言 len>=2，
+    等于什么都没验证。现在真正做三件事：
+      1) dashboard 里写的那条导入语句（core.launcher_ui.MODEL_PRESETS_PUBLIC）可用；
+      2) renderer.dashboard 模块本身可在无 PySide6 / 无 DISPLAY 环境下导入
+         （Qt 全部是函数内导入，这正是工作台能在开发模式跑的前提）；
+      3) 填下拉框要用的档位检索函数对每个档位都能返回 label。
+    """
+    import importlib
+
+    # dashboard.py 内部就是这么导入的（见 renderer/dashboard.py 里的 _LLM_PRESETS）
+    from core.launcher_ui import MODEL_PRESETS_PUBLIC as _LLM_PRESETS, _preset_label_from_key
+    assert len(_LLM_PRESETS) >= 2, f'档位表过短: {_LLM_PRESETS}'
+
+    mod = importlib.import_module('renderer.dashboard')
+    for name in ('build_dashboard', 'run_dashboard', '_growth_status', '_loss_sparkline'):
+        assert hasattr(mod, name), f'renderer.dashboard 缺少 {name}'
+
+    for p in _LLM_PRESETS:
+        assert _preset_label_from_key(p['key']), f'档位 {p["key"]} 取不到 label'
 
 
 if __name__ == '__main__':
