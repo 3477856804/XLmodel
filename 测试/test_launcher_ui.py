@@ -96,10 +96,51 @@ def test_dashboard_imports_launcher_presets():
         assert _preset_label_from_key(p['key']), f'档位 {p["key"]} 取不到 label'
 
 
+def test_growth_status_uses_real_backend_keys():
+    """P0-3 回归：_growth_status() 必须用 GrowthEngine.status() 的真实字段名。
+
+    后端产出的是 base_bytes/adapter_bytes 与 base_human/adapter_human，
+    **不存在** base_mb/adapter_mb。旧代码读错键 → 状态栏恒显 0MB，
+    且 dashboard 里读 base_human 的地方会直接 KeyError。
+
+    这里用 AST 提取函数内所有字典字面量的**键**来判断，而不是做字符串包含匹配
+    ——否则源码注释里出现 "base_mb" 就会让测试误报。
+    """
+    import ast
+    import inspect
+    import tempfile
+    import textwrap
+    from pathlib import Path
+
+    from renderer import dashboard
+
+    src = textwrap.dedent(inspect.getsource(dashboard._growth_status))
+    fn = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef))
+    keys = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Dict):
+            for k in node.keys:
+                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    keys.add(k.value)
+
+    assert 'base_mb' not in keys and 'adapter_mb' not in keys, \
+        f'_growth_status 又用了后端不存在的键: {sorted(keys)}'
+    for k in ('base_bytes', 'adapter_bytes', 'base_human', 'adapter_human'):
+        assert k in keys, f'_growth_status 返回字典缺少 {k}（现有键：{sorted(keys)}）'
+
+    # 后端契约：status() 真的产出这些键（用临时目录，不碰真实 .star_core）
+    from core.growth import GrowthEngine
+    with tempfile.TemporaryDirectory() as td:
+        st = GrowthEngine(Path(td), log=lambda *a: None, dry_run=True).status()
+    for k in ('base_bytes', 'adapter_bytes', 'base_human', 'adapter_human'):
+        assert k in st, f'GrowthEngine.status() 不再产出 {k}'
+
+
 if __name__ == '__main__':
     test_presets_public()
     test_preset_label_lookup()
     test_apply_chosen_writes_config()
     test_is_ui_available_returns_bool()
     test_dashboard_imports_launcher_presets()
+    test_growth_status_uses_real_backend_keys()
     print('全部 launcher_ui 测试通过')

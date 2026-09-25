@@ -252,6 +252,14 @@ def test_engine_trigger_and_control():
         assert eng.pause()['paused'] is True
         assert eng.should_train(manual=True)['ok'] is False
         assert '暂停' in '；'.join(eng.should_train(manual=True)['reasons'])
+        # P0-4 回归：暂停必须同时拦住 train_round 与 check_and_promote。
+        # 此前只有 should_train() 检查 paused，工作台「开始蒸馏训练」直接调 train_round，
+        # 可以绕过暂停照常训练并把适配器合并晋升。
+        tr = eng.train_round(epochs=1)
+        assert tr.get('paused') is True and tr.get('skipped') is True, tr
+        assert '暂停' in tr.get('message', ''), tr
+        cp = eng.check_and_promote()
+        assert cp.get('action') == 'skip' and '暂停' in cp.get('message', ''), cp
         assert eng.resume()['paused'] is False
         # 强制 / 演练放行
         assert eng.should_train(force=True)['ok'] is True
