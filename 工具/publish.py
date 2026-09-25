@@ -42,7 +42,7 @@ CF_API = 'https://api.cloudflare.com/client/v4'
 SYNC_EXCLUDE_DIRS = {'.git', '__pycache__', '.buildozer', '.gradle', 'dist', 'build',
                      'android/bin', 'android/native/app/build', 'android/native/.gradle',
                      'android/native/app/src/main/python', 'android/native/app/src/main/assets'}
-SYNC_EXCLUDE_FILES = {'xiaoling-1.0.0-android-arm64.apk'}
+SYNC_EXCLUDE_FILES = {'xiaoling-0.0.2-android-arm64.apk'}
 # 明确排除：第三方 VRM 模型（授权多为"禁止再分发"）
 SYNC_EXCLUDE_GLOBS = ('角色模型/*.vrm', '*.vrm', '*.apk')
 
