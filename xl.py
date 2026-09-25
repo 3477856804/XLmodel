@@ -578,7 +578,7 @@ SKILLS_DIR = _resource("技能")
 AUTO_TRAIN_THRESHOLD = 1000
 
 CONFIG = {
-    "version": "1.0.0-fusion", "name": "小凌", "user_name": "你",
+    "version": "0.0.1", "name": "小凌", "user_name": "你",
     # v0.0.9：基底模型选择（用户可配置，默认 MiniCPM5-2B）
     # 可选档位：
     #   "自研2B模型"     -> 默认，端侧最强（Q4 约1.56GB，手机/电脑流畅）
@@ -1550,7 +1550,7 @@ class LongTermMemory:
 
     def _default(self):
         return {
-            "name": "小凌", "version": "0.0.8", "born": time.time(), "last_active": 0,
+            "name": "小凌", "version": "0.0.1", "born": time.time(), "last_active": 0,
             "self_state": {
                 "mood": 0.3, "energy": 0.8, "curiosity": 0.75, "anxiety": 0.1,
                 "confidence": 0.6, "warmth": 0.7, "openness": 0.8, "stubbornness": 0.4,
