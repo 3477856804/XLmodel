@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  小凌 一键部署 + 环境配置脚本  v3.5
+#  小凌 · 环境预检 / 部署脚本  v3.6（**可选**）
+#
+#  定位变化（v3.6）：小凌现在支持「零配置直接启动」——直接 `python xl.py`
+#  就会在缺依赖 / 缺 API Key / 缺模型时弹出图形化的「环境配置向导」
+#  （renderer/wizard.py），所以本脚本**不再是必须步骤**，而是：
+#      · 想一次性把系统依赖 + venv + 权限都准备好的用户
+#      · CI / 无人值守部署
+#      · 帮别人远程排查环境（配合 --check-only 之类的体检）
+#  用法：bash setup_kali.sh
+#  日志：<脚本目录>/build.log
+#
 #  适用：Kali / Debian / Ubuntu（原生或 WSL2）/ Termux
 #  支持：NVIDIA 30/40/50 系、AMD(ROCm)、纯 CPU 回退
-#  特性：全量体检、权限自修复、进度条直连终端、API 预配置、代码补丁
-#  用法：bash setup.sh
-#  日志：<脚本目录>/build.log
+#  特性：全量体检、系统依赖、venv、进度条直连终端、API 预配置
+#
+#  注意：v3.6 起**不再修改 xl.py 源码**（旧的"代码补丁"已内建进源码，
+#        见 XL_ALLOW_UPDATE / XL_NO_AUTO_DEPS / sys.stdin.reconfigure）。
 # ============================================================================
 set -uo pipefail
 
@@ -575,15 +586,13 @@ preflight_check() {
     local xlfile="$PROJECT_DIR/xl.py"
     local petfile="$PROJECT_DIR/pet.py"
     if [ -f "$xlfile" ]; then
-        grep -q 'XL_ALLOW_UPDATE' "$xlfile" && ok "  自动更新开关：已打" || info "  自动更新开关：未打"
-        grep -q 'sys.stdin.reconfigure' "$xlfile" && ok "  UTF-8 容错：已打" || info "  UTF-8 容错：未打"
-    fi
-    if [ -f "$xlfile" ] || [ -f "$petfile" ]; then
-        if grep -q -- '-transparentcolor' "$xlfile" "$petfile" 2>/dev/null; then
-            grep -q 'sys.platform == "win32"' "$xlfile" "$petfile" 2>/dev/null \
-                && ok "  -transparentcolor 平台判断：已打" \
-                || info "  -transparentcolor 平台判断：未打"
-        fi
+        # 这些能力现在**内建在源码里**（乙-4 / 乙-5），脚本不再打补丁，只做检查。
+        grep -q 'XL_ALLOW_UPDATE' "$xlfile" \
+            && ok "  自动更新开关：源码已内建" || warn "  自动更新开关：源码里没有（旧版 xl.py？）"
+        grep -q 'sys.stdin.reconfigure' "$xlfile" \
+            && ok "  UTF-8 容错：源码已内建" || warn "  UTF-8 容错：源码里没有"
+        grep -q 'XL_NO_AUTO_DEPS' "$xlfile" \
+            && ok "  依赖安装开关：源码已内建" || warn "  依赖安装开关：源码里没有"
     fi
 
     # ── 8. 其他常用包 ──
@@ -957,14 +966,31 @@ install_other_deps() {
 apply_model_choice() {
     step "应用模型选择"
     [ -z "${MODEL_CHOICE:-}" ] && { info "未选择模型，跳过"; return 0; }
-    local xlfile="$PROJECT_DIR/xl.py"
-    [ -f "$xlfile" ] || { warn "未找到 xl.py"; return 0; }
-    if grep -q '"base_model"' "$xlfile"; then
-        sed -i "s|\"base_model\": \"[^\"]*\"|\"base_model\": \"$MODEL_CHOICE\"|" "$xlfile"
-        ok "已应用模型选择：$MODEL_CHOICE"
+
+    # 甲-6：这里原先用 `sed -i` 直接改 xl.py 源码里的 "base_model" 硬编码值，
+    # 每跑一次脚本就把工作区弄脏一次，还破坏升级判定。
+    # 程序真正读的是 .star_core/model_choice.txt（xl.py 的 _select_model_on_start）
+    # 以及 core/config.py 的 model.base_model，所以改成写这两处、不碰源码。
+    local star="$PROJECT_DIR/.star_core"
+    mkdir -p "$star" 2>/dev/null || true
+
+    if printf '%s' "$MODEL_CHOICE" > "$star/model_choice.txt" 2>/dev/null; then
+        ok "已写入 .star_core/model_choice.txt：$MODEL_CHOICE"
     else
-        warn "未找到 base_model 配置，跳过"
+        warn "写入 .star_core/model_choice.txt 失败（权限？）"
     fi
+
+    # 同步到统一配置（走程序自己的 API，保证结构正确）
+    if [ -x "$VENV_DIR/bin/python" ] && [ -f "$PROJECT_DIR/core/config.py" ]; then
+        if XL_MODEL="$MODEL_CHOICE" "$VENV_DIR/bin/python" -c \
+            "import os;from core import config;config.patch({'model':{'base_model':os.environ['XL_MODEL']}})" \
+            >/dev/null 2>&1; then
+            ok "已同步到 xiaoling_config.json"
+        else
+            info "未能同步到 xiaoling_config.json（程序首次启动会用 model_choice.txt）"
+        fi
+    fi
+    info "注：本脚本不再修改 xl.py 源码，git 工作区保持干净。"
 }
 
 # ─────────────────────────── Phase 14：xl 启动命令 ───────────────────────────
@@ -985,8 +1011,10 @@ setup_xl_cmd() {
     [ -f "$XL_BIN" ] && { sudo cp "$XL_BIN" "$XL_BIN.bak.$(date +%s)" 2>/dev/null || true; info "已备份原 $XL_BIN"; }
 
     info "写入 $XL_BIN"
-    printf '#!/bin/bash\n# 小凌启动器（由 setup.sh 生成）\ncd %q\nexec %q xl.py "$@"\n' \
-        "$PROJECT_DIR" "$target_py" \
+    # 甲-11：运行期补上 UTF-8 与 locale（原先只在安装期设过），
+    # 并在启动前探测 PySide6，缺失时给一句可执行的提示而不是让用户面对 Qt 报错。
+    printf '#!/bin/bash\n# 小凌启动器（由 setup_kali.sh 生成）\nexport PYTHONUTF8=1\nexport PYTHONIOENCODING=utf-8\ncd %q\nif ! %q -c "import PySide6.QtWidgets" >/dev/null 2>&1; then\n  echo "[提示] 缺少 PySide6，桌宠窗口不可用，将退化为命令行。"\n  echo "       修复：%q -m pip install PySide6"\nfi\nexec %q xl.py "$@"\n' \
+        "$PROJECT_DIR" "$target_py" "$target_py" "$target_py" \
         | sudo tee "$XL_BIN" >/dev/null || die "写入 $XL_BIN 失败"
     sudo chmod +x "$XL_BIN" || die "chmod +x $XL_BIN 失败"
 
@@ -999,120 +1027,47 @@ setup_xl_cmd() {
 
 # ─────────────────────────── Phase 15：打补丁 ───────────────────────────
 patch_code() {
-    step "打代码兼容补丁"
+    step "检查代码内建能力（不再改源码）"
     cd "$PROJECT_DIR"
     local xlfile="$PROJECT_DIR/xl.py"
-    local petfile="$PROJECT_DIR/pet.py"
 
-    # 补丁 1：-transparentcolor 平台判断（先 grep 检查再决定是否调 python）
-    if grep -q -- '-transparentcolor' "$xlfile" "$petfile" 2>/dev/null; then
-        if grep -q 'sys.platform == "win32"' "$xlfile" "$petfile" 2>/dev/null; then
-            ok "  -transparentcolor 平台判断：已打，跳过"
-        else
-            python3 - <<'PYEOF'
-import re, pathlib
-patched = []
-for name in ("xl.py", "pet.py"):
-    f = pathlib.Path(name)
-    if not f.exists(): continue
-    src = f.read_text(encoding="utf-8", errors="replace")
-    if '-transparentcolor' not in src: continue
-    lines = src.splitlines(keepends=True)
-    new, i, done = [], 0, False
-    while i < len(lines):
-        ctx = "".join(lines[max(0, i-2):i])
-        if '-transparentcolor' in lines[i] and 'sys.platform' not in lines[i] and 'sys.platform' not in ctx:
-            indent = re.match(r'^(\s*)', lines[i]).group(1)
-            m = re.match(r'^(\s*)(.+?)\.attributes\(\s*"-transparentcolor"\s*,\s*(.+?)\)\s*$', lines[i])
-            if m:
-                obj, val = m.group(2), m.group(3)
-                new.append(f'{indent}if sys.platform == "win32":\n')
-                new.append(f'{indent}    {obj}.attributes("-transparentcolor", {val})\n')
-                done = True; i += 1; continue
-        new.append(lines[i]); i += 1
-    if done:
-        text = "".join(new)
-        if not re.search(r'^\s*import sys\b', text, re.M):
-            text = "import sys\n" + text
-        bak = f.with_suffix(f.suffix + ".bak_transparent")
-        if not bak.exists(): bak.write_text(src, encoding="utf-8")
-        f.write_text(text, encoding="utf-8")
-        patched.append(name)
-print(f"  [OK] -transparentcolor 已处理：{', '.join(patched)}")
-PYEOF
-        fi
+    if [ ! -f "$xlfile" ]; then
+        warn "未找到 xl.py，跳过"
+        return 0
+    fi
+
+    # 乙-4 / 乙-5：这里原先会往 xl.py 里“盲插”补丁（XL_ALLOW_UPDATE 开关、
+    # stdin UTF-8 容错），另有一段匹配 -transparentcolor 的补丁早已失效（源码里
+    # 根本没有那个字符串，只会静默打印“未出现，跳过”）。
+    # 现在这些能力**已经内建在源码里**，脚本再改源码只会弄脏 git 工作区、
+    # 破坏可复现性与升级判定，所以这里只“检查”，不再修改任何文件。
+    local missing=0
+    if grep -q 'XL_ALLOW_UPDATE' "$xlfile"; then
+        ok "  自动更新开关：源码已内建（XL_ALLOW_UPDATE）"
     else
-        ok "  -transparentcolor：未出现，跳过"
+        warn "  自动更新开关：源码里没有 XL_ALLOW_UPDATE（可能是旧版 xl.py）"
+        missing=1
+    fi
+    if grep -q 'sys.stdin.reconfigure' "$xlfile"; then
+        ok "  UTF-8 容错：源码已内建（stdin + stdout）"
+    else
+        warn "  UTF-8 容错：源码里没有 sys.stdin.reconfigure"
+        missing=1
+    fi
+    if grep -q 'XL_NO_AUTO_DEPS' "$xlfile"; then
+        ok "  依赖安装开关：源码已内建（XL_NO_AUTO_DEPS / 默认不自动装 torch）"
+    else
+        warn "  依赖安装开关：源码里没有 XL_NO_AUTO_DEPS"
+        missing=1
+    fi
+    if [ "$missing" = "1" ]; then
+        info "  源码版本偏旧：建议 git pull 更新；本脚本不再替它打补丁。"
     fi
 
-    # 补丁 2：自动更新开关
-    if [ -f "$xlfile" ]; then
-        if grep -q 'XL_ALLOW_UPDATE' "$xlfile"; then
-            ok "  自动更新开关：已打，跳过"
-        else
-            python3 - <<'PYEOF'
-import pathlib, sys, re
-f = pathlib.Path("xl.py")
-if not f.exists(): sys.exit(0)
-src = f.read_text(encoding="utf-8", errors="replace")
-if 'XL_ALLOW_UPDATE' in src:
-    print("  [INFO] 自动更新开关已存在"); sys.exit(0)
-pat = re.compile(r'^(\s*)(threading\.Thread\(target=_worker, daemon=True, name="updater"\)\.start\(\))\s*$', re.M)
-m = pat.search(src) or re.compile(r'^(\s*)(threading\.Thread\(target=_worker.*?start\(\))\s*$', re.M).search(src)
-if not m:
-    print("  [WARN] 未找到 updater 启动行"); sys.exit(0)
-indent, call = m.group(1), m.group(2)
-replacement = (
-    f'{indent}if os.environ.get("XL_ALLOW_UPDATE") != "0":\n'
-    f'{indent}    {call}\n'
-    f'{indent}else:\n'
-    f'{indent}    print("  [更新] 已禁用（XL_ALLOW_UPDATE=0）")\n'
-)
-if not re.search(r'^\s*import os\b', src, re.M):
-    first = re.search(r'^(import \w+.*)$', src, re.M)
-    src = (src[:first.start()] + "import os\n" + src[first.start():]) if first else ("import os\n" + src)
-src = src.replace(m.group(0), replacement, 1)
-bak = f.with_suffix(f.suffix + ".bak_updater")
-if not bak.exists(): bak.write_text(open(f, encoding="utf-8").read(), encoding="utf-8")
-f.write_text(src, encoding="utf-8")
-print("  [OK] 自动更新开关已加")
-PYEOF
-        fi
-    fi
-
-    # 补丁 3：UTF-8 容错
-    if [ -f "$xlfile" ]; then
-        if grep -q 'sys.stdin.reconfigure' "$xlfile"; then
-            ok "  UTF-8 容错：已打，跳过"
-        else
-            python3 - <<'PYEOF'
-import pathlib, sys, re
-f = pathlib.Path("xl.py")
-if not f.exists(): sys.exit(0)
-src = f.read_text(encoding="utf-8", errors="replace")
-if "sys.stdin.reconfigure" in src:
-    print("  [INFO] UTF-8 容错已存在"); sys.exit(0)
-m = re.search(r'^if __name__\s*==\s*["\']__main__["\']\s*:', src, re.M)
-PATCH = ('# UTF-8 容错\ntry:\n    sys.stdin.reconfigure(encoding="utf-8", errors="replace")\n'
-         '    sys.stdout.reconfigure(encoding="utf-8", errors="replace")\nexcept Exception:\n    pass\n\n')
-if not m:
-    print("  [WARN] 未找到 __main__ 块"); sys.exit(0)
-bak = f.with_suffix(f.suffix + ".bak_utf8")
-if not bak.exists(): bak.write_text(src, encoding="utf-8")
-if not re.search(r'^\s*import sys\b', src, re.M):
-    src = "import sys\n" + src
-    m = re.search(r'^if __name__\s*==\s*["\']__main__["\']\s*:', src, re.M)
-src = src[:m.start()] + PATCH + src[m.start():]
-f.write_text(src, encoding="utf-8")
-print("  [OK] UTF-8 容错已加")
-PYEOF
-        fi
-    fi
-
-    if python -c "import ast; ast.parse(open('xl.py', encoding='utf-8').read())" 2>/dev/null; then
+    if python3 -c "import ast; ast.parse(open('$xlfile', encoding='utf-8').read())" 2>/dev/null; then
         ok "xl.py 语法通过"
     else
-        die "xl.py 语法错误（补丁打坏）。恢复：cp xl.py.bak_* xl.py"
+        die "xl.py 语法错误，请先修复源码（本脚本已不再修改源码，无法自动恢复）"
     fi
 }
 
