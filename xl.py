@@ -23,6 +23,14 @@ try:
 except Exception:
     pass
 
+# 乙-5：stdin 也要做 UTF-8 容错（原先只处理了 stdout）。
+# 否则从管道 / Windows 控制台 / GBK 终端 / 群里转贴的内容读入非 UTF-8 字节时，
+# 会抛 UnicodeDecodeError 直接把对话打断。
+try:
+    sys.stdin.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 # v0.0.13b：exe 打包兼容——onefile 模式下资源在可执行文件同目录
 # 提前定义BASE_DIR，供后面Termux兼容层使用
 if getattr(sys, "frozen", False):
@@ -4526,7 +4534,15 @@ class AutoUpdater:
         """启动时自动检查（后台线程，不阻塞启动）。
 
         v0.0.8：更新后记录 update_state.json，重启检测到已应用版本则不再重复提示。
+
+        乙-4：新增 ``XL_ALLOW_UPDATE`` 环境变量开关（0/false/no/off 关闭自动更新）。
+        这样 setup_kali.sh 不必再往源码里盲插补丁——那个补丁靠正则匹配本方法的
+        updater 线程行，regex 一旦放宽就可能误伤别处的同名 ``_worker``。
         """
+        _allow = os.environ.get("XL_ALLOW_UPDATE", "").strip().lower()
+        if _allow in ("0", "false", "no", "off"):
+            print("  [更新] 已关闭启动自动更新（XL_ALLOW_UPDATE=0）")
+            return
         # 重启后检测：上次更新是否已应用（当前版本 == 上次更新版本 → 静默）
         try:
             _sf = self.base_dir / "update_state.json"
