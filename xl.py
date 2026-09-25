@@ -6842,6 +6842,9 @@ def _select_model_on_start():
 
     用户直接跑 python3 xl.py 也会出现选择界面。
     选择结果写回 CONFIG['model']['base_model']，下次启动沿用。
+
+    v1.1 升级：有 PySide6 + 图形环境时优先用全UI启动器（core/launcher_ui.py），
+    只有在 GUI 不可用时才回退到命令行 input()。
     """
     try:
         # 已有有效模型则跳过（不重复询问）
@@ -6851,33 +6854,53 @@ def _select_model_on_start():
         for p in MODEL_DIR.glob("*.safetensors"):
             if p.stat().st_size > 10 * 1024 * 1024:
                 return  # 已有魔塔下载的模型
-        # 无模型 → 询问
-        print()
-        print("=" * 55)
-        print("  选择你的小凌基底模型（自研档位）")
-        print("=" * 55)
-        print("  根据你的设备选择想自研的模型：")
-        print("    [1] 自研 2B 模型（默认）  MiniCPM5-2B  约 4.8GB  手机/电脑流畅，端侧最强")
-        print("    [2] 自研 1B 模型          MiniCPM5-1B  约 2.1GB  低配设备，轻量")
-        print()
+
+        # v1.1：全UI启动器优先——有 PySide6 且有图形环境时直接弹窗选择
+        chosen = None
         try:
-            choice = input("  请输入序号 [1-2，默认 1]：").strip() or "1"
-        except Exception:
-            choice = "1"
-        mapping = {
-            "2": "自研1B模型",
-        }
-        chosen = mapping.get(choice, "自研2B模型")
-        CONFIG["model"]["base_model"] = chosen
-        print(f"  [OK] 已选择：{chosen}")
-        print(f"      （如需更换，改 xl.py 顶部 CONFIG['model']['base_model']）")
-        # v0.0.4 fix：选择结果持久化，下次启动沿用（否则重启又变回默认 2B）
-        try:
-            _choice_file = Path(BASE_DIR) / ".star_core" / "model_choice.txt"
-            _choice_file.write_text(chosen, encoding="utf-8")
-        except Exception:
-            pass
-        print()
+            from core import launcher_ui
+            if launcher_ui.is_ui_available():
+                print("  [启动器] 弹出全UI启动器（首次运行模型选择）")
+                chosen = launcher_ui.select_model_on_start_ui()
+                if chosen:
+                    CONFIG["model"]["base_model"] = chosen
+                    # 选择结果持久化
+                    try:
+                        _choice_file = Path(BASE_DIR) / ".star_core" / "model_choice.txt"
+                        _choice_file.write_text(chosen, encoding="utf-8")
+                    except Exception:
+                        pass
+        except Exception as _e:
+            print(f"  [启动器] UI 启动器跳过（{_e}），回退命令行选择")
+            chosen = None
+
+        # 回退：命令行选择
+        if chosen is None:
+            print()
+            print("=" * 55)
+            print("  选择你的小凌基底模型（自研档位）")
+            print("=" * 55)
+            print("  根据你的设备选择想自研的模型：")
+            print("    [1] 自研 2B 模型（默认）  MiniCPM5-2B  约 4.8GB  手机/电脑流畅，端侧最强")
+            print("    [2] 自研 1B 模型          MiniCPM5-1B  约 2.1GB  低配设备，轻量")
+            print()
+            try:
+                choice = input("  请输入序号 [1-2，默认 1]：").strip() or "1"
+            except Exception:
+                choice = "1"
+            mapping = {
+                "2": "自研1B模型",
+            }
+            chosen = mapping.get(choice, "自研2B模型")
+            CONFIG["model"]["base_model"] = chosen
+            print(f"  [OK] 已选择：{chosen}")
+            print(f"      （如需更换，改 xl.py 顶部 CONFIG['model']['base_model']）")
+            try:
+                _choice_file = Path(BASE_DIR) / ".star_core" / "model_choice.txt"
+                _choice_file.write_text(chosen, encoding="utf-8")
+            except Exception:
+                pass
+            print()
         # v0.0.1 fix：选完立即下载模型（魔塔 safetensors → 自动移入 XLmodel）→ 再启动
         print("  [模型] 正在准备基底模型...")
         ensure_base_model()

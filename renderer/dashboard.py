@@ -133,33 +133,75 @@ def build_dashboard(renderer=None, engine=None, log=print):
     root.setSpacing(14)
     central.setStyleSheet(f'background:{PALETTE_BG};')
 
-    # ---------- 顶部标题栏 ----------
+    # ---------- 顶部标题栏（v1.1 美化：品牌区 + 状态标签 + 帮助按钮） ----------
     top = QtWidgets.QHBoxLayout()
-    title = QtWidgets.QLabel('XIAOLING PRESENCE')
-    title.setStyleSheet(f'color:{TEXT_MUTED};font-size:13px;font-weight:600;'
-                        f'letter-spacing:3px;')
-    title.setAlignment(QtCore.Qt.AlignCenter)
-    top.addStretch(1)
-    top.addWidget(title, 2)
+
+    # 左侧：品牌区
+    brand = QtWidgets.QHBoxLayout()
+    brand.setSpacing(10)
+    logo_dot = QtWidgets.QLabel('🌸')
+    logo_dot.setStyleSheet(f'font-size:24px;')
+    logo_dot.setFixedWidth(32)
+    brand.addWidget(logo_dot)
+    brand_box = QtWidgets.QVBoxLayout()
+    brand_box.setSpacing(0)
+    brand_title = QtWidgets.QLabel('小凌 XIAOLING')
+    brand_title.setStyleSheet(f'color:{TEXT_DARK};font-size:18px;font-weight:700;'
+                              f'letter-spacing:1px;')
+    brand_subtitle = QtWidgets.QLabel('会自我进化的 AI 伴侣 · v1.1 全UI')
+    brand_subtitle.setStyleSheet(f'color:{TEXT_MUTED};font-size:11px;'
+                                 f'letter-spacing:1px;')
+    brand_box.addWidget(brand_title)
+    brand_box.addWidget(brand_subtitle)
+    brand.addLayout(brand_box)
+    top.addLayout(brand)
     top.addStretch(1)
 
+    # 中间：标签行（状态指示）
     tag_row = QtWidgets.QHBoxLayout()
     tag_row.setSpacing(8)
-    for txt, dot in (('自主扫描', True), ('5 MIN', False), ('READ ONLY', False)):
+    for txt, color, dot in (
+        ('● 在线', '#3b8a5a', False),
+        ('自主扫描', TEXT_MUTED, True),
+        ('5 MIN', TEXT_MUTED, False),
+        ('UI MODE', ACCENT, False),
+    ):
         chip = QtWidgets.QPushButton(txt)
         chip.setFixedHeight(26)
         chip.setStyleSheet(f'''
             QPushButton {{
-                background:{CARD_BG}; color:{TEXT_MUTED};
+                background:{CARD_BG}; color:{color};
                 border:1px solid #ecdde2; border-radius:13px;
-                padding:0 14px; font-size:11px;
-            }}''')
+                padding:0 14px; font-size:11px; font-weight:600;
+            }}
+            QPushButton:hover {{ border:1px solid {color}; }}
+        ''')
         if dot:
             chip.setStyleSheet(chip.styleSheet() + f'''
                 QPushButton {{ padding-left:24px; }}
             ''')
         tag_row.addWidget(chip)
     top.addLayout(tag_row)
+    top.addSpacing(16)
+
+    # 右侧：帮助/关于按钮
+    top.addStretch(1)
+    right_btns = QtWidgets.QHBoxLayout()
+    right_btns.setSpacing(6)
+    btn_help = QtWidgets.QPushButton('?')
+    btn_help.setFixedSize(32, 32)
+    btn_help.setToolTip('使用帮助')
+    btn_help.setCursor(QtCore.Qt.PointingHandCursor)
+    btn_help.setStyleSheet(f'''
+        QPushButton {{
+            background:{CARD_BG}; color:{TEXT_MUTED};
+            border:1px solid #ecdde2; border-radius:16px;
+            font-size:14px; font-weight:700;
+        }}
+        QPushButton:hover {{ color:{ACCENT}; border-color:{ACCENT_SOFT}; }}
+    ''')
+    right_btns.addWidget(btn_help)
+    top.addLayout(right_btns)
     root.addLayout(top)
 
     # ---------- 中部三栏：左卡 / 中央3D / 右卡 ----------
@@ -703,6 +745,80 @@ def build_dashboard(renderer=None, engine=None, log=print):
     ctrl_row = QtWidgets.QHBoxLayout()
     ctrl_row.setSpacing(8)
 
+    # ---------- 基底LLM档位选择（v1.1 新增：可视化"大脑"模型切换） ----------
+    try:
+        from core.launcher_ui import MODEL_PRESETS_PUBLIC as _LLM_PRESETS
+        from core import config as _cfg_mod
+        _cur_cfg = _cfg_mod.load()
+        _cur_base = _cur_cfg.get('model', {}).get('base_model', '自研2B模型')
+    except Exception:                                                 # noqa: BLE001
+        _LLM_PRESETS = [{'key': '自研2B模型', 'label': '自研 2B 模型', 'size': '约 4.8GB'}]
+        _cur_base = '自研2B模型'
+        _cfg_mod = None
+
+    llm_combo = QtWidgets.QComboBox()
+    llm_combo.setFixedWidth(170)
+    llm_combo.setToolTip('选择"大脑"基底模型（LLM 档位）—— 切换后会自动下载新权重')
+    llm_combo.setStyleSheet(f'''
+        QComboBox {{
+            background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                stop:0 #fff5f8, stop:1 #ffe8ee);
+            color:{TEXT_DARK};
+            border:1px solid {ACCENT_SOFT}; border-radius:16px;
+            padding:6px 16px; font-size:13px; font-weight:600;
+        }}
+        QComboBox::drop-down {{ border:none; width:24px; }}
+        QComboBox QAbstractItemView {{
+            background:{CARD_BG}; color:{TEXT_DARK};
+            selection-background-color:{ACCENT_SOFT};
+        }}
+    ''')
+    _llm_index_of = {}
+    for _i, _p in enumerate(_LLM_PRESETS):
+        _label = f"🧠 {_p['label']} · {_p['size']}"
+        llm_combo.addItem(_label)
+        _llm_index_of[_p['key']] = _i
+    # 选中当前档位
+    if _cur_base in _llm_index_of:
+        llm_combo.setCurrentIndex(_llm_index_of[_cur_base])
+
+    def on_llm_pick(idx):
+        """切换基底 LLM 档位 —— 写配置 + 触发后台下载（不阻塞 UI）"""
+        try:
+            if idx < 0 or idx >= len(_LLM_PRESETS):
+                return
+            new_key = _LLM_PRESETS[idx]['key']
+            if new_key == _cur_base:
+                return
+            # 写配置
+            cfg = _cfg_mod.load()
+            cfg['model']['base_model'] = new_key
+            _cfg_mod.save(cfg)
+            _cur_base = new_key
+            chat_log.append(f'<div style="color:#d4385c"><b>小凌：</b>已切换基底档位到 '
+                            f'{_LLM_PRESETS[idx]["label"]}，正在后台下载新权重（'
+                            f'{_LLM_PRESETS[idx]["size"]}）…</div>')
+
+            def _worker():
+                try:
+                    from core import fusion as _fusion_mod
+                    if _fusion_mod.ensure_base_model is not None:
+                        ok = _fusion_mod.ensure_base_model()
+                    else:
+                        ok = False
+                    msg = '新基底下载完成 ✓' if ok else '下载未完成（可稍后说"蒸馏"重试）'
+                    color = '#3b8a5a' if ok else '#9a8a90'
+                except Exception as _e:                                # noqa: BLE001
+                    msg = f'下载中断：{_e}'
+                    color = '#9a8a90'
+                QtCore.QMetaObject.invokeMethod(
+                    chat_log, 'append', QtCore.Qt.QueuedConnection,
+                    QtCore.Q_ARG(str, f'<div style="color:{color}"><b>小凌：</b>{msg}</div>'))
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception as e:                                        # noqa: BLE001
+            chat_log.append(f'<div style="color:#9a8a90">切换失败：{e}</div>')
+    llm_combo.currentIndexChanged.connect(on_llm_pick)
+
     model_combo = QtWidgets.QComboBox()
     model_combo.setFixedWidth(160)
     model_combo.setStyleSheet(f'''
@@ -800,6 +916,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     zoom_slider.setToolTip('缩放角色（也可用滚轮）')
     zoom_slider.valueChanged.connect(lambda v: setattr(renderer, 'scale', v / 100.0))
 
+    ctrl_row.addWidget(llm_combo)
     ctrl_row.addWidget(model_combo)
     ctrl_row.addWidget(btn_import)
     ctrl_row.addWidget(btn_front)
@@ -1138,28 +1255,48 @@ def build_dashboard(renderer=None, engine=None, log=print):
     def show_about():
         dlg = QtWidgets.QDialog(win)
         dlg.setWindowTitle('关于小凌')
-        dlg.setFixedSize(340, 220)
+        dlg.setFixedSize(380, 320)
         dlg.setStyleSheet(f'background:{PALETTE_BG};')
         v = QtWidgets.QVBoxLayout(dlg)
-        v.setContentsMargins(24, 20, 24, 20)
+        v.setContentsMargins(28, 24, 28, 22)
         v.setAlignment(QtCore.Qt.AlignCenter)
+        v.setSpacing(8)
+        emoji = QtWidgets.QLabel('🌸')
+        emoji.setStyleSheet('font-size:42px;')
+        emoji.setAlignment(QtCore.Qt.AlignCenter)
+        v.addWidget(emoji)
         t = QtWidgets.QLabel('小凌 XIAOLING')
-        t.setStyleSheet(f'color:{ACCENT};font-size:22px;font-weight:800;')
+        t.setStyleSheet(f'color:{ACCENT};font-size:24px;font-weight:800;letter-spacing:1px;')
         t.setAlignment(QtCore.Qt.AlignCenter)
         v.addWidget(t)
-        v2 = QtWidgets.QLabel('会成长的数字生命\nv2.0.5 · 训练工作台版')
+        v2 = QtWidgets.QLabel('会自我进化的 AI 伴侣 · v1.1 全UI版')
         v2.setStyleSheet(f'color:{TEXT_MUTED};font-size:12px;')
         v2.setAlignment(QtCore.Qt.AlignCenter)
         v.addWidget(v2)
-        v.addSpacing(12)
-        info = QtWidgets.QLabel('7 个角色 · 46 个动作 · 蒸馏成长\nPySide6 纯 Python 3D 渲染')
-        info.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
-        info.setAlignment(QtCore.Qt.AlignCenter)
-        v.addWidget(info)
+        v.addSpacing(10)
+        info_card = QtWidgets.QFrame()
+        info_card.setStyleSheet(f'background:{CARD_BG};border:1px solid {ACCENT_SOFT};'
+                                f'border-radius:14px;')
+        iv = QtWidgets.QVBoxLayout(info_card)
+        iv.setContentsMargins(16, 14, 16, 14)
+        iv.setSpacing(4)
+        info_lines = [
+            '🌐 全平台（Win / macOS / Linux / Android）',
+            '🧠 自研 LLM：2B / 1B 基底模型 · LoRA 持续成长',
+            '🎭 7 个 VRM 角色 · 46 个动作 · MToon 卡通渲染',
+            '💾 纯 Python 3D 渲染（GLSL/OpenGL/numpy 三级降级）',
+            '✨ 全UI启动器 + 工作台 · 傻瓜式一键启动',
+        ]
+        for line in info_lines:
+            lbl = QtWidgets.QLabel(line)
+            lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
+            iv.addWidget(lbl)
+        v.addWidget(info_card)
         v.addStretch(1)
         close_btn = QtWidgets.QPushButton('关闭')
-        close_btn.setFixedHeight(34)
-        close_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;border-radius:17px;font-weight:600;')
+        close_btn.setFixedHeight(36)
+        close_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;'
+                                f'border-radius:18px;font-weight:700;font-size:13px;')
         close_btn.clicked.connect(dlg.accept)
         v.addWidget(close_btn)
         dlg.exec()
@@ -1167,6 +1304,44 @@ def build_dashboard(renderer=None, engine=None, log=print):
     btn_distill.clicked.connect(start_distill)
     btn_setting.clicked.connect(show_setting)
     btn_about.clicked.connect(show_about)
+
+    # v1.1：顶部"?"按钮 → 快速使用指南（与全UI启动器配套）
+    def show_help():
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle('使用帮助')
+        dlg.setFixedSize(520, 460)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        v = QtWidgets.QVBoxLayout(dlg)
+        v.setContentsMargins(28, 24, 28, 22)
+        v.setSpacing(10)
+        title = QtWidgets.QLabel('🌸 一分钟上手小凌')
+        title.setStyleSheet(f'color:{ACCENT};font-size:18px;font-weight:800;')
+        v.addWidget(title)
+        body = QtWidgets.QTextEdit()
+        body.setReadOnly(True)
+        body.setStyleSheet(f'background:{CARD_BG};color:{TEXT_DARK};'
+                           f'border:1px solid {ACCENT_SOFT};border-radius:14px;'
+                           f'padding:14px;font-size:13px;')
+        body.setHtml(
+            '<style>li{margin:6px 0;}b{color:#d4385c;}</style>'
+            '<ul>'
+            '<li><b>首次启动</b>：会自动弹出全UI启动器，选择想自研的基底模型后一键下载。</li>'
+            '<li><b>切换 LLM 档位</b>：顶部 <code>🧠 自研 N B 模型</code> 下拉框可换基底，后台自动下载。</li>'
+            '<li><b>切换 VRM 角色</b>：旁边 <code>角色模型</code> 下拉框选 7 个角色，<b>导入模型</b> 加新角色。</li>'
+            '<li><b>对话</b>：底部输入框敲回车；<b>双击她</b>打开桌宠输入。</li>'
+            '<li><b>成长</b>：右下角 <b>+</b> 按钮 → 启用 <code>蒸馏训练</code> 插件 → <b>开始蒸馏训练</b>。</li>'
+            '<li><b>指令</b>：说「蒸馏」「成长进度」「晋升评估」「升 rank」「暂停成长」「记忆检索 …」。</li>'
+            '<li><b>模型下载</b>：进度会同步在桌宠气泡里；下载完成自动继续启动。</li>'
+            '</ul>')
+        v.addWidget(body, 1)
+        close_btn = QtWidgets.QPushButton('我知道了')
+        close_btn.setFixedHeight(36)
+        close_btn.setStyleSheet(f'background:{ACCENT};color:white;border:none;'
+                                f'border-radius:18px;font-weight:700;font-size:13px;')
+        close_btn.clicked.connect(dlg.accept)
+        v.addWidget(close_btn)
+        dlg.exec()
+    btn_help.clicked.connect(show_help)
 
     func_row.addStretch(1)
     func_row.addWidget(btn_distill)
