@@ -202,6 +202,26 @@ def run_launcher(app_state: dict | None = None) -> str | None:
     progress_lbl.setAlignment(QtCore.Qt.AlignCenter)
     progress_lbl.hide()
 
+    # 底部版本号 + 成长状态
+    footer = QtWidgets.QLabel('小凌 v0.0.1 · 你的专属AI正在成长中')
+    footer.setStyleSheet(f'color:{PALETTE_MUTED};font-size:11px;')
+    footer.setAlignment(QtCore.Qt.AlignCenter)
+
+    # 成长进度条（示例）
+    growth_bar = QtWidgets.QProgressBar()
+    growth_bar.setRange(0, 100)
+    growth_bar.setValue(12)  # 初始进度
+    growth_bar.setTextVisible(False)
+    growth_bar.setFixedHeight(4)
+    growth_bar.setStyleSheet(f'''
+        QProgressBar {{ background:{PALETTE_LINE}; border-radius:2px; }}
+        QProgressBar::chunk {{
+            background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                stop:0 {PALETTE_ACCENT}, stop:1 {PALETTE_ACCENT2});
+            border-radius:2px;
+        }}
+    ''')
+
     # ----- 整体布局 -----
     root = QtWidgets.QVBoxLayout(win)
     root.setContentsMargins(40, 32, 40, 28)
@@ -211,8 +231,10 @@ def run_launcher(app_state: dict | None = None) -> str | None:
     root.addSpacing(8)
     root.addWidget(cards_box, 1)
     root.addWidget(progress_lbl)
+    root.addWidget(growth_bar)
     root.addWidget(btn_go)
     root.addWidget(btn_skip, 0, QtCore.Qt.AlignCenter)
+    root.addWidget(footer)
 
     chosen = {'key': None}
 
