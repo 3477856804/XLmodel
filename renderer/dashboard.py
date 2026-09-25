@@ -341,6 +341,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
         ('growth', '成长仪表盘', '#4a7a9a', None),
         ('data', '数据管理', '#6a8a5a', None),
         ('control', '成长控制', '#9a5a6a', None),
+        ('wizard', '环境向导', '#6a7a9a', None),
     ]
     _enabled = {pid: False for pid, _, _, _ in _plugins}
 
@@ -393,6 +394,8 @@ def build_dashboard(renderer=None, engine=None, log=print):
             open_data_panel()
         elif pid == 'control':
             open_control_panel()
+        elif pid == 'wizard':
+            open_wizard()
 
     # 右下角浮动 + 按钮
     plus_btn = QtWidgets.QPushButton('+')
@@ -1383,6 +1386,14 @@ def build_dashboard(renderer=None, engine=None, log=print):
         from core.growth import GrowthEngine
         from core.paths import APP_DIR as _APP_DIR
         return GrowthEngine(base_dir=_APP_DIR, log=lambda *a: None)
+
+    # ---------- 环境配置向导（与启动时弹的是同一个实现） ----------
+    def open_wizard():
+        try:
+            from renderer import wizard as _wiz
+            _wiz.run_wizard(parent=win, log=log)
+        except Exception as e:                                         # noqa: BLE001
+            chat_log.append(f'<div style="color:#9a8a90">环境向导打开失败：{e}</div>')
 
     # ---------- P1-2：成长仪表盘（版本 / 体积 / 损失曲线 / 晋升时间线） ----------
     def open_growth_panel():

@@ -7038,6 +7038,16 @@ if __name__ == "__main__":
         # v0.0.4 fix：启动先自动装好 AI 依赖（用户要求"启动就下载好所有依赖"）
         # 乙-2：现在只自动装非 torch 依赖；torch 交给环境向导，避免覆盖 CUDA 版。
         _ensure_deps()
+        # 零配置直接启动：缺依赖 / 缺 API Key / 缺模型权重时弹一次「环境配置向导」。
+        # 尊重「不再提醒」与「环境没变就跳过」；没装 PySide6 时自动降级成控制台提示。
+        try:
+            from renderer import i18n as _i18n
+            from renderer import wizard as _wizard
+            _i18n.init_from_config()
+            if _wizard.should_auto_show():
+                _wizard.run_wizard(log=print)
+        except Exception as _wiz_err:   # noqa: BLE001
+            print(f"  [向导] 打开失败（不影响启动）：{_wiz_err}")
         # v1.0 融合层：桌面（GUI）模式下不阻塞在控制台交互上——
         #   档位读配置，基底缺失则后台下载，并把进度同步到桌宠气泡。
         try:

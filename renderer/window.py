@@ -364,6 +364,7 @@ class PetWindow:
                    ('训练', self._start_training),
                    ('成长状态', self._growth),
                    ('设置', self.open_settings),
+                   ('环境向导', self._open_wizard),
                    ('隐藏', lambda: parent.hide()),
                    ('退出', self.quit)]
         # 「切换角色」做成模型列表子菜单：列出全部 VRM，当前模型打勾，点谁切谁
@@ -391,6 +392,16 @@ class PetWindow:
             act = menu.addAction(label)
             act.triggered.connect(fn)
         menu.exec_(pos) if hasattr(menu, 'exec_') else menu.exec(pos)
+
+    def _open_wizard(self):
+        """桌宠右键「环境向导」：复用与启动时同一个向导实现。"""
+        try:
+            from renderer import wizard as _wiz
+            _wiz.run_wizard(parent=self.widget, log=self.log)
+        except Exception as e:                                            # noqa: BLE001
+            self.log(f'  [向导] 打开失败：{e}')
+            if self.widget is not None and hasattr(self.widget, 'show_bubble'):
+                self.widget.show_bubble(f'环境向导打不开：{e}')
 
     def _start_training(self):
         """桌宠右键「训练」：后台跑一轮蒸馏训练（P2-6 菜单补项）。
