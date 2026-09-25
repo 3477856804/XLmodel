@@ -22,14 +22,16 @@ import threading
 from pathlib import Path
 
 # 与 dashboard.py / xl.py / fusion.py 同款的"樱花"调色板（保持视觉一致）
-PALETTE_BG     = '#fff7f9'         # 米白底
+PALETTE_BG     = '#fef9fb'         # 更柔的米白
 PALETTE_CARD   = '#ffffff'
-PALETTE_TEXT   = '#3a2a30'
+PALETTE_TEXT   = '#2d1f25'
 PALETTE_MUTED  = '#9a8a90'
 PALETTE_ACCENT = '#e23b6e'         # 樱花深粉（强调色）
+PALETTE_ACCENT2 = '#ff6b9d'        # 浅粉渐变
 PALETTE_LINE   = '#f0e4e8'
 PALETTE_OK     = '#3b8a5a'
 PALETTE_WARN   = '#d39c3b'
+PALETTE_SHADOW = 'rgba(226, 59, 110, 0.08)'
 
 MODEL_PRESETS_PUBLIC = [
     {
@@ -96,7 +98,12 @@ def run_launcher(app_state: dict | None = None) -> str | None:
     win.setWindowTitle('小凌 · 启动')
     win.resize(960, 640)
     win.setMinimumSize(820, 560)
-    win.setStyleSheet(f'background:{PALETTE_BG};')
+    win.setStyleSheet(f'''
+        QWidget {{
+            background: qlineargradient(x1:0,y1:0,x2:0.3,y2:1,
+                stop:0 #fff5f8, stop:1 #fef9fb);
+        }}
+    ''')
 
     # ----- 顶部欢迎区 -----
     title = QtWidgets.QLabel('你好，我是小凌 👋')
