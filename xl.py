@@ -7012,7 +7012,15 @@ if __name__ == "__main__":
     _fusion_only = any(_a in ("--growth", "--avatar-only", "--probe", "--showcase",
                               "--selftest", "--dashboard") for _a in sys.argv[1:])
     if not _fusion_only:
+        # 甲-1：把历史 .env（旧 setup_kali.sh 写的、程序从来不读的那个文件）
+        # 里的 DeepSeek 配置迁移进 .star_core/xiaoling_config.json，避免老用户丢配置。
+        try:
+            from core import config as _cfg_mig
+            _cfg_mig.migrate_legacy_env(log=print)
+        except Exception as _mig_err:   # noqa: BLE001
+            print(f"  [配置] 历史 .env 迁移跳过：{_mig_err}")
         # v0.0.4 fix：启动先自动装好 AI 依赖（用户要求"启动就下载好所有依赖"）
+        # 乙-2：现在只自动装非 torch 依赖；torch 交给环境向导，避免覆盖 CUDA 版。
         _ensure_deps()
         # v1.0 融合层：桌面（GUI）模式下不阻塞在控制台交互上——
         #   档位读配置，基底缺失则后台下载，并把进度同步到桌宠气泡。

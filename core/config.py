@@ -179,6 +179,93 @@ def get(dotted: str, default=None):
     return cur if cur is not None else default
 
 
+# --------------------------------------------------------------------------- #
+#  历史 .env 迁移
+#
+#  旧版 setup_kali.sh 把 Key 写进 <项目根>/.env 的 DEEPSEEK_API_KEY / API_BASE_URL，
+#  但程序从来只读 .star_core/xiaoling_config.json 的 deepseek_api_key /
+#  deepseek_base_url —— 键名和文件都不是同一个，所以那条配置一直是死的
+#  （用户按脚本配完，蒸馏老师仍然离线）。
+#
+#  现在统一到 config.json（单一真相源），这里负责把老用户的 .env 搬过来，
+#  避免他们丢配置。**只读 .env，不删除它**，迁移后提示用户可自行删除。
+# --------------------------------------------------------------------------- #
+_LEGACY_ENV_MAP = {
+    'DEEPSEEK_API_KEY': 'deepseek_api_key',
+    'DEEPSEEK_BASE_URL': 'deepseek_base_url',
+    'API_BASE_URL': 'deepseek_base_url',          # 旧脚本用的就是这个键名
+    'TEACHER_MODEL': 'teacher_model',
+}
+
+
+def _parse_env_file(path: Path) -> dict:
+    """极简 .env 解析（不引入 python-dotenv）。支持 export 前缀、引号、# 注释。"""
+    out = {}
+    try:
+        for raw in Path(path).read_text(encoding='utf-8').splitlines():
+            line = raw.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.lower().startswith('export '):
+                line = line[7:].strip()
+            if '=' not in line:
+                continue
+            k, v = line.split('=', 1)
+            k, v = k.strip(), v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                v = v[1:-1]
+            if k:
+                out[k] = v
+    except Exception:                                                # noqa: BLE001
+        pass
+    return out
+
+
+def migrate_legacy_env(env_path: Path | None = None, log=None) -> dict:
+    """把历史 .env 的 DeepSeek 配置迁移进 xiaoling_config.json。
+
+    只迁移「config.json 里还没填」的键，绝不覆盖用户在 UI 里已经设好的值。
+    返回 {'found', 'migrated', 'skipped', 'path', 'env_path'}
+    """
+    say = log or (lambda *a, **k: None)
+    env_file = Path(env_path) if env_path else (APP_DIR / '.env')
+    res = {'found': False, 'migrated': [], 'skipped': [], 'keys': {},
+           'path': str(CONFIG_PATH), 'env_path': str(env_file)}
+    if not env_file.exists():
+        return res
+    parsed = _parse_env_file(env_file)
+    picked = {dst: parsed[src] for src, dst in _LEGACY_ENV_MAP.items()
+              if parsed.get(src)}
+    if not picked:
+        return res
+    res['found'] = True
+    res['keys'] = dict(picked)
+
+    cur = load()
+    changes = {}
+    for k, v in picked.items():
+        now = cur.get(k)
+        # 判定"用户是否真的设过"：空 / 占位符 / 仍等于出厂默认值 → 都算没设过。
+        # 注意不能只判空：deepseek_base_url 的默认值就是官方 URL，
+        # 若只判空，用户在中转站 .env 里配的地址会被永久跳过。
+        default = DEFAULTS.get(k)
+        unset = (now in (None, '', '暂未填入')) or (default is not None and now == default)
+        if unset:
+            changes[k] = v
+        else:
+            res['skipped'].append(k)
+    if changes:
+        patch(changes)
+        res['migrated'] = sorted(changes)
+        say(f'  [配置] 已从历史 .env 迁移 {len(changes)} 项到 {CONFIG_PATH.name}：'
+            f'{"、".join(sorted(changes))}')
+    if res['skipped']:
+        say(f'  [配置] 已存在配置、未覆盖：{"、".join(res["skipped"])}')
+    if res['migrated'] or res['skipped']:
+        say(f'  [配置] 迁移完成，可自行删除旧文件：{env_file}（程序不再读它）')
+    return res
+
+
 if __name__ == '__main__':
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == 'init':
