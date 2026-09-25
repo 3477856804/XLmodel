@@ -184,7 +184,7 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
     """在 main() 之前调用（xl.py 的 __main__ 里）。
 
     · 命令行模式：保持原行为——交互式档位选择 + 控制台下载进度。
-    · GUI 模式：跳过交互（档位取配置，可在设置里改），基底缺失就后台下载，
+    · GUI 模式：跳过控制台交互（档位取配置，可在设置里改），基底缺失就后台下载，
       并把进度写进 `set_progress()` → 桌宠窗口轮询后以气泡显示。
     返回 True 表示已在后台接管模型准备流程。
     """
@@ -203,6 +203,23 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
         else:
             select_model_on_start()
         return False
+    # v1.1：GUI 模式 + 无权重 → 优先弹全UI启动器选档位 + 一键下载
+    try:
+        from core import launcher_ui
+        if launcher_ui.is_ui_available():
+            print('  [启动器] 弹出全UI启动器选择基底模型')
+            chosen = launcher_ui.select_model_on_start_ui()
+            if chosen:
+                # 同步刷新内存 CONFIG 里的 base_model，确保 get_model_preset 用新值
+                try:
+                    from core import config as _cfg_mod
+                    _cfg = _cfg_mod.load()
+                    _cfg['model']['base_model'] = chosen
+                    _cfg_mod.save(_cfg)
+                except Exception:
+                    pass
+    except Exception as _e:
+        print(f'  [启动器] UI 启动器不可用（{_e}），回退到后台下载')
     print('  [模型] 未检测到基底权重 → 后台下载中，进度会同步出现在桌宠气泡里')
 
     def _worker():
