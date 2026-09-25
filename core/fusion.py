@@ -403,6 +403,154 @@ def _cmd_rag(app, arg):
     return '记忆检索结果：\n' + '\n'.join(f"· [{h['score']}] {h['text'][:80]}" for h in hits)
 
 
+def _eng_or_none(app):
+    return getattr(app, 'growth_engine', None)
+
+
+def _cmd_pause(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    res = eng.pause()
+    return '好的，成长暂停了。你随时说「恢复成长」我就继续。' if res.get('ok') else str(res)
+
+
+def _cmd_resume(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    res = eng.resume()
+    return '成长已恢复，我会接着慢慢长的。' if res.get('ok') else str(res)
+
+
+def _cmd_trigger(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    g = eng.should_train(manual=True)
+    lines = [f"现在{'可以' if g['ok'] else '还不行'}开始一轮成长：{g['message']}"]
+    d = g.get('details', {})
+    if d.get('pending_samples') is not None:
+        lines.append(f"  · 待训练样本：{d.get('pending_samples')}（{d.get('mode')}）")
+    if d.get('hours_since_last') is not None:
+        lines.append(f"  · 距上次训练：{d['hours_since_last']} 小时")
+    if d.get('compute'):
+        lines.append(f"  · 算力：{d['compute']}")
+    return '\n'.join(lines)
+
+
+def _cmd_eval(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    r = eng.evaluate()
+    lines = [f"晋升三条件评估：{r['summary']}" + ('（演练模式）' if r.get('simulated') else '')]
+    for k in ('A', 'B', 'C'):
+        v = r[k]
+        lines.append(f"  条件 {k}：{'通过' if v['ok'] else '未过'} —— {v.get('detail', '')}")
+    return '\n'.join(lines)
+
+
+def _cmd_rank(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    st = eng.rank_status()
+    if not st.get('rank'):
+        return f"还没有可升的 LoRA 适配器（{st.get('error') or '未找到 adapter_config.json'}）"
+    if _arg and _arg.strip().isdigit():
+        res = eng.grow_rank(int(_arg.strip()))
+        return res.get('message', str(res))
+    return (f"当前 LoRA rank=r{st['rank']}，适配器 {st['weights_human']}。"
+            f"{st['note']}。说「升 rank」我就升一档。")
+
+
+def _cmd_grow_rank(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    res = eng.grow_rank()
+    if res.get('ok'):
+        return (f"LoRA rank 升到 r{res.get('rank_to')} 了："
+                f"{res.get('message', '')}。适配器 {res.get('growth_human', '')} 增长。")
+    return res.get('message') or res.get('error') or str(res)
+
+
+def _cmd_samples(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    return eng.samples_report()
+
+
+def _cmd_rollback(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    gen = int(_arg.strip()) if (_arg or '').strip().isdigit() else None
+    res = eng.rollback(gen)
+    return res.get('message', str(res))
+
+
+def _cmd_gc(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    res = eng.gc()
+    if res.get('deleted'):
+        return f"清理完成：删掉 {len(res['deleted'])} 个旧代，释放 {res.get('freed_human')}"
+    return res.get('message', '')
+
+
+def _cmd_export(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    from core.paths import APP_DIR as _APP
+    out = (_arg or '').strip() or str(_APP / '我的小凌模型.zip')
+    res = eng.export(out)
+    if res.get('ok'):
+        return f"已经打包好了：{res['path']}（{res['files']} 个文件，{res['human']}）"
+    return str(res)
+
+
+def _cmd_lifecycle(app, _arg=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    return eng.lifecycle.report()
+
+
+def _feedback(app, value, corrected=None):
+    eng = _eng_or_none(app)
+    if not eng:
+        return '成长引擎不可用'
+    rid = getattr(app, '_last_record_id', None)
+    if not rid:
+        return '这条我还没记下来呢，先跟我聊几句吧'
+    res = eng.store.set_feedback(rid, value, corrected)
+    if not res.get('ok'):
+        return res.get('error', '记录失败')
+    word = {'like': '谢谢喜欢，我记下了！', 'dislike': '收到，我会试着改的。',
+            'correct': '明白，就按你教的来！'}.get(value, '记下了')
+    return f'{word}（质量分 {res["quality_score"]}）'
+
+
+def _cmd_like(app, _arg=None):
+    return _feedback(app, 'like')
+
+
+def _cmd_dislike(app, _arg=None):
+    return _feedback(app, 'dislike')
+
+
+def _cmd_correct(app, arg):
+    text = (arg or '').strip()
+    if not text:
+        return '这样，你说「纠正为 <正确的回答>」，我就照着学'
+    return _feedback(app, 'correct', text)
+
+
 COMMANDS = [
     (('变身', '开数字人', '启动数字人', '打开数字人'), _cmd_avatar),
     (('换角色', '换个角色', '下一个角色'), _cmd_next_model),
@@ -418,6 +566,21 @@ COMMANDS = [
     (('整理文件夹', '扫描文件夹'), _cmd_filebox),
     (('成长进度', '成长报告'), _cmd_growth),
     (('记忆检索', '找找记忆'), _cmd_rag),
+    # —— 成长控制（设计文档 7.7 用户控制权）——
+    (('暂停成长', '暂停训练', '暂停学习'), _cmd_pause),
+    (('恢复成长', '继续成长', '恢复训练'), _cmd_resume),
+    (('成长条件', '能否训练', '训练条件'), _cmd_trigger),
+    (('晋升评估', '能力评估', '三条件'), _cmd_eval),
+    (('升 rank', '升rank', '提升rank', '升秩'), _cmd_grow_rank),
+    (('rank', '适配器秩'), _cmd_rank),
+    (('样本状态', '训练样本', '蒸馏用量', '样本统计'), _cmd_samples),
+    (('回滚模型', '回滚到上一代', '回滚'), _cmd_rollback),
+    (('清理旧代', '清理模型', '回收空间'), _cmd_gc),
+    (('导出模型', '导出我的模型', '备份模型'), _cmd_export),
+    (('模型生命周期', '模型代数', '历代模型'), _cmd_lifecycle),
+    (('点赞', '这个回答很好', '喜欢这个回答'), _cmd_like),
+    (('点踩', '这个回答不好', '不喜欢这个回答'), _cmd_dislike),
+    (('纠正为', '应该是'), _cmd_correct),
     (('融合帮助', '新功能', '指令帮助'), _cmd_help),
 ]
 
@@ -635,6 +798,15 @@ def wrap_engine_class(g):
                 _avatar_say(result)
         except Exception:                                             # noqa: BLE001
             pass
+        # 成长数据记账（设计文档 2.2 第 1 路：真实对话全量记录 + 稳定期对话轮次）
+        try:
+            eng = getattr(self, 'growth_engine', None)
+            if eng is not None and isinstance(result, str) and result:
+                row = eng.store.add(user_input, base_output=result, source='chat')
+                self._last_record_id = row['id']
+                eng.bump_dialogue()
+        except Exception as e:                                        # noqa: BLE001
+            _log(f'成长数据记账跳过：{type(e).__name__}: {e}')
         return result
 
     def growth_report(self):
@@ -698,7 +870,27 @@ def wrap_distill(g):
             _log(f'成长检查失败：{e}')
 
     def run_distill_fused(app, rounds=6, epochs=2):
+        # 蒸馏节流（设计文档 3.4）：关闭时纯本地成长，配额用尽时提醒但仍允许本地训练
+        eng = getattr(app, 'growth_engine', None)
+        if eng is not None:
+            try:
+                rep = eng.throttle.usage_report()
+                if not rep['enabled']:
+                    print('  [蒸馏] API 蒸馏已关闭 → 本轮纯本地成长（不调用老师模型）')
+                elif rep['remaining_today'] <= 0:
+                    print(f"  [蒸馏] 今日配额已用完（{rep['used_today']}/{rep['daily_limit']}），"
+                          f"本轮只用本地已有语料训练")
+                else:
+                    print(f"  [蒸馏] 今日配额 {rep['used_today']}/{rep['daily_limit']}，"
+                          f"缓存 {rep['cache_entries']} 条，本月预估 {rep['month']['cost_yuan']:.4f} 元")
+            except Exception as e:                                     # noqa: BLE001
+                _log(f'蒸馏节流检查跳过：{type(e).__name__}')
         out = orig_run(app, rounds, epochs) if callable(orig_run) else None
+        if eng is not None:
+            try:
+                eng.throttle.record('(xl.py 蒸馏批次)', '', tokens_in=0, tokens_out=0)
+            except Exception:                                          # noqa: BLE001
+                pass
         _after_training(app, epochs)
         return out
 

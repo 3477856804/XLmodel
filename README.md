@@ -135,19 +135,18 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
 
 ## 手机（Android）也能跑
 
-已经打包好可直接安装的 APK（Chaquopy 把 CPython 装进 APK，**无需 NDK**）：
+同一份 Python 代码（`core/` + `renderer/`）可以跑在 Android 的 CPython 里，
+画面走 numpy 软件光栅渲染，长按出菜单、左滑转视角、双击打招呼。
 
-| 文件 | 体积 | 说明 |
-|---|---|---|
-| `android/bin/xiaoling-1.0.0-android-arm64-debug.apk` | 30 MB | arm64-v8a，debug 签名，侧载即可装 |
-
-- 手机上：**同一份 Python 代码**（`core/` + `renderer/`）在 APK 内的 CPython 里运行，
-  画面用 numpy 软件光栅渲染（约 2–6 fps），长按出菜单、左滑转视角、双击/点按打招呼。
-- 聊天：设置里填 DeepSeek（或任意 OpenAI 兼容）Key → 真聊天；不填则规则引擎 + 本地记忆。
-- ⚠️ APK 内**没有 torch**（Android 无官方轮子），所以**成长闭环训练**请走 Termux：
-  `pkg install python python-torch && bash packaging/termux/install.sh`，
+- 手机端**没有 torch**（Android 无官方 wheel），所以成长闭环训练请走 Termux：
+  `pkg install python python-torch && bash 打包/termux/install.sh`，
   训练出的 `adapter/` 可直接拷回手机或电脑复用。
-- 重新打包：`ANDROID_HOME=<sdk> bash android/native/build_apk.sh`（详见 `android/README.md`）
+- APK 打包脚手架位于 `打包/`（Windows: `打包/windows/xiaoling.iss`，
+  Linux: `打包/linux/`，macOS: `打包/macos/make_dmg.sh`，Android/Termux: `打包/termux/`）。
+  **仓库不附带已构建的安装包**，请按 `打包/README.md` 在本地环境实际构建后再分发。
+- 聊天：设置里填 DeepSeek（或任意 OpenAI 兼容）Key → 真聊天；不填则规则引擎 + 本地记忆。
+
+---
 
 ## 常用指令
 
@@ -164,6 +163,13 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
 | `生图 <描述>` | AI 生图（参考图可说「把这张图作为参考图」） |
 | `整理文件夹 <路径>` | 文件工具箱：整理/图片压缩/视频压缩/内容去重 |
 | `成长进度` / `记忆检索 <词>` | 成长报告 / 本地记忆检索 |
+| `暂停成长` / `恢复成长` | 暂停或恢复自训练（桌宠照常聊天） |
+| `成长条件` | 说明"现在能不能训练、卡在哪一条" |
+| `晋升评估` | 跑一遍晋升三条件（体积 / 验证集 / 通用基准） |
+| `升 rank` | 适配器长不动时手动升一档 LoRA rank |
+| `样本状态` | 样本量、反馈分布、蒸馏用量与本月预估费用 |
+| `点赞` / `点踩` / `纠正为 <正确回答>` | 给上一条回答打反馈，直接影响训练样本 |
+| `回滚模型` / `清理旧代` / `导出模型` | 回滚到上一代 / 释放空间 / 打包自己的模型 |
 | `蒸馏` / `spawn 任务 N` / `kg 查询` | 蒸馏学习 / 子 Agent / 知识图谱（沿用原小凌） |
 
 ---
@@ -171,35 +177,37 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
 ## 目录结构
 
 ```
-xiaoling/
-├── xl.py                  # 唯一入口（原小凌引擎 + 融合层）
-├── pet.py                 # 桌宠：--mode auto|3d|webm
-├── core/                  # ★ 融合层（Python 业务逻辑）
-│   ├── growth.py          #   成长闭环：训练→检查→合并→晋升→脱离基底
-│   ├── peft_train.py      #   LoRA 蒸馏训练器
-│   ├── avatar.py          #   3D 数字人宿主（窗口 + 本地 HTTP + IPC 桥）
-│   ├── fusion.py          #   零回归包装层（把上面这些接进 xl.py）
-│   ├── config.py          #   统一配置中心（.star_core/xiaoling_config.json）
-│   ├── rag.py search.py vision.py tts.py asr.py perception.py
-│   ├── proactive.py reminder.py imagen.py filebox.py selftest.py
+XLmodel/
+├── xl.py                  # 唯一入口（对话引擎 + 融合层接入）
+├── pet.py                 # 桌宠入口：--mode auto|3d|2d|console（2D 为程序化绘制，无素材依赖）
+├── core/                  # ★ 融合层与业务逻辑（Python）
+│   ├── growth.py          #   成长闭环引擎 v2：触发→训练→三条件→晋升→退役
+│   ├── growth_store.py    #   训练数据仓库（SQLite + 质量分 + 去重 + DPO 偏好对）
+│   ├── eval.py            #   晋升三条件评估 + 内置基准测试集
+│   ├── rank.py            #   动态升 rank（LoRA 体积真正长大）
+│   ├── lifecycle.py       #   模型生命周期：trash 退役 / 稳定期 / GC / 回滚 / 导出
+│   ├── throttle.py        #   DeepSeek 蒸馏节流：缓存 / 限流 / 开关 / 成本估算
+│   ├── device.py          #   算力探测与显存分级策略（推理 + 训练）
+│   ├── peft_train.py      #   LoRA 蒸馏训练器（量化 / 梯度累积 / 损失曲线）
+│   ├── avatar.py fusion.py config.py paths.py
+│   └── rag.py search.py vision.py tts.py asr.py perception.py
+│       proactive.py reminder.py imagen.py filebox.py voices.py selftest.py
 ├── renderer/              # ★ 3D 渲染层（100% Python）
 │   ├── gltf.py model.py pose.py vrma.py camera.py   # 解析 / VRM 语义 / 蒙皮 / 动作 / 相机
 │   ├── gl.py soft.py      # OpenGL(GPU, GLSL) 后端 / numpy 软件光栅兜底
-│   ├── lipsync.py         #   文本 → 口型
-│   ├── renderer.py        #   统一门面 AvatarRenderer（模型/动作/表情/口型/每帧出图）
-│   ├── window.py settings.py  # Qt 透明置顶窗 + 设置页（取代 HTML）
-│   └── app.py             #   与 xl.py 引擎对接的宿主（API 与原 Electron 版对齐）
+│   ├── lipsync.py renderer.py window.py settings.py
+│   └── app.py dashboard.py # 引擎宿主 / 3D 工作台
 ├── 角色模型/              # 7 个 VRM（含 小凌.vrm）
 ├── 动作资产/              # 46 个 VRMA 动作
-├── assets/animations/     # 7 组 WEBM（2D 兜底）
-├── sounds/tool/           # 8 个工具音效
-├── tools/                 # 形象流水线（vrm_lib / xiaoling_avatar / vrm_preview）
-├── tests/                 # 成长闭环 / 融合层 / 形象流水线 回归测试
-├── docs/                  # 分析报告 · 语言选型 · 接口契约 · 功能映射 · JSON 数据
-├── skills/ data/ scripts/ build/ preview/ .star_core/
+├── 素材/                  # 形象素材（xiaoling.png 等）
+├── sounds/tool/           # 8 个工具音效（由 工具/make_sounds.py 程序化生成）
+├── assets/                # 图标等打包资源
+├── 工具/                  # 形象流水线 + 文档生成（vrm_lib / xiaoling_avatar / gen_docs）
+├── 测试/                  # 回归测试：成长 v2 / 成长 / 融合 / 渲染 / 形象
+├── docs/                  # 分析报告 · 语言选型 · 接口契约 · 功能映射 · 成长管线规范
+├── 技能/ 数据/ 脚本/ 打包/ .star_core/ .github/
 └── README.md
 ```
-
 ---
 
 ## 文档
@@ -211,7 +219,8 @@ xiaoling/
 | [`docs/接口契约.md`](docs/接口契约.md) · [`.csv`](docs/接口契约.csv) · [`openapi.yaml`](docs/openapi.yaml) | 渲染层 Python API / 成长 API / 平台回调 |
 | [`docs/功能映射.md`](docs/功能映射.md) | 小玥每一项功能 → Python 实现的对照表 |
 | [`docs/features.json`](docs/features.json) · [`docs/tree.json`](docs/tree.json) · [`docs/stats.json`](docs/stats.json) | 结构化功能清单 / 文件树 / 规模统计 |
-| [`docs/小凌形象卡片.png`](docs/小凌形象卡片.png) | 形象四视图 |
+| [`docs/成长管线规范.md`](docs/成长管线规范.md) | 成长闭环的落地规范与全部可调参数 |
+| [`docs/小凌形象卡片.png`](docs/小凌形象卡片.png) | 形象卡片 |
 
 ---
 

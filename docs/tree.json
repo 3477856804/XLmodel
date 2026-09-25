@@ -1,0 +1,194 @@
+{
+ ".github": {
+  "workflows": {
+   "build.yml": 3611,
+   "release.yml": 2868
+  }
+ },
+ ".gitignore": 72,
+ ".star_core": {
+  "adapter_config.json": 1224,
+  "chat_template.jinja": 2561,
+  "growth": {
+   "lifecycle.json": 76,
+   "records.db": 57344
+  },
+  "rag": {
+   "index.jsonl": 261
+  },
+  "tokenizer_config.json": 716
+ },
+ "README.md": 13443,
+ "assets": {
+  "icon.ico": 153569,
+  "icon.png": 104013
+ },
+ "core": {
+  "__init__.py": 0,
+  "asr.py": 3806,
+  "avatar.py": 2552,
+  "config.py": 7832,
+  "device.py": 7713,
+  "eval.py": 21761,
+  "filebox.py": 5924,
+  "fusion.py": 37747,
+  "growth.py": 49855,
+  "growth_store.py": 35196,
+  "imagen.py": 4162,
+  "lifecycle.py": 24395,
+  "paths.py": 4496,
+  "peft_train.py": 7441,
+  "perception.py": 3862,
+  "proactive.py": 4757,
+  "rag.py": 5987,
+  "rank.py": 15772,
+  "reminder.py": 4184,
+  "search.py": 4898,
+  "selftest.py": 9147,
+  "throttle.py": 11703,
+  "tts.py": 6493,
+  "vision.py": 5100,
+  "voices.py": 3188
+ },
+ "pet.py": 6941,
+ "renderer": {
+  "__init__.py": 1026,
+  "app.py": 18487,
+  "camera.py": 3751,
+  "dashboard.py": 53491,
+  "gl.py": 21582,
+  "gltf.py": 8429,
+  "lipsync.py": 2900,
+  "model.py": 11274,
+  "pose.py": 12634,
+  "renderer.py": 14647,
+  "settings.py": 5170,
+  "soft.py": 9160,
+  "vrma.py": 9562,
+  "window.py": 18567
+ },
+ "requirements.txt": 1771,
+ "setup_kali.sh": 54939,
+ "sounds": {
+  "tool": {
+   "click.wav": 7982,
+   "error.wav": 7982,
+   "message.wav": 7982,
+   "notify.wav": 7982,
+   "remind.wav": 7982,
+   "start.wav": 7982,
+   "success.wav": 7982,
+   "wake.wav": 7982
+  }
+ },
+ "start.sh": 758,
+ "xl.py": 325268,
+ "xl_memory.json": 1239,
+ "动作资产": {
+  "Jump.vrma": 118448,
+  "bingo.vrma": 1108548,
+  "dance_舞蹈1.vrma": 771756,
+  "dance_舞蹈11.vrma": 821172,
+  "dance_舞蹈12.vrma": 628100,
+  "dance_舞蹈13.vrma": 1316264,
+  "dance_舞蹈14.vrma": 733068,
+  "dance_舞蹈15.vrma": 729512,
+  "dance_舞蹈2.vrma": 885276,
+  "dance_舞蹈3.vrma": 518256,
+  "dance_舞蹈4.vrma": 365132,
+  "dance_舞蹈5.vrma": 1273424,
+  "dance_舞蹈6.vrma": 463692,
+  "dance_舞蹈7.vrma": 527920,
+  "dance_舞蹈8.vrma": 690224,
+  "dance_舞蹈9.vrma": 663696,
+  "上台阶走路.vrma": 79256,
+  "不知道.vrma": 559496,
+  "原地开心蹦跳.vrma": 749820,
+  "喝水.vrma": 613560,
+  "坐着.vrma": 307340,
+  "展示服装转圈.vrma": 1348388,
+  "待机站立.vrma": 518364,
+  "待机，原地晃动.vrma": 521156,
+  "快速奔跑.vrma": 55548,
+  "手势舞.vrma": 1155624,
+  "打招呼.vrma": 416320,
+  "挂机_Angry.vrma": 118448,
+  "挂机_Blush.vrma": 118448,
+  "挂机_Clapping.vrma": 118448,
+  "挂机_Goodbye.vrma": 118448,
+  "挂机_LookAround.vrma": 118448,
+  "挂机_Relax.vrma": 118448,
+  "挂机_Sad.vrma": 118448,
+  "挂机_Sleepy.vrma": 118448,
+  "挂机_Surprised.vrma": 118448,
+  "挂机_Thinking.vrma": 118448,
+  "摇头.vrma": 61848,
+  "旋转.vrma": 82196,
+  "晃胳膊.vrma": 771944,
+  "欢快扭动.vrma": 160064,
+  "比耶.vrma": 1335704,
+  "玩手机.vrma": 281528,
+  "走路.vrma": 66604,
+  "跪拜.vrma": 204992,
+  "转圈展示.vrma": 632316
+ },
+ "工具": {
+  "publish.py": 13258,
+  "vrm_lib.py": 17635,
+  "vrm_preview.py": 10547,
+  "xiaoling_avatar.py": 43983
+ },
+ "打包": {
+  "README.md": 4032,
+  "build.py": 13494,
+  "linux": {
+   "AppRun": 431,
+   "install_deps.sh": 807,
+   "xiaoling.desktop": 331
+  },
+  "macos": {
+   "make_dmg.sh": 573
+  },
+  "runtime_hook.py": 1928,
+  "termux": {
+   "install.sh": 1164
+  },
+  "windows": {
+   "README.md": 800,
+   "xiaoling.iss": 1614
+  }
+ },
+ "技能": {
+  "安卓APP开发.md": 11310,
+  "逆向.md": 22249,
+  "黑客.md": 16223
+ },
+ "数据": {
+  "corpus.txt": 116,
+  "records": {
+   "2026-09.jsonl": 569
+  }
+ },
+ "测试": {
+  "test_avatar.py": 3835,
+  "test_fusion.py": 3311,
+  "test_growth.py": 5797,
+  "test_growth_v2.py": 14613,
+  "test_renderer.py": 7164
+ },
+ "素材": {
+  "xiaoling.png": 164811
+ },
+ "脚本": {
+  "registry.json": 982
+ },
+ "角色模型": {
+  "Imeris.vrm": 49007196,
+  "QuQu.vrm": 23326280,
+  "Rabbit_Peridot.vrm": 16462740,
+  "Rabbit_Rubellite.vrm": 15782904,
+  "Vivi.vrm": 33859164,
+  "Zome.vrm": 27407996,
+  "小凌.vrm": 15586520
+ }
+}
