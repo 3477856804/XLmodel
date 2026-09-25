@@ -273,9 +273,15 @@ def test_engine_trigger_and_control():
         assert (root / '.star_core' / 'trash').exists()
         assert eng.lifecycle.generation(1)['status'] == 'active'
         # 控制指令：回滚 / 导出 / 报告
-        rb = eng.rollback(0)
-        assert rb['ok'] and rb['target_gen'] == 0, rb
-        assert eng.state()['promotions'] == 0
+        # eng 是演练模式（dry_run=True），而 lifecycle.rollback(dry_run=True) 按设计
+        # 只出方案、不动文件也不改状态（core/lifecycle.py 的 dry_run 分支直接 return）。
+        # 这里需要「基底真的退回上一代」，所以必须用真实模式的引擎执行回滚——
+        # 紧接着的 eng2 断言（adapter 3MB ≥ 基底 → rank_up）也依赖基底已还原。
+        e_real = GrowthEngine(root, log=lambda *a: None, dry_run=False)
+        rb = e_real.rollback(0)
+        assert rb['ok'] and not rb.get('dry_run') and rb['target_gen'] == 0, rb
+        assert e_real.state()['promotions'] == 0, e_real.state()
+        assert eng.state()['promotions'] == 0, '回滚后成长状态应同步归零'
         ex = eng.export(root / 'my.zip')
         assert ex['ok'] and ex['files'] > 0, ex
         assert '成长报告' in eng.report()

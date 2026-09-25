@@ -21,8 +21,8 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault('XIAOLING_GALLIUM_DRIVER', os.environ.get('XIAOLING_GALLIUM_DRIVER', 'llvmpipe'))
 
 
-IGNORE_PARTS = ('/.git/', '/docs/', '/build/', '/dist/', '/.buildozer/', '/.gradle/',
-                '/node_modules/', '/app/build/', '/.pyinstaller/')
+IGNORE_PARTS = ('/.git/', '/.venv/', '/venv/', '/docs/', '/build/', '/dist/', '/.buildozer/',
+                '/.gradle/', '/node_modules/', '/app/build/', '/.pyinstaller/')
 
 
 def _source_files(pattern):
