@@ -27,6 +27,7 @@ DEFAULTS = {
     'name': '小凌',
     'user_name': '你',
     'persona': '活泼',                       # 活泼 / 温柔 / 专业
+    'language': 'zh',                        # 界面语言：zh / en（实现见 renderer/i18n.py）
     # ---- 模型与成长 ----
     'model': {
         'base_model': '自研2B模型',
@@ -125,6 +126,15 @@ DEFAULTS = {
         'discord': {'enabled': False, 'bot_token': '', 'channel_id': ''},
     },
     'offline_mode': 'auto',
+    # ---- 环境配置向导（零配置直接启动：renderer/wizard.py）----
+    'wizard': {
+        'never_show': False,        # 用户勾了「不再提醒」→ 启动时不再自动弹向导
+        'skip_until_change': '',    # 跳过时的环境指纹；指纹不变就不再自动弹
+        'mirror': 'tuna',           # pip 镜像源：tuna / aliyun / official
+    },
+    'render': {
+        'backend': 'auto',          # auto / gpu / soft / osmesa（对应 XIAOLING_RENDER_BACKEND）
+    },
 }
 
 
