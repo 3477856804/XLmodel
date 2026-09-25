@@ -34,13 +34,22 @@ OFFICIAL_URL="https://xiaoling-4o6.pages.dev/update/xiaoling_latest.zip"
 VERSION_URL="https://xiaoling-4o6.pages.dev/update/version.json"
 
 VENV_REL=".venv"
-MODEL_REL=".star_core/XLmodel/model.safetensors"
-MODEL_MIN_SIZE=104857600
+# 基底权重：目录必须与 xl.py 的 MODEL_DIR 一致（.star_core/XLmodel）；
+# 但**文件名不限定**——xl.py 接受任意 *.safetensors / *.bin（含 com 分片
+# model-00000-of-00001.safetensors）。旧脚本只认 model.safetensors，
+# 结果用户放官方分片权重时“程序能跑、脚本却报未找到”。
+MODEL_DIR_REL=".star_core/XLmodel"
+# 与 xl.py:6892 的“已有模型”判定保持一致（10MB）。
+# 旧值是 100MB，会把 10–100MB 的真实权重误判成占位文件。
+MODEL_MIN_SIZE=10485760
 
 ZIP_CANDIDATES=("XL-main.zip" "xiaoling-app-main.zip" "xiaoling.zip" "XL.zip" "XLmodel-main.zip")
-MODEL_CANDIDATES=("model.safetensors")
+MODEL_CANDIDATES=("model.safetensors" "model-00000-of-00001.safetensors"
+                  "model-00001-of-00001.safetensors" "pytorch_model.bin")
 
 declare -A TORCH_INDEXES=(
+    [cu130]="https://download.pytorch.org/whl/cu130"
+    [cu129]="https://download.pytorch.org/whl/cu129"
     [cu128]="https://download.pytorch.org/whl/cu128"
     [cu124]="https://download.pytorch.org/whl/cu124"
     [cu121]="https://download.pytorch.org/whl/cu121"
@@ -434,7 +443,8 @@ preflight_check() {
 
     cd "$PROJECT_DIR" || die "无法进入项目目录"
     VENV_DIR="$PROJECT_DIR/$VENV_REL"
-    MODEL_FILE="$PROJECT_DIR/$MODEL_REL"
+    # 权重文件名不固定：用与 xl.py 相同的判定（任意 *.safetensors / *.bin，>10MB）
+    MODEL_FILE=$(find_weight_in "$PROJECT_DIR/$MODEL_DIR_REL") || MODEL_FILE=""
 
     # ── 1. venv 检查（含属主 + 版本） ──
     echo_blank
@@ -532,7 +542,7 @@ preflight_check() {
     echo "  ── ML 依赖 ──"
     if [ "$VENV_ALREADY_OK" = "1" ]; then
         local ml_ok=1 pkg ver
-        for pkg in transformers peft accelerate safetensors sentencepiece; do
+        for pkg in transformers peft accelerate safetensors; do
             if python -c "import $pkg" 2>/dev/null; then
                 ver=$(python -c "import $pkg;print(getattr($pkg,'__version__','?'))" 2>/dev/null)
                 ok "  $pkg $ver"
@@ -549,26 +559,34 @@ preflight_check() {
     # ── 4. 模型权重 ──
     echo_blank
     echo "  ── 模型文件 ──"
-    if [ -f "$MODEL_FILE" ]; then
+    if [ -n "$MODEL_FILE" ] && [ -f "$MODEL_FILE" ]; then
         local sz; sz=$(stat -c%s "$MODEL_FILE" 2>/dev/null || echo 0)
-        if [ "$sz" -gt "$MODEL_MIN_SIZE" ]; then
-            ok "已就位：$(human_size "$sz")"
-        else
-            warn "占位文件（$(human_size "$sz")），需要替换"
-        fi
+        ok "已就位：$(basename "$MODEL_FILE")（$(human_size "$sz")）"
     else
-        warn "未找到 $MODEL_FILE"
+        info "尚未放置基底权重（目录：$PROJECT_DIR/$MODEL_DIR_REL）"
+        info "  可放进任意 *.safetensors / *.bin；或让程序首次启动自动下载"
     fi
 
     # ── 5. API 配置 ──
+    # 甲-1：以**程序真正读取的位置**为准（.star_core/xiaoling_config.json 的
+    # deepseek_api_key），不再 grep .env —— 那会让用户拿到假阳性的"已配置"。
+    # core.config 只依赖 stdlib，所以用系统 python3 就能读，不需要 venv。
     echo_blank
     echo "  ── API 配置 ──"
-    local env_file="$PROJECT_DIR/.env"
-    if [ -f "$env_file" ] && grep -q "^DEEPSEEK_API_KEY=" "$env_file"; then
-        ok "已配置 DeepSeek API Key（长度 $(grep '^DEEPSEEK_API_KEY=' "$env_file" | head -1 | cut -d= -f2- | tr -d '\n' | wc -c)）"
+    local key_len=0 env_file="$PROJECT_DIR/.env"
+    if [ -f "$PROJECT_DIR/core/config.py" ]; then
+        key_len=$(cd "$PROJECT_DIR" && python3 -c \
+            "from core import config;k=str(config.load().get('deepseek_api_key') or '');print(0 if k in ('','暂未填入') else len(k))" \
+            2>/dev/null || echo 0)
+    fi
+    if [ "${key_len:-0}" -gt 0 ] 2>/dev/null; then
+        ok "已配置 DeepSeek API Key（长度 ${key_len}，来自 xiaoling_config.json）"
+        API_ALREADY_OK=1
+    elif [ -f "$env_file" ] && grep -q "^DEEPSEEK_API_KEY=" "$env_file"; then
+        info "检测到历史 .env 里有 Key（程序启动时会自动迁移到 xiaoling_config.json）"
         API_ALREADY_OK=1
     else
-        info "尚未配置 API Key"
+        info "尚未配置 API Key（可在程序「环境向导 → API」里填）"
     fi
 
     # ── 6. 启动命令 ──
@@ -627,6 +645,18 @@ preflight_check() {
 }
 
 # ─────────────────────────── Phase 4.5：放置模型 ───────────────────────────
+# 在目录里找第一个"有效"权重：任意 *.safetensors / *.bin 且 > MODEL_MIN_SIZE。
+# 与 xl.py 的 _find_base_weights 口径一致——不看文件名，只看扩展名与体积。
+find_weight_in() {
+    local dir="$1" p
+    [ -d "$dir" ] || return 1
+    for p in "$dir"/*.safetensors "$dir"/*.bin; do
+        [ -f "$p" ] || continue
+        [ "$(stat -c%s "$p" 2>/dev/null || echo 0)" -gt "$MODEL_MIN_SIZE" ] && { echo "$p"; return 0; }
+    done
+    return 1
+}
+
 find_model_source() {
     local name p d
     for name in "${MODEL_CANDIDATES[@]}"; do
@@ -634,54 +664,60 @@ find_model_source() {
         [ -f "$p" ] && [ "$(stat -c%s "$p" 2>/dev/null || echo 0)" -gt "$MODEL_MIN_SIZE" ] && { echo "$p"; return 0; }
     done
     for d in "$SCRIPT_DIR"/*/; do
-        p="${d}model.safetensors"
-        [ -f "$p" ] && [ "$(stat -c%s "$p" 2>/dev/null || echo 0)" -gt "$MODEL_MIN_SIZE" ] && { echo "$p"; return 0; }
+        p=$(find_weight_in "$d") && { echo "$p"; return 0; }
     done
-    for p in "$HOME/xiaoling1/model.safetensors" "$HOME/xiaoling/model.safetensors" \
-             "$HOME/xiaoling1/.star_core/XLmodel/model.safetensors"; do
-        [ -f "$p" ] && [ "$(stat -c%s "$p" 2>/dev/null || echo 0)" -gt "$MODEL_MIN_SIZE" ] && { echo "$p"; return 0; }
+    for d in "$HOME/xiaoling1/.star_core/XLmodel" "$HOME/xiaoling/.star_core/XLmodel" \
+             "$HOME/xiaoling1" "$HOME/xiaoling"; do
+        p=$(find_weight_in "$d") && { echo "$p"; return 0; }
     done
-    p=$(find "$SCRIPT_DIR" -maxdepth 3 -type f -name 'model.safetensors' -size +100M 2>/dev/null | head -1)
+    p=$(find "$SCRIPT_DIR" -maxdepth 3 -type f \( -name '*.safetensors' -o -name '*.bin' \) \
+        -size +"$((MODEL_MIN_SIZE / 1024 / 1024))M" 2>/dev/null | head -1)
     [ -n "$p" ] && { echo "$p"; return 0; }
     return 1
 }
 
 place_model() {
     step "放置模型权重"
-    MODEL_FILE="$PROJECT_DIR/$MODEL_REL"
-    mkdir -p "$(dirname "$MODEL_FILE")"
+    local mdir="$PROJECT_DIR/$MODEL_DIR_REL"
+    mkdir -p "$mdir" 2>/dev/null || true
 
-    local cur_size=0
-    [ -f "$MODEL_FILE" ] && cur_size=$(stat -c%s "$MODEL_FILE" 2>/dev/null || echo 0)
-
-    if [ "$cur_size" -gt "$MODEL_MIN_SIZE" ]; then
-        ok "模型已就位：$(human_size "$cur_size")"; return 0
+    # 就位判定与 xl.py 一致：目录里有任意 >10MB 权重就算有，不要求特定文件名
+    local existing
+    if existing=$(find_weight_in "$mdir"); then
+        MODEL_FILE="$existing"
+        ok "模型已就位：$(basename "$existing")（$(human_size "$(stat -c%s "$existing")")）"
+        return 0
     fi
-    [ "$cur_size" -gt 0 ] && warn "现有 model.safetensors 是占位文件（$(human_size "$cur_size")）"
 
     local src
     if ! src=$(find_model_source); then
-        warn "未找到有效的 model.safetensors（需要 >100MB）"
+        warn "未找到有效的基底权重（*.safetensors / *.bin，需 >$(human_size "$MODEL_MIN_SIZE")）"
         echo_blank
         echo_sep
         echo "  【模型获取方式】"
-        echo "  1. 加入 QQ 社区群：1057895186（小凌社区1群）"
-        echo "     群文件里有完整 model.safetensors 权重"
-        echo "  2. 下载后放到：$SCRIPT_DIR"
-        echo "     或直接复制到：$MODEL_FILE"
+        echo "  1. 加入 QQ 社区群：1057895186（小凌社区1群），群文件里有完整权重"
+        echo "  2. 下载后放到：$SCRIPT_DIR，或直接复制到：$mdir"
+        echo "  3. 也可以什么都不做：程序首次启动会按所选档位自动下载"
         echo_sep
         echo_blank
         return 0
     fi
 
-    info "找到权重：$src（$(human_size "$(stat -c%s "$src")")）"
-    info "复制到：$MODEL_FILE"
-    if command -v rsync >/dev/null 2>&1; then
-        rsync -ah --progress "$src" "$MODEL_FILE" >&3 2>&3 || cp "$src" "$MODEL_FILE" || die "复制模型失败"
-    else
-        cp "$src" "$MODEL_FILE" || die "复制模型失败"
+    local dest="$mdir/$(basename "$src")"
+    MODEL_FILE="$dest"
+    if [ "$src" = "$dest" ]; then
+        ok "模型就地就位：$(basename "$dest")（$(human_size "$(stat -c%s "$dest")")）"
+        return 0
     fi
-    ok "模型就位：$(human_size "$(stat -c%s "$MODEL_FILE")")"
+
+    info "找到权重：$src（$(human_size "$(stat -c%s "$src")")）"
+    info "复制到：$dest（保留原文件名，不再强制改名成 model.safetensors）"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -ah --progress "$src" "$dest" >&3 2>&3 || cp "$src" "$dest" || die "复制模型失败"
+    else
+        cp "$src" "$dest" || die "复制模型失败"
+    fi
+    ok "模型就位：$(basename "$dest")（$(human_size "$(stat -c%s "$MODEL_FILE")")）"
 }
 
 # ─────────────────────────── Phase 5：配置 API ───────────────────────────
@@ -700,31 +736,57 @@ configure_api() {
     fi
 
     local api_key="" base_url=""
-    config_prompt "请输入 DeepSeek API Key（直接回车跳过，后期手动配置）: "
+    config_prompt "请输入 DeepSeek API Key（直接回车跳过，后期可在程序的「环境向导」里配）: "
     read -r api_key
 
     if [ -n "$api_key" ]; then
         config_prompt "请输入 API 中转站地址（Base URL，回车跳过）: "
         read -r base_url
 
-        if [ ! -f "$env_file" ] || ! grep -q "^DEEPSEEK_API_KEY=" "$env_file"; then
-            echo "DEEPSEEK_API_KEY=$api_key" >> "$env_file"
-        else
-            sed -i "s|^DEEPSEEK_API_KEY=.*|DEEPSEEK_API_KEY=$api_key|" "$env_file"
-        fi
-
-        if [ -n "$base_url" ]; then
-            if ! grep -q "^API_BASE_URL=" "$env_file"; then
-                echo "API_BASE_URL=$base_url" >> "$env_file"
-            else
-                sed -i "s|^API_BASE_URL=.*|API_BASE_URL=$base_url|" "$env_file"
+        # 甲-1：写入程序真正读取的位置 .star_core/xiaoling_config.json，
+        # 键名也要对（deepseek_api_key / deepseek_base_url）。
+        # 旧脚本写的是 .env 的 DEEPSEEK_API_KEY / API_BASE_URL —— 程序从来不读它，
+        # 用户配完等于没配，蒸馏老师永远离线。
+        # 这里直接调用 core.config.patch()：复用程序自己的实现，也不用 sed 拼 JSON。
+        #
+        # 注意：本函数在 main() 里跑在 setup_venv **之前**，所以 venv 可能还不存在。
+        # core.config 只依赖 stdlib，因此默认用系统 python3，venv 在就用 venv。
+        local wrote=0 _py="python3"
+        [ -x "$VENV_DIR/bin/python" ] && _py="$VENV_DIR/bin/python"
+        if [ -f "$PROJECT_DIR/core/config.py" ]; then
+            cd "$PROJECT_DIR" 2>/dev/null || true
+            if XL_KEY="$api_key" XL_URL="$base_url" "$_py" - <<'PYEOF' >&3 2>&3
+import os
+from core import config
+changes = {}
+if os.environ.get('XL_KEY'):
+    changes['deepseek_api_key'] = os.environ['XL_KEY']
+if os.environ.get('XL_URL'):
+    changes['deepseek_base_url'] = os.environ['XL_URL']
+if changes:
+    config.patch(changes)
+    print(f'  [OK] 已写入 {config.CONFIG_PATH}：{"、".join(sorted(changes))}')
+PYEOF
+            then
+                wrote=1
             fi
         fi
-        API_CONFIGURED=1
-        ok "API 配置已保存至 $env_file"
+
+        if [ "$wrote" = "1" ]; then
+            API_CONFIGURED=1
+            ok "API 配置已保存到 .star_core/xiaoling_config.json"
+        else
+            # venv 还没建好等情况下退回 .env；程序启动时的 migrate_legacy_env()
+            # 会自动把它迁进 config.json，所以这条路径依然有效（只是多一步）。
+            local env_file="$PROJECT_DIR/.env"
+            { [ -n "$api_key" ] && echo "DEEPSEEK_API_KEY=$api_key"; \
+              [ -n "$base_url" ] && echo "API_BASE_URL=$base_url"; } >> "$env_file"
+            API_CONFIGURED=1
+            info "已写入 $env_file（程序启动时会自动迁移到 xiaoling_config.json）"
+        fi
     else
         API_CONFIGURED=0
-        info "已跳过 API 配置，请后期手动配置到 $env_file"
+        info "已跳过 API 配置；之后可在程序的「环境向导 → API」里填写"
     fi
 }
 
@@ -747,11 +809,33 @@ backup_data() {
     mkdir -p "$BACKUP_DIR"
     cd "$PROJECT_DIR"
     local saved=0
+
     for f in xl_memory.json requirements.txt xl.py pet.py; do
         [ -f "$f" ] && cp "$f" "$BACKUP_DIR/" 2>/dev/null && saved=$((saved+1))
     done
-    [ -d data ] && cp -r data "$BACKUP_DIR/" 2>/dev/null && saved=$((saved+1))
-    ok "已备份 $saved 项 → $BACKUP_DIR"
+    # 语料目录实际叫 数据/（旧脚本写的是 data/，等于没备份）
+    for d in 数据 data; do
+        [ -d "$d" ] && cp -r "$d" "$BACKUP_DIR/" 2>/dev/null && saved=$((saved+1))
+    done
+
+    # 甲-7：成长数据才是最该备份的，旧清单完全漏了 .star_core。
+    # 只备份"非权重"部分，避免把几 GB 的基底权重也复制一遍。
+    local star="$PROJECT_DIR/.star_core"
+    if [ -d "$star" ]; then
+        local sdst="$BACKUP_DIR/.star_core"
+        mkdir -p "$sdst" 2>/dev/null
+        for a in adapter_config.json adapter_model.safetensors adapter_model.bin adapter.pt; do
+            [ -f "$star/$a" ] && cp "$star/$a" "$sdst/" 2>/dev/null && saved=$((saved+1))
+        done
+        [ -d "$star/adapter" ] && cp -r "$star/adapter" "$sdst/" 2>/dev/null && saved=$((saved+1))
+        for d in growth rag; do
+            [ -d "$star/$d" ] && cp -r "$star/$d" "$sdst/" 2>/dev/null && saved=$((saved+1))
+        done
+        for f in xiaoling_config.json model_choice.txt; do
+            [ -f "$star/$f" ] && cp "$star/$f" "$sdst/" 2>/dev/null && saved=$((saved+1))
+        done
+    fi
+    ok "已备份 $saved 项 → $BACKUP_DIR（含成长数据；基底权重未备份以省空间）"
 }
 
 # ─────────────────────────── Phase 8：venv ───────────────────────────
@@ -835,7 +919,18 @@ install_sysdeps() {
 
     run_install "apt 索引更新" sudo apt update || warn "apt update 失败（不致命）"
 
-    local pkgs=(espeak-ng libespeak1 libportaudio2 python3-tk ffmpeg rsync unzip)
+    # 甲-2：补齐 GL / xcb / OSMesa / 音频 / 中文字体。
+    # 缺 libxcb-* 里任意一个，PySide6 就会报
+    # "Could not load the Qt platform plugin xcb" —— 桌宠根本起不来；
+    # 缺 libosmesa6 则无 GPU 时没有离屏软件 GL 兜底。
+    # 清单与 打包/linux/install_deps.sh、renderer/renderer.py 的提示保持一致。
+    local pkgs=(
+        espeak-ng libespeak1 libespeak-ng1 libportaudio2 python3-tk ffmpeg rsync unzip alsa-utils
+        libgl1 libglx-mesa0 libgl1-mesa-dri libosmesa6 libegl1 mesa-utils
+        libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1
+        libxcb-shape0 libxcb-randr0
+        fonts-noto-cjk
+    )
     local missing=() p
     for p in "${pkgs[@]}"; do
         dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
@@ -845,8 +940,29 @@ install_sysdeps() {
         ok "系统依赖齐全（跳过 apt install）"; return 0
     fi
 
+    # 先过滤掉当前发行版里不存在的包名（例如 libespeak1 在新版 Debian/Kali 上
+    # 已被 libespeak-ng1 取代）。否则 apt install 会因为一个名字不存在而整条失败，
+    # 结果一个包都装不上。
+    local avail=()
+    for p in "${missing[@]}"; do
+        if apt-cache show "$p" >/dev/null 2>&1; then
+            avail+=("$p")
+        else
+            info "  跳过当前发行版不存在的包：$p"
+        fi
+    done
+    missing=("${avail[@]}")
+    [ "${#missing[@]}" -eq 0 ] && { ok "没有可安装的缺失包"; return 0; }
+
     printf "${CLR_BLUE}[INFO]${CLR_RESET} 缺失依赖：%s\n" "${missing[*]}"
-    run_install "安装缺失依赖" sudo apt install -y --no-install-recommends "${missing[@]}"
+    # 整体装一次；万一仍失败（源异常/依赖冲突），退化为逐个装，尽量多装上几个
+    if ! run_install "安装缺失依赖" sudo apt install -y --no-install-recommends "${missing[@]}"; then
+        warn "整体安装失败，改为逐个安装"
+        for p in "${missing[@]}"; do
+            run_install "安装 $p" sudo apt install -y --no-install-recommends "$p" \
+                || warn "  $p 装不上（继续）"
+        done
+    fi
 
     local still_missing=()
     for p in "${missing[@]}"; do
@@ -861,17 +977,30 @@ install_sysdeps() {
 
 # ─────────────────────────── Phase 10：修 requirements ───────────────────────────
 fix_requirements() {
-    step "修复 requirements.txt"
+    step "核对依赖清单"
     cd "$PROJECT_DIR"
     [ -f requirements.txt ] || { warn "无 requirements.txt，跳过"; return 0; }
-    local changed=0 pkg
-    for pkg in win10toast pypiwin32 pywin32; do
-        if grep -qE "^[[:space:]]*${pkg}" requirements.txt && ! grep -qE "${pkg}.*sys_platform" requirements.txt; then
-            sed -i -E "s|^([[:space:]]*${pkg}.*)\$|\1; sys_platform == \"win32\"|" requirements.txt
-            changed=1
-        fi
-    done
-    [ "$changed" -eq 1 ] && ok "已加平台标记（仅 Windows 安装）" || ok "无需修改"
+
+    # 旧版这里会往 requirements.txt 里给 win10toast/pypiwin32/pywin32 加
+    # "sys_platform == win32" 标记 —— 但当前 requirements.txt 里**这三个包一个都没有**，
+    # 属于永久空转（每次都打印"无需修改"）。改成一件真正有用的事：
+    # 报告 venv 里缺哪些运行时依赖，以及 requirements.txt 是否漏声明。
+    local miss="" pkg
+    if [ -x "$VENV_DIR/bin/python" ]; then
+        for pkg in Pillow numpy PyOpenGL PySide6 torch transformers peft accelerate; do
+            "$VENV_DIR/bin/python" -c "
+import importlib.util as u, sys
+m={'Pillow':'PIL','PyOpenGL':'OpenGL','PySide6':'PySide6.QtWidgets'}.get('$pkg','$pkg')
+sys.exit(0 if u.find_spec(m) else 1)" 2>/dev/null || miss="$miss $pkg"
+        done
+    fi
+    if [ -n "$miss" ]; then
+        warn "venv 里缺少：$miss"
+        info "  可在程序的「环境向导 → 依赖」里一键安装，或："
+        info "  ${VENV_DIR}/bin/python -m pip install$miss"
+    else
+        ok "venv 运行时依赖齐全"
+    fi
 }
 
 # ─────────────────────────── Phase 11：torch ───────────────────────────
@@ -905,7 +1034,14 @@ install_torch() {
     fi
 
     if python -c "import torch" 2>/dev/null; then
-        info "已存在：$(python -c 'import torch;print(torch.__version__)')（与目标方案不匹配，重装）"
+        local _cur_torch
+        _cur_torch=$(python -c 'import torch;print(torch.__version__, torch.version.cuda or "cpu")' 2>/dev/null)
+        info "已存在 torch（$_cur_torch），与目标方案 $TORCH_VARIANT 不匹配，准备重装"
+        # 卸载前先冻结当前依赖清单：现有 torch 可能是用户用 uv 装的 CUDA 版，
+        # 万一重装失败/装成 CPU 版，至少能用这份清单回退。
+        if pip freeze > "$PROJECT_DIR/.venv_freeze_before_torch.txt" 2>/dev/null; then
+            info "  已备份当前依赖清单 → .venv_freeze_before_torch.txt"
+        fi
         # 清理旧版本，避免冲突
         run_install "卸载旧 torch 系列" pip uninstall -y torch torchvision torchaudio || true
     fi
@@ -942,7 +1078,7 @@ install_other_deps() {
     if [ "$ML_DEPS_ALREADY_OK" = "1" ]; then
         ok "体检已确认 ML 依赖齐全，跳过 pip 安装"
     else
-        local ml=(transformers peft accelerate safetensors sentencepiece)
+        local ml=(transformers peft accelerate safetensors)
         info "ML 依赖：${ml[*]}"
         run_install "pip 安装 ML 依赖" pip install "${ml[@]}" || die "ML 依赖安装失败"
 
@@ -959,6 +1095,13 @@ install_other_deps() {
         run_install "pip 安装项目 requirements" pip install -r requirements.txt \
             && ok "项目依赖完成" \
             || warn "部分项目依赖失败（通常不影响核心对话）"
+    fi
+
+    # edge-tts 在 requirements.txt 里是注释掉的，但它是语音朗读的默认引擎，
+    # 程序首次启动也会自己装（xl.py 的 _ensure_deps）。这里顺手装上，省一次启动等待。
+    if ! python -c "import edge_tts" 2>/dev/null; then
+        run_install "pip 安装 edge-tts（情感语音）" pip install edge-tts \
+            || warn "edge-tts 安装失败（语音朗读会退化，程序启动时会再试）"
     fi
 }
 
@@ -1075,6 +1218,10 @@ patch_code() {
 verify() {
     step "验证安装"
     cd "$PROJECT_DIR"
+
+    # ── 核心：torch / 训练依赖 ──
+    # 乙-2 之后 torch 系是「可选」的：缺了不影响桌宠与对话，只影响本地推理/蒸馏，
+    # 所以这里不再 die，只警告。
     if ! python - <<'PYEOF'
 import sys
 try:
@@ -1093,17 +1240,44 @@ for mod in ("transformers", "peft", "accelerate", "safetensors"):
         m = __import__(mod)
         print(f"  [OK] {mod:<13}: {getattr(m,'__version__','?')}")
     except ImportError:
-        print(f"  [ERROR] {mod:<13}: 缺失"); sys.exit(1)
+        print(f"  [WARN] {mod:<13}: 缺失（本地推理/蒸馏训练不可用，桌宠不受影响）")
 PYEOF
     then
-        die "核心依赖验证失败，请检查上方日志"
+        warn "torch 不可用（桌宠与对话仍可正常运行；需要时在程序「环境向导」里装）"
     fi
 
-    if [ -f "$MODEL_FILE" ]; then
-        local sz; sz=$(stat -c%s "$MODEL_FILE")
-        [ "$sz" -gt "$MODEL_MIN_SIZE" ] && ok "模型权重：$(human_size "$sz")" || warn "模型权重不完整（$(human_size "$sz")）"
+    # ── 甲-3：GUI 组件必须单独验 ──
+    # 旧版 verify 只验 torch 系，于是"PySide6 没装、桌宠根本打不开"也会打印配置成功。
+    local gui_ok=1
+    if python -c "import PySide6.QtWidgets" 2>/dev/null; then
+        ok "PySide6 可用（桌宠窗口 / 训练工作台）"
     else
-        warn "未找到 $MODEL_FILE"
+        warn "PySide6 不可用：桌宠窗口与工作台无法启动（会退化为命令行）"
+        info "  修复：${VENV_DIR}/bin/python -m pip install PySide6（或运行程序的「环境向导」）"
+        gui_ok=0
+    fi
+    if python -c "import OpenGL.GL" 2>/dev/null; then
+        ok "PyOpenGL 可用（3D 渲染）"
+    else
+        warn "PyOpenGL 不可用：3D 渲染将退化为 numpy 软件光栅"
+        info "  修复：${VENV_DIR}/bin/python -m pip install PyOpenGL"
+    fi
+    if [ "$gui_ok" = "1" ]; then
+        if python -c "from core.avatar import run_headless_probe as p; raise SystemExit(0 if (p() or {}).get('ok') else 1)" >/dev/null 2>&1; then
+            ok "渲染层无头探针通过"
+        else
+            info "渲染层无头探针未通过（无显示器/无 GL 时属正常，运行时会自动降级）"
+        fi
+    fi
+
+    # ── 模型权重：与 xl.py 同口径（任意 *.safetensors / *.bin）──
+    local mdir="$PROJECT_DIR/$MODEL_DIR_REL" found=""
+    found=$(find_weight_in "$mdir") || true
+    if [ -n "$found" ]; then
+        MODEL_FILE="$found"
+        ok "模型权重：$(basename "$found")（$(human_size "$(stat -c%s "$found")")）"
+    else
+        info "尚未放置基底权重（放进 $mdir，或让程序首次启动自动下载）"
     fi
 }
 
@@ -1165,7 +1339,7 @@ EOF
 main() {
     check_root
     log_init
-    printf "  小凌一键部署 + 配置 v3.5\n"
+    printf "  小凌环境预检 + 部署 v3.6（可选步骤）\n"
     printf "  %s\n\n" "$(date '+%Y-%m-%d %H:%M:%S')"
 
     check_sudo
@@ -1195,11 +1369,12 @@ main() {
     if [ "$API_CONFIGURED" -eq 1 ] || [ "$API_ALREADY_OK" -eq 1 ]; then
         printf "${CLR_GREEN}  [SUCCESS] 配置成功！API Key 已就绪，环境部署完毕。${CLR_RESET}\n"
     else
-        printf "${CLR_YELLOW}  [SUCCESS] 环境部署完毕，但未配置 API Key！${CLR_RESET}\n"
-        printf "${CLR_YELLOW}  请手动配置：$PROJECT_DIR/.env${CLR_RESET}\n"
-        printf "${CLR_YELLOW}  格式：DEEPSEEK_API_KEY=sk-xxxxxxxx${CLR_RESET}\n"
+        printf "${CLR_YELLOW}  [SUCCESS] 环境部署完毕，但未配置 API Key（不影响聊天与桌宠）。${CLR_RESET}\n"
+        printf "${CLR_YELLOW}  直接启动小凌即可，程序会弹出「环境配置向导」让你在窗口里填写。${CLR_RESET}\n"
+        printf "${CLR_YELLOW}  写入位置：$PROJECT_DIR/.star_core/xiaoling_config.json 的 deepseek_api_key${CLR_RESET}\n"
     fi
     printf "${CLR_GREEN}  输入命令 'xl' 即可启动小凌。${CLR_RESET}\n"
+    printf "${CLR_GREEN}  常用：xl --dashboard（训练工作台）  xl --growth（成长报告）  xl --selftest（全系统体检）${CLR_RESET}\n"
     printf "${CLR_GREEN}================================================================${CLR_RESET}\n\n"
     printf "  日志：%s\n\n" "$LOG_FILE"
 
