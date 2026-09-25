@@ -1,8 +1,8 @@
 ; 小凌 XIAOLING · Inno Setup 安装脚本（Windows）
-; 用法：先 python packaging\build.py 产出 dist\xiaoling\，再
-;       iscc packaging\windows\xiaoling.iss
+; 用法：先 python 打包\build.py 产出 dist\xiaoling\，再
+;       iscc 打包\windows\xiaoling.iss
 #define MyAppName "小凌 XIAOLING"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "0.0.2"
 #define MyAppPublisher "XIAOLING"
 #define MyAppExeName "xiaoling.exe"
 
@@ -21,7 +21,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
-SetupIconFile=..\..\packaging\xiaoling.ico
+SetupIconFile=..\..\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]

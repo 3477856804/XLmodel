@@ -151,7 +151,7 @@ def run_all() -> dict:
         if d['state'] == 'fail':
             issues.append(f"缺少必需依赖 {d['name']}（{d.get('hint', '')}）")
     if not report['vrm']['has_xiaoling']:
-        issues.append('未找到 小凌.vrm 形象文件（可运行 tools/xiaoling_avatar.py 生成）')
+        issues.append('未找到 小凌.vrm 形象文件（可运行 工具/xiaoling_avatar.py 生成）')
     if not report['avatar'].get('ok'):
         issues.append(f"3D 渲染层不完整：{report['avatar'].get('missing') or report['avatar'].get('error')}")
     if report['avatar'].get('legacy_js'):

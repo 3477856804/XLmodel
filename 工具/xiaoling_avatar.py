@@ -3,7 +3,7 @@
 """xiaoling_avatar —— 把任意 VRM 角色改造成"小凌"形象的流水线
 
 用法：
-    python3 tools/xiaoling_avatar.py build \
+    python3 工具/xiaoling_avatar.py build \
         --base 角色模型/Rabbit_Peridot.vrm \
         --face 素材/xiaoling.png \
         --out 角色模型/小凌.vrm --preview preview/

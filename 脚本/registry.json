@@ -6,7 +6,7 @@
     "视频压缩": "python3 -m core.filebox compress_video {path}",
     "重复文件清理": "python3 -m core.filebox dedupe {path}",
     "文件夹体检": "python3 -m core.filebox scan {path}",
-    "形象改造": "python3 tools/xiaoling_avatar.py build --base {base} --face assets/xiaoling.png --out 角色模型/小凌.vrm --preview preview",
+    "形象改造": "python3 工具/xiaoling_avatar.py build --base {base} --face assets/xiaoling.png --out 角色模型/小凌.vrm --preview preview",
     "形象预览": "python3 -m renderer.app --showcase preview",
     "成长检查": "python3 -m core.growth check",
     "成长报告": "python3 -m core.growth report",

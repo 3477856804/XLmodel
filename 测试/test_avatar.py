@@ -3,8 +3,8 @@
 """小凌形象流水线回归测试：校验 角色模型/小凌.vrm 的改造结果。
 
 不依赖 torch / GPU；只做结构性与像素级断言。
-    python3 tests/test_avatar.py            # 检查已有产物
-    python3 tests/test_avatar.py --rebuild  # 重新跑一遍流水线再检查
+    python3 测试/test_avatar.py            # 检查已有产物
+    python3 测试/test_avatar.py --rebuild  # 重新跑一遍流水线再检查
 """
 import sys
 from pathlib import Path
@@ -87,7 +87,7 @@ if __name__ == '__main__':
     if '--rebuild' in sys.argv:
         print('… 重新生成小凌形象（约 1 分钟）')
         rebuild()
-    assert OUT.exists(), f'缺少 {OUT}，先运行 tools/xiaoling_avatar.py build'
+    assert OUT.exists(), f'缺少 {OUT}，先运行 工具/xiaoling_avatar.py build'
     test_vrm_structure()
     test_brightness()
     test_meta()

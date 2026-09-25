@@ -33,13 +33,23 @@ def _growth_status():
         return {
             'percent': float(s.get('progress_percent', 0.0)),
             'stage': s.get('stage', '初始化中'),
-            'base_mb': float(s.get('base_mb', 0)),
-            'adapter_mb': float(s.get('adapter_mb', 0)),
+            # 字段名必须与 core.growth.GrowthEngine.status() 对齐：后端产出的是
+            # base_bytes/adapter_bytes 与 base_human/adapter_human，**不存在** base_mb/adapter_mb。
+            # 旧代码读错键，导致状态栏恒显 0MB，且 base_human 处直接 KeyError。
+            'base_bytes': int(s.get('base_bytes', 0)),
+            'adapter_bytes': int(s.get('adapter_bytes', 0)),
+            'base_human': s.get('base_human') or '0 B',
+            'adapter_human': s.get('adapter_human') or '0 B',
             'self_research': bool(s.get('self_research', False)),
+            'promotions': int(s.get('promotions', 0)),
+            'rounds': int(s.get('rounds', 0)),
+            'paused': bool(s.get('paused', False)),
+            'auto_train': bool(s.get('auto_train', False)),
         }
     except Exception:
-        return {'percent': 0.0, 'stage': '初始化中', 'base_mb': 0,
-                'adapter_mb': 0, 'self_research': False}
+        return {'percent': 0.0, 'stage': '初始化中', 'base_bytes': 0, 'adapter_bytes': 0,
+                'base_human': '0 B', 'adapter_human': '0 B', 'self_research': False,
+                'promotions': 0, 'rounds': 0, 'paused': False, 'auto_train': False}
 
 
 # 五个通道：整体进度按权重分配到各通道（真实训练时 GrowthEngine 只有一个总进度，
@@ -57,6 +67,35 @@ def _channel_progress(overall: float, weight: float) -> float:
     """把总进度映射到单个通道，限制在 0~100。"""
     v = overall * weight + (100 - overall) * 0.08
     return max(0.0, min(100.0, v))
+
+
+def _loss_sparkline(curve, width: int = 40) -> str:
+    """把 store.loss_curve() 的 [{round, avg_loss}] 画成 Unicode 块状迷你曲线。
+
+    不引入任何绘图依赖（matplotlib 不在 requirements 里），纯文本渲染，
+    因此在无 GPU / 无额外包的环境也能显示。
+    """
+    rows = list(curve or [])
+    vals = [float(c['avg_loss']) for c in rows
+            if isinstance(c.get('avg_loss'), (int, float))]
+    if not vals:
+        return ('暂无平均损失记录。\n'
+                '（跑过至少一轮蒸馏训练后，loss_curve 会写入 train_rounds.avg_loss）')
+    lo, hi = min(vals), max(vals)
+    span = (hi - lo) or 1.0
+    blocks = '▁▂▃▄▅▆▇█'
+    shown = vals[-(width + 1):]
+    bar = ''.join(blocks[max(0, min(len(blocks) - 1,
+                                    int((v - lo) / span * (len(blocks) - 1))))]
+                  for v in shown)
+    lines = [bar]
+    lines.append(f'  轮次 {rows[0].get("round", "?")} → {rows[-1].get("round", "?")}'
+                 f'    最低 {lo:.4f} / 最高 {hi:.4f}（越低越好）')
+    if len(vals) >= 2:
+        d = vals[-1] - vals[-2]
+        arrow = '↓ 下降' if d < 0 else ('↑ 上升' if d > 0 else '＝ 持平')
+        lines.append(f'  最近一轮 {vals[-1]:.4f}，较上一轮{arrow} {abs(d):.4f}')
+    return '\n'.join(lines)
 
 
 def _smart_reply(text: str) -> str:
@@ -299,6 +338,9 @@ def build_dashboard(renderer=None, engine=None, log=print):
         ('call', '通话模式', '#8a6a5a', None),
         ('tts', '语音朗读', '#5a8a6a', None),
         ('distill', '蒸馏训练', '#8a7a5a', None),
+        ('growth', '成长仪表盘', '#4a7a9a', None),
+        ('data', '数据管理', '#6a8a5a', None),
+        ('control', '成长控制', '#9a5a6a', None),
     ]
     _enabled = {pid: False for pid, _, _, _ in _plugins}
 
@@ -345,6 +387,12 @@ def build_dashboard(renderer=None, engine=None, log=print):
             toggle_tts()
         elif pid == 'distill':
             start_distill()
+        elif pid == 'growth':
+            open_growth_panel()
+        elif pid == 'data':
+            open_data_panel()
+        elif pid == 'control':
+            open_control_panel()
 
     # 右下角浮动 + 按钮
     plus_btn = QtWidgets.QPushButton('+')
@@ -1084,10 +1132,11 @@ def build_dashboard(renderer=None, engine=None, log=print):
         overall_bar.setValue(int(overall))
         if st['self_research']:
             status_main.setText('小凌已完成自我进化，现在属于她自己了')
-            status_sub.setText(f'基底 {st["base_mb"]:.0f}MB · 适配器 {st["adapter_mb"]:.0f}MB')
+            status_sub.setText(f'基底 {st["base_human"]} · 适配器 {st["adapter_human"]}')
         else:
             status_main.setText(f'当前阶段：{st["stage"]}')
-            status_sub.setText(f'已成长 {overall:.1f}% · 每5分钟自主训练')
+            _auto = '已开启' if st['auto_train'] else '已关闭'
+            status_sub.setText(f'已成长 {overall:.1f}% · 后台自动训练{_auto}')
         bot_right.setText(f'{100 - overall:.0f} DAYS · 计划估算')
 
     progress_timer = QtCore.QTimer(win)
@@ -1154,12 +1203,9 @@ def build_dashboard(renderer=None, engine=None, log=print):
         # 后台线程处理对话，不卡 UI
         def _worker():
             try:
-                from core.fusion import _STATE
-                engine = None
-                if False:
-                    reply = _smart_reply(text)
-                else:
-                    reply = '我在呢～'
+                # 原本是 `if False: reply = _smart_reply(text) else: reply = '我在呢～'`：
+                # 死分支让工作台聊天框永远只回一句写死的问候，_smart_reply 形同虚设。
+                reply = _smart_reply(text)
                 QtCore.QMetaObject.invokeMethod(chat_log, 'append',
                     QtCore.Qt.QueuedConnection,
                     QtCore.Q_ARG(str, f'<div style="color:#d4385c"><b>小凌：</b>{reply}</div>'))
@@ -1183,8 +1229,15 @@ def build_dashboard(renderer=None, engine=None, log=print):
     btn_setting = make_func_btn('设置', TEXT_MUTED)
     btn_about = make_func_btn('关于', TEXT_MUTED)
 
+    _train_running = {'flag': False}
+
     def start_distill():
+        if _train_running['flag']:
+            chat_log.append('<div style="color:#9a8a90">已有训练在进行中，等它结束再来～</div>')
+            return
+        _train_running['flag'] = True
         chat_log.append('<div style="color:#d4385c"><b>小凌：</b>开始自我进化训练…</div>')
+
         def _worker():
             try:
                 from core.growth import GrowthEngine
@@ -1199,7 +1252,33 @@ def build_dashboard(renderer=None, engine=None, log=print):
                 QtCore.QMetaObject.invokeMethod(chat_log, 'append',
                     QtCore.Qt.QueuedConnection,
                     QtCore.Q_ARG(str, f'<div style="color:#9a8a90">训练暂不可用：{e}</div>'))
+            finally:
+                _train_running['flag'] = False
         threading.Thread(target=_worker, daemon=True).start()
+
+    # ---------- 后台自动训练（消费 growth.auto_train） ----------
+    # 每 5 分钟问一次 GrowthEngine.should_train()：只有样本量 / 训练间隔 / 设备空闲 /
+    # 未暂停 / 算力档位 全部满足时才真正开训，所以样本不足时不会误触发。
+    # 任何异常都静默降级为「本轮不训练」，不影响工作台其他功能。
+    def _auto_train_tick():
+        try:
+            import core.config as _cfg_mod
+            if not bool(_cfg_mod.get('growth.auto_train', False)):
+                return
+            from core.growth import GrowthEngine
+            from core.paths import APP_DIR as _APP_DIR
+            eng = GrowthEngine(base_dir=_APP_DIR)
+            if eng.is_paused():
+                return
+            if not eng.should_train(manual=False).get('ok'):
+                return
+        except Exception:                                                 # noqa: BLE001
+            return
+        start_distill()
+
+    auto_train_timer = QtCore.QTimer(win)
+    auto_train_timer.timeout.connect(_auto_train_tick)
+    auto_train_timer.start(5 * 60 * 1000)
 
     def show_setting():
         dlg = QtWidgets.QDialog(win)
@@ -1230,9 +1309,13 @@ def build_dashboard(renderer=None, engine=None, log=print):
         be_combo.addItems(['自动', 'CPU 软件渲染', 'OpenGL'])
         be_combo.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:8px;padding:6px;')
         v.addWidget(be_combo)
-        # 自动训练开关
-        auto_chk = QtWidgets.QCheckBox('开启后台自动训练（每5分钟）')
-        auto_chk.setChecked(True)
+        # 自动训练开关（初值读配置，保存时落盘）
+        auto_chk = QtWidgets.QCheckBox('开启后台自动训练（每5分钟检查一次）')
+        try:
+            from core import config as _cfg_mod
+            auto_chk.setChecked(bool(_cfg_mod.get('growth.auto_train', False)))
+        except Exception:                                                 # noqa: BLE001
+            auto_chk.setChecked(False)
         auto_chk.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
         v.addWidget(auto_chk)
         v.addStretch(1)
@@ -1247,9 +1330,292 @@ def build_dashboard(renderer=None, engine=None, log=print):
                 chat_log.append(f'<div style="color:#9a8a90">渲染后端已切换：{renderer.backend_kind}</div>')
             except Exception as e:                                    # noqa: BLE001
                 chat_log.append(f'<div style="color:#9a8a90">后端切换失败：{e}</div>')
+            # 自动训练开关落盘（此前只改控件、不写配置，是个空开关）
+            try:
+                from core import config as _cfg_mod
+                _cfg_mod.patch({'growth': {'auto_train': bool(auto_chk.isChecked())}})
+                chat_log.append('<div style="color:#9a8a90">后台自动训练已'
+                                + ('开启' if auto_chk.isChecked() else '关闭') + '</div>')
+            except Exception as e:                                    # noqa: BLE001
+                chat_log.append(f'<div style="color:#9a8a90">自动训练设置保存失败：{e}</div>')
             dlg.accept()
         ok_btn.clicked.connect(_save)
         v.addWidget(ok_btn)
+        dlg.exec()
+
+    # ---------- P1-1/P1-2/P1-3：面板公共外壳 ----------
+    def _panel_shell(title, w=580, h=520):
+        dlg = QtWidgets.QDialog(win)
+        dlg.setWindowTitle(title)
+        dlg.resize(w, h)
+        dlg.setStyleSheet(f'background:{PALETTE_BG};')
+        layout = QtWidgets.QVBoxLayout(dlg)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
+        head = QtWidgets.QLabel(title)
+        head.setStyleSheet(f'color:{TEXT_DARK};font-size:16px;font-weight:700;')
+        layout.addWidget(head)
+        return dlg, layout
+
+    def _panel_text(text=''):
+        lbl = QtWidgets.QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
+        return lbl
+
+    def _panel_btn(text, color):
+        b = QtWidgets.QPushButton(text)
+        b.setFixedHeight(32)
+        b.setStyleSheet(f'background:{color};color:white;border:none;'
+                        f'border-radius:16px;font-weight:600;padding:0 14px;')
+        return b
+
+    def _panel_close(dlg, layout):
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        b = _panel_btn('关闭', TEXT_MUTED)
+        b.clicked.connect(dlg.accept)
+        row.addWidget(b)
+        layout.addLayout(row)
+
+    def _new_engine():
+        from core.growth import GrowthEngine
+        from core.paths import APP_DIR as _APP_DIR
+        return GrowthEngine(base_dir=_APP_DIR, log=lambda *a: None)
+
+    # ---------- P1-2：成长仪表盘（版本 / 体积 / 损失曲线 / 晋升时间线） ----------
+    def open_growth_panel():
+        dlg, v = _panel_shell('成长仪表盘', 660, 640)
+        try:
+            eng = _new_engine()
+            st = eng.status()
+            promo = int(st.get('promotions', 0))
+            gen_txt = (f'第 {promo} 代自研模型（已脱离原基底）' if promo > 0
+                       else '尚未晋升（仍处于 基底 + LoRA 阶段）')
+            head = [
+                f'模型版本：{gen_txt}',
+                f'阶段：{st.get("stage", "-")}',
+                f'基底体积：{st.get("base_human") or "-"}    适配器体积：{st.get("adapter_human") or "-"}'
+                f'    进度：{float(st.get("progress_percent", 0.0)):.1f}%',
+                f'训练轮次：{st.get("rounds", 0)}    LoRA rank：r={st.get("rank", 0)}'
+                f'    语料条数：{st.get("corpus_items", 0)}',
+            ]
+            try:
+                s = eng.store.stats()
+                head.append(f'训练样本：{s.get("total", 0)} 条（唯一 {s.get("unique", 0)}，'
+                            f'待训练 {s.get("pending", 0)}，已训练 {s.get("used_in_training", 0)}）')
+                head.append(f'蒸馏样本：{s.get("with_teacher", 0)} 条'
+                            f'    DPO 偏好对：{s.get("dpo_pairs", 0)}'
+                            f'    平均质量：{s.get("avg_quality", 0)}')
+            except Exception as e:                                     # noqa: BLE001
+                head.append(f'样本仓库不可用：{type(e).__name__}: {e}')
+            v.addWidget(_panel_text('\n'.join(head)))
+
+            v.addWidget(_panel_text('—— 训练损失曲线（↓ 越低越好）——'))
+            try:
+                curve = eng.store.loss_curve(30) or []
+            except Exception:                                          # noqa: BLE001
+                curve = []
+            v.addWidget(_panel_text(_loss_sparkline(curve)))
+
+            v.addWidget(_panel_text('—— 晋升历史时间线 ——'))
+            try:
+                gens = eng.lifecycle.generations() or []
+            except Exception:                                          # noqa: BLE001
+                gens = []
+            if gens:
+                tl = []
+                for g in gens:
+                    tl.append(f'第 {g.get("gen", "?")} 代  [{g.get("status", "-")}]'
+                              f'  {(g.get("label") or "").strip()}'
+                              f'  {g.get("created_at") or g.get("stamp") or ""}')
+                v.addWidget(_panel_text('\n'.join(tl)))
+            else:
+                v.addWidget(_panel_text('（还没有晋升记录）'))
+        except Exception as e:                                         # noqa: BLE001
+            v.addWidget(_panel_text(f'成长引擎不可用：{type(e).__name__}: {e}'))
+        _panel_close(dlg, v)
+        dlg.exec()
+
+    # ---------- P1-1：数据管理（查看 / 删除 / 清空 / 导出导入） ----------
+    def open_data_panel():
+        dlg, v = _panel_shell('数据管理', 760, 620)
+        summary = _panel_text('读取中…')
+        v.addWidget(summary)
+        lst = QtWidgets.QListWidget()
+        lst.setStyleSheet(f'background:{CARD_BG};border:1px solid #ecdde2;border-radius:8px;'
+                          f'font-size:12px;')
+        v.addWidget(lst, 1)
+
+        def _reload():
+            lst.clear()
+            try:
+                eng = _new_engine()
+                s = eng.store.stats()
+                summary.setText(
+                    f'记录 {s.get("total", 0)} 条｜唯一 {s.get("unique", 0)}'
+                    f'｜重复 {s.get("duplicates", 0)}｜待训练 {s.get("pending", 0)}'
+                    f'｜已训练 {s.get("used_in_training", 0)}｜蒸馏 {s.get("with_teacher", 0)}'
+                    f'｜平均质量 {s.get("avg_quality", 0)}')
+                for r in eng.store.list_records(limit=200):
+                    q = r.get('quality_score')
+                    qs = f'{float(q):.2f}' if isinstance(q, (int, float)) else '-'
+                    flag = '已训练' if r.get('used_in_training') else '待训练'
+                    item = QtWidgets.QListWidgetItem(
+                        f'[{str(r.get("id", "?"))[:8]}] {flag} q={qs} | '
+                        f'{str(r.get("user_input", ""))[:44]}')
+                    item.setData(QtCore.Qt.UserRole, r.get('id'))
+                    lst.addItem(item)
+            except Exception as e:                                     # noqa: BLE001
+                summary.setText(f'数据仓库不可用：{type(e).__name__}: {e}')
+
+        def _delete_selected():
+            it = lst.currentItem()
+            if not it:
+                chat_log.append('<div style="color:#9a8a90">先在列表里选中一条样本再删除。</div>')
+                return
+            rid = it.data(QtCore.Qt.UserRole)
+            try:
+                ok = _new_engine().store.delete(str(rid))
+                chat_log.append(f'<div style="color:#9a8a90">删除样本 {rid}：'
+                                f'{"成功" if ok else "未找到"}</div>')
+            except Exception as e:                                     # noqa: BLE001
+                chat_log.append(f'<div style="color:#9a8a90">删除失败：{e}</div>')
+            _reload()
+
+        def _purge():
+            ans = QtWidgets.QMessageBox.question(
+                dlg, '确认清空',
+                '确定清空全部训练数据？\n（原对话仍会归档到 数据/records/，但训练池会清空）',
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            if ans != QtWidgets.QMessageBox.Yes:
+                return
+            try:
+                res = _new_engine().store.purge(scope='all')
+                chat_log.append(f'<div style="color:#9a8a90">训练数据已清空：{res}</div>')
+            except Exception as e:                                     # noqa: BLE001
+                chat_log.append(f'<div style="color:#9a8a90">清空失败：{e}</div>')
+            _reload()
+
+        def _export():
+            from core.paths import APP_DIR as _APP_DIR
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                dlg, '导出训练集', str(Path(_APP_DIR) / '数据' / 'export.jsonl'),
+                'JSONL (*.jsonl)')
+            if not path:
+                return
+            try:
+                res = _new_engine().store.export_jsonl(path)
+                chat_log.append(f'<div style="color:#9a8a90">已导出训练集：{res}</div>')
+            except Exception as e:                                     # noqa: BLE001
+                chat_log.append(f'<div style="color:#9a8a90">导出失败：{e}</div>')
+
+        def _import():
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                dlg, '导入训练集', '', 'JSONL (*.jsonl)')
+            if not path:
+                return
+            try:
+                res = _new_engine().store.import_jsonl(path)
+                chat_log.append(f'<div style="color:#9a8a90">已导入训练集：{res}</div>')
+            except Exception as e:                                     # noqa: BLE001
+                chat_log.append(f'<div style="color:#9a8a90">导入失败：{e}</div>')
+            _reload()
+
+        row = QtWidgets.QHBoxLayout()
+        for text, color, fn in (
+            ('删除选中', '#8a6a5a', _delete_selected),
+            ('导出训练集', '#5a7a8a', _export),
+            ('导入训练集', '#5a8a6a', _import),
+            ('一键清空', '#b04a5a', _purge),
+        ):
+            b = _panel_btn(text, color)
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch(1)
+        v.addLayout(row)
+        _panel_close(dlg, v)
+        _reload()
+        dlg.exec()
+
+    # ---------- P1-3：成长控制（暂停 / 回滚 / 导出 / 清理） ----------
+    def open_control_panel():
+        dlg, v = _panel_shell('成长控制', 620, 480)
+        state_lbl = _panel_text('读取中…')
+        v.addWidget(state_lbl)
+        log_lbl = _panel_text('')
+
+        def _refresh():
+            try:
+                st = _new_engine().status()
+                state_lbl.setText(
+                    f'阶段：{st.get("stage", "-")}\n'
+                    f'暂停状态：{"已暂停（训练与晋升都会被拦住）" if st.get("paused") else "运行中"}\n'
+                    f'训练轮次：{st.get("rounds", 0)}    晋升次数：{st.get("promotions", 0)}'
+                    f'    进度：{float(st.get("progress_percent", 0.0)):.1f}%')
+            except Exception as e:                                     # noqa: BLE001
+                state_lbl.setText(f'成长引擎不可用：{type(e).__name__}: {e}')
+
+        def _toggle_pause():
+            try:
+                eng = _new_engine()
+                res = eng.resume() if eng.is_paused() else eng.pause()
+                log_lbl.setText(f'{"已恢复成长" if not res.get("paused") else "已暂停成长"}'
+                                f'（{res.get("reason", "OK")}）')
+            except Exception as e:                                     # noqa: BLE001
+                log_lbl.setText(f'操作失败：{e}')
+            _refresh()
+
+        def _rollback():
+            ans = QtWidgets.QMessageBox.question(
+                dlg, '确认回滚',
+                '回滚到上一代模型？\n当前代会移入回收区（trash/），可再清理。',
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            if ans != QtWidgets.QMessageBox.Yes:
+                return
+            try:
+                res = _new_engine().rollback()
+                log_lbl.setText(f'回滚：{res.get("message", res)}')
+            except Exception as e:                                     # noqa: BLE001
+                log_lbl.setText(f'回滚失败：{e}')
+            _refresh()
+
+        def _export_model():
+            from core.paths import APP_DIR as _APP_DIR
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                dlg, '导出模型', str(Path(_APP_DIR) / '我的小凌模型.zip'), 'ZIP (*.zip)')
+            if not path:
+                return
+            try:
+                res = _new_engine().export(path)
+                log_lbl.setText(f'导出：{res.get("message", res)}')
+            except Exception as e:                                     # noqa: BLE001
+                log_lbl.setText(f'导出失败：{e}')
+
+        def _gc():
+            try:
+                res = _new_engine().gc()
+                log_lbl.setText(f'回收区清理：{res.get("message", res)}')
+            except Exception as e:                                     # noqa: BLE001
+                log_lbl.setText(f'清理失败：{e}')
+            _refresh()
+
+        row = QtWidgets.QHBoxLayout()
+        for text, color, fn in (
+            ('暂停 / 恢复成长', '#8a6a5a', _toggle_pause),
+            ('回滚到上一代', '#b04a5a', _rollback),
+            ('导出模型', '#5a7a8a', _export_model),
+            ('清理回收区', '#5a8a6a', _gc),
+        ):
+            b = _panel_btn(text, color)
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch(1)
+        v.addLayout(row)
+        v.addWidget(log_lbl)
+        _panel_close(dlg, v)
+        _refresh()
         dlg.exec()
 
     def show_about():

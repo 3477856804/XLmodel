@@ -8,11 +8,11 @@ Token 只从环境变量读，绝不写进仓库：
     export CF_ACCOUNT_ID=xxx        # Cloudflare Account ID
 
 用法：
-    python3 tools/publish.py all                    # 全流程
-    python3 tools/publish.py gitee [-m "提交说明"]   # 只同步源码到 Gitee
-    python3 tools/publish.py release [--tag v1.0.0] # 只建 Release 并上传 APK
-    python3 tools/publish.py site                   # 只生成官网
-    python3 tools/publish.py pages [--project xiaoling]  # 只部署官网
+    python3 工具/publish.py all                    # 全流程
+    python3 工具/publish.py gitee [-m "提交说明"]   # 只同步源码到 Gitee
+    python3 工具/publish.py release [--tag v0.0.2] # 只建 Release 并上传 APK
+    python3 工具/publish.py site                   # 只生成官网
+    python3 工具/publish.py pages [--project xiaoling]  # 只部署官网
 """
 from __future__ import annotations
 
@@ -253,21 +253,21 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='小凌发布工具')
     ap.add_argument('cmd', choices=['all', 'gitee', 'release', 'site', 'pages'])
     ap.add_argument('-m', '--message', default=None, help='Gitee 提交说明')
-    ap.add_argument('--tag', default='v1.0.0')
+    ap.add_argument('--tag', default='v0.0.2')
     ap.add_argument('--project', default=PAGES_PROJECT)
-    ap.add_argument('--apk', default=str(ROOT / 'android/bin/xiaoling-1.0.0-android-arm64-debug.apk'))
+    ap.add_argument('--apk', default=str(ROOT / 'android/bin/xiaoling-0.0.2-android-arm64-debug.apk'))
     a = ap.parse_args(argv)
     state_file = ROOT / 'website' / 'downloads.json'
 
     if a.cmd in ('all', 'gitee'):
-        msg = a.message or f'小凌 v1.0.0 融合版：3D 数字人 + 成长闭环 + 全平台打包（纯 Python）'
+        msg = a.message or f'小凌 v0.0.2：3D 数字人 + 成长闭环 + 全平台打包（纯 Python）'
         gitee_sync(msg)
     if a.cmd in ('all', 'release'):
         apk = Path(a.apk)
         if not apk.exists():
             log(f'找不到 APK：{apk}（跳过 Release）')
         else:
-            body = ('小凌 XIAOLING v1.0.0 融合版\n\n'
+            body = ('小凌 XIAOLING v0.0.2\n\n'
                     '- 3D 数字人（白裙 / 白丝 / 小凌脸），46 个 VRMA 动作\n'
                     '- 成长闭环：适配器 ≥ 基底 → merge_and_unload → 自研模型 → 基底退役 → 适配器晋升\n'
                     '- 全平台：Android APK / Windows / macOS / Linux / Termux\n'

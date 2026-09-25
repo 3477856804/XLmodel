@@ -1,4 +1,4 @@
-# 小凌 XIAOLING · v1.0 融合版
+# 小凌 XIAOLING · v0.0.2
 
 ![小凌形象](docs/小凌形象卡片.png)
 
@@ -213,7 +213,7 @@ XLmodel/
 │   ├── throttle.py        #   DeepSeek 蒸馏节流：缓存 / 限流 / 开关 / 成本估算
 │   ├── device.py          #   算力探测与显存分级策略（推理 + 训练）
 │   ├── peft_train.py      #   LoRA 蒸馏训练器（量化 / 梯度累积 / 损失曲线）
-│   ├── avatar.py fusion.py config.py paths.py
+│   ├── avatar.py fusion.py config.py paths.py launcher_ui.py
 │   └── rag.py search.py vision.py tts.py asr.py perception.py
 │       proactive.py reminder.py imagen.py filebox.py voices.py selftest.py
 ├── renderer/              # ★ 3D 渲染层（100% Python）
@@ -226,8 +226,8 @@ XLmodel/
 ├── 素材/                  # 形象素材（xiaoling.png 等）
 ├── sounds/tool/           # 8 个工具音效（由 工具/make_sounds.py 程序化生成）
 ├── assets/                # 图标等打包资源
-├── 工具/                  # 形象流水线 + 文档生成（vrm_lib / xiaoling_avatar / gen_docs）
-├── 测试/                  # 回归测试：成长 v2 / 成长 / 融合 / 渲染 / 形象
+├── 工具/                  # 形象流水线 / 发布 / 音效（vrm_lib / xiaoling_avatar / publish / make_sounds）
+├── 测试/                  # 回归测试：成长 v2 / 成长 / 融合 / 渲染 / 形象 / 启动器
 ├── docs/                  # 分析报告 · 语言选型 · 接口契约 · 功能映射 · 成长管线规范
 ├── 技能/ 数据/ 脚本/ 打包/ .star_core/ .github/
 └── README.md
@@ -252,10 +252,10 @@ XLmodel/
 
 `角色模型/` 中的 VRM 基底模型授权为 **`Redistribution_Prohibited`**（多数商业使用为 `Disallow`）。
 因此 **改造产物 `角色模型/小凌.vrm` 仅供本地自用，请勿再分发或商用**。
-流水线 `tools/xiaoling_avatar.py` 保持可重放：只要你持有合法授权的 VRM，一条命令即可生成属于自己的小凌形象：
+流水线 `工具/xiaoling_avatar.py` 保持可重放：只要你持有合法授权的 VRM，一条命令即可生成属于自己的小凌形象：
 
 ```bash
-python3 tools/xiaoling_avatar.py build \
+python3 工具/xiaoling_avatar.py build \
     --base 角色模型/你的授权模型.vrm \
     --face assets/xiaoling.png \
     --out 角色模型/小凌.vrm --preview preview

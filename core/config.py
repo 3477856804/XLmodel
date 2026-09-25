@@ -23,7 +23,7 @@ STAR = STAR_DIR
 CONFIG_PATH = STAR / 'xiaoling_config.json'
 
 DEFAULTS = {
-    'version': '1.0.0-fusion',
+    'version': '0.0.2',
     'name': '小凌',
     'user_name': '你',
     'persona': '活泼',                       # 活泼 / 温柔 / 专业

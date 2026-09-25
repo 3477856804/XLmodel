@@ -492,6 +492,14 @@ class GrowthEngine:
         trainer: 可注入的训练函数 `trainer(epochs, batch_size, lr, corpus) -> dict`，
                  默认使用 `self._peft_train`（依赖 torch/transformers/peft）。
         """
+        # 暂停必须真正拦住训练：此前只有 should_train() 检查 paused，
+        # 而工作台「开始蒸馏训练」直接调本方法，可以绕过暂停照常训练。
+        if self.is_paused():
+            msg = '成长已暂停（用户手动暂停，恢复后再训练）'
+            self.log(f'  [训练] {msg}')
+            return {'ok': False, 'skipped': True, 'paused': True,
+                    'message': msg, 'reason': msg,
+                    'progress_percent': self.progress_percent()}
         t0 = time.time()
         min_quality = float(self.cfg('min_quality') if min_quality is None else min_quality)
         pack = None if self.dry_run else self._round_corpus_from_store(min_quality)
@@ -607,6 +615,12 @@ class GrowthEngine:
 
     def check_and_promote(self, force: bool = False) -> dict:
         """三条件评估：全过 → 晋升；仅 A 过而 B/C 未过 → 升 rank 继续成长。"""
+        # 暂停同样要拦住晋升检查，否则暂停期间仍可能把适配器合并晋升。
+        if self.is_paused():
+            msg = '成长已暂停，跳过本轮晋升检查'
+            self._journal('check', action='skip', paused=True, note=msg)
+            return {'action': 'skip', 'message': msg,
+                    'progress_percent': self.progress_percent()}
         from core.eval import Evaluator
         base, adp = self.base_bytes, self.adapter_bytes
         pct = self.progress_percent()

@@ -873,7 +873,10 @@ def wrap_distill(g):
             return
         print('\n  [成长] 每轮训练后自动检查适配器体积 …')
         try:
-            res = eng.after_training_round(epochs=epochs) if False else eng.check_and_promote()
+            # 每轮训练后只做「体积检查 → 合并晋升」。此前写作
+            # `eng.after_training_round(...) if False else eng.check_and_promote()`，
+            # 前面那半截被 if False 永久短路，是死代码，这里删掉。
+            res = eng.check_and_promote()
             print('  [成长] ' + res.get('message', ''))
             pct = res.get('progress_percent')
             if pct is not None:
@@ -959,6 +962,12 @@ def wrap_main(g):
             from core.selftest import main as selftest_main
             selftest_main([])
             return
+        if '--dashboard' in argv:                  # 开发模式打开训练工作台
+            # 打包版是双击 exe 直接开（xl.py 的 __main__ 分支）；开发模式下此前无入口，
+            # 这里提前拦截，顺便避免触发基底模型下载。
+            sys.argv = [a for a in sys.argv if a != '--dashboard']
+            from renderer.dashboard import run_dashboard
+            sys.exit(0 if run_dashboard() else 1)
         if callable(orig_main):
             return orig_main()
         return None

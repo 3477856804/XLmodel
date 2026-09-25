@@ -63,11 +63,14 @@ class PetWindow:
     """把 AvatarRenderer 变成一只桌面宠物（Qt 外壳）。"""
 
     def __init__(self, renderer, engine=None, on_quit=None, log=print,
-                 width=None, height=None, opacity=1.0, status_provider=None):
+                 width=None, height=None, opacity=1.0, status_provider=None, host=None):
         self.renderer = renderer
         self.status_provider = status_provider
         self._last_status = ''
         self.engine = engine
+        # 宿主（renderer.app.PythonAvatar）。它才有 on_event()/proactive() 这套事件接口，
+        # 空闲上报必须投给它，而不是投给 engine。
+        self.host = host
         self.on_quit = on_quit
         self.log = log or (lambda *a, **k: None)
         self.width = width or renderer.width
@@ -421,13 +424,25 @@ class PetWindow:
 
     def _maybe_report_idle(self):
         now = time.time()
-        if now - self._last_idle_report > 20:
-            self._last_idle_report = now
-            if self.engine is not None and hasattr(self.engine, 'on_avatar_idle'):
-                try:
-                    self.engine.on_avatar_idle()
-                except Exception:                                         # noqa: BLE001
-                    pass
+        if now - self._last_idle_report <= 20:
+            return
+        self._last_idle_report = now
+        # 优先投递给宿主：PythonAvatar.on_event({'type':'idle'}) → proactive()，
+        # 这是真正实现了「待机主动搭话」的入口。
+        # 旧代码投的是 engine.on_avatar_idle()，该方法全项目不存在（只有 hasattr 检查），
+        # 所以主动搭话链一直是断的。
+        host = getattr(self, 'host', None)
+        if host is not None and hasattr(host, 'on_event'):
+            try:
+                host.on_event({'type': 'idle'})
+                return
+            except Exception:                                             # noqa: BLE001
+                pass
+        if self.engine is not None and hasattr(self.engine, 'on_avatar_idle'):
+            try:
+                self.engine.on_avatar_idle()
+            except Exception:                                             # noqa: BLE001
+                pass
 
     def say(self, text, seconds=None):
         if self.widget is not None and hasattr(self.widget, 'show_bubble'):

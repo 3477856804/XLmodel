@@ -578,7 +578,7 @@ SKILLS_DIR = _resource("技能")
 AUTO_TRAIN_THRESHOLD = 1000
 
 CONFIG = {
-    "version": "0.0.1", "name": "小凌", "user_name": "你",
+    "version": "0.0.2", "name": "小凌", "user_name": "你",
     # v0.0.9：基底模型选择（用户可配置，默认 MiniCPM5-2B）
     # 可选档位：
     #   "自研2B模型"     -> 默认，端侧最强（Q4 约1.56GB，手机/电脑流畅）
@@ -4985,24 +4985,53 @@ class XiaoLing:
             f.write(json.dumps(entry, ensure_ascii=False)+"\n")
         self.interaction_count += 1
 
+    def _train_async(self, why: str = "") -> bool:
+        """把蒸馏训练放到后台线程，避免 CLI 主循环在训练期间假死。
+
+        训练完成后只置「待热加载」标记，真正的模型重载与对话重置留到主线程
+        下次推理前（_ensure_model）执行，避免跨线程改 self.model。
+        """
+        if getattr(self, "_train_bg_running", False):
+            print("  [训练] 已有训练在进行中，完成后会在这里提示你。")
+            return False
+        self._train_bg_running = True
+        print(f"  [训练] {why}已转入后台线程，训练期间可以继续对话。")
+
+        def _worker():
+            try:
+                print("\n" + str(distill_train(epochs=2)))
+                # v0.0.5 fix：训练后自动检查适配器体积 ≥ 基底 → 合并晋升自研模型（成长闭环）
+                try:
+                    _act, _msg = self.replacer.check_and_replace(self)
+                    print(f"  [成长] {_msg}")
+                except Exception:
+                    pass
+                self._model_reload_pending = True
+                print("  [训练] 本轮完成：适配器已更新，下次推理会自动热加载。")
+            except Exception as e:                                    # noqa: BLE001
+                print(f"  [训练] 后台训练失败：{e}")
+            finally:
+                self._train_bg_running = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return True
+
     def _check_auto_train(self):
         if self.interaction_count >= AUTO_TRAIN_THRESHOLD:
-            print(f"\n  [加速] 已积累{self.interaction_count}条对话，自动开始蒸馏训练...")
-            print(distill_train(epochs=2))
-            self.interaction_count = 0
-            # v0.0.5 fix：训练后自动检查适配器体积 ≥ 基底 → 合并晋升自研模型（成长闭环）
-            try:
-                _act, _msg = self.replacer.check_and_replace(self)
-                print(f"  [成长] {_msg}")
-            except Exception:
-                pass
-            print("  重新加载更新后的模型...")
-            self.model = LocalModel(MODEL_DIR, ADAPTER_DIR)
-            self._reset_conversation()
+            n = self.interaction_count
+            # 只有真的转后台成功才清零计数，否则保留触发条件下次再试
+            if self._train_async(f"已积累{n}条对话，"):
+                self.interaction_count = 0
 
     # v0.0.14：模型懒加载（首次推理时才加载本地模型）
     def _ensure_model(self):
         """确保本地模型已加载。懒加载：首次需要推理时才加载。"""
+        # 后台训练刚结束 → 在主线程里热加载新适配器，避免跨线程改 self.model
+        if getattr(self, "_model_reload_pending", False) and not self._model_loading:
+            self._model_reload_pending = False
+            self.model = None
+            self._reset_conversation()
+            print("  [模型] 检测到后台训练已完成，正在热加载新适配器…")
         if self.model is not None or self._model_loading:
             return
         self._model_loading = True
@@ -5805,7 +5834,8 @@ class XiaoLing:
                 print(self._toggle_autostart())
                 continue
             if cmd == "tray":
-                print("  托盘已集成到桌宠（关闭窗口即最小化到托盘）")
+                print("  系统托盘尚未实现（全项目没有 QSystemTrayIcon 实现），此前这里的提示是假的。")
+                print("  现在可用：桌宠窗口右键菜单 → 隐藏 / 退出；Windows 开机自启请用「自启」。")
                 continue
             if cmd == "notify" or cmd.startswith("notify "):
                 msg = user_input[7:].strip() if cmd.startswith("notify ") else "小凌提醒你喝水啦～"
@@ -5959,11 +5989,7 @@ class XiaoLing:
                 print(self.tools.execute("learn",{"topic":user_input[6:].strip(),"num_questions":5})); continue
 
             if any(k in user_input for k in ["去训练", "开始训练", "帮我训练", "训练一下"]):
-                print("\n  小凌开始蒸馏训练...")
-                print(distill_train(epochs=2))
-                print("  重新加载模型...")
-                self.model = LocalModel(MODEL_DIR, ADAPTER_DIR)
-                self._reset_conversation()
+                self._train_async("你的请求，")
                 continue
 
             # v0.0.2 修正：说「蒸馏」→ 小凌自动向 DeepSeek 老师学习（生成语料 + LoRA 微调）
@@ -6011,6 +6037,8 @@ def main():
     # v0.0.20：指定平台启动（wechat/feishu/qq/wecom/dingtalk/telegram/discord）
     parser.add_argument("--platform", type=str, default="",
                         help="接入指定平台（wechat/feishu/qq/wecom/dingtalk/telegram/discord），可逗号分隔多个")
+    parser.add_argument("--dashboard", action="store_true",
+                        help="打开 3D 训练工作台（开发模式即可用；打包版双击默认就开）")
     args = parser.parse_args()
 
     # v0.0.20：指定平台启动（临时启用对应平台配置）
@@ -6025,9 +6053,20 @@ def main():
         app = XiaoLing()
         # v0.0.5：启动自检（依赖/配置/成长包）
         _self_check(app)
+        if args.dashboard:
+            # 开发模式也能开工作台。融合层正常时由 main_fused 提前拦截（不下载模型），
+            # 这里是融合层不可用时的兜底路径。
+            from renderer.dashboard import run_dashboard
+            return 0 if run_dashboard() else 1
         if args.status: app.show_status(); return
         if args.learn: print(learn_from_teacher(args.learn, 5, app.memory)); return
-        if args.train: print(distill_train(epochs=args.epochs)); return
+        if args.train:
+            # 批量命令：这个进程的唯一目的就是训练，必须等它跑完才能退出
+            # （转后台线程没有意义），但明确打出进度，避免用户以为卡死。
+            print(f"  [训练] 开始蒸馏训练（{args.epochs} epoch），完成后自动退出，请稍候…", flush=True)
+            print(distill_train(epochs=args.epochs))
+            print("  [训练] 完成。", flush=True)
+            return
         # v0.0.2：全平台桌宠——Windows/Linux/macOS 用tkinter桌宠，Termux用ASCII动画桌宠
         import sys as _sys
         _is_windows = (_sys.platform.startswith("win"))
@@ -6186,13 +6225,11 @@ def _start_pet_background(app):
 
     def _pet_thread():
         try:
-            root = tk.Tk()
-            root.withdraw()
-            # 在构造前注入 app，让桌宠复用主引擎实例（避免重复初始化）
-            pet_module._injected_app = app
-            pet = pet_module.DesktopPet(root, scale=pet_module.DEFAULT_SCALE)
-            pet.app = app  # 兼容后续访问
-            pet.run()
+            # 旧代码写的是 pet_module.DesktopPet(root, scale=pet_module.DEFAULT_SCALE)，
+            # 但 pet.py 已重构为 mode_3d/mode_2d/mode_console/main 四个入口，
+            # DesktopPet 与 DEFAULT_SCALE 都不存在了——融合层未加载时会直接 AttributeError。
+            # 这里改为调用 pet.py 的真实入口（2D 程序化绘制，无素材依赖）。
+            pet_module.mode_2d()
         except Exception as e:
             print(f"  [桌宠] 启动失败（不影响对话）：{e}")
             print("  [桌宠] 若为无图形环境，可忽略；对话/蒸馏/记忆功能不受影响")
@@ -6945,7 +6982,7 @@ if __name__ == "__main__":
 
     # v1.0 融合层：--growth / --avatar-only 只做对应动作，不触发基底模型下载与档位选择
     _fusion_only = any(_a in ("--growth", "--avatar-only", "--probe", "--showcase",
-                              "--selftest") for _a in sys.argv[1:])
+                              "--selftest", "--dashboard") for _a in sys.argv[1:])
     if not _fusion_only:
         # v0.0.4 fix：启动先自动装好 AI 依赖（用户要求"启动就下载好所有依赖"）
         _ensure_deps()

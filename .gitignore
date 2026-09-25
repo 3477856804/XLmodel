@@ -1,12 +1,11 @@
 __pycache__/
 *.pyc
-__pycache__
 .venv/
-*.spec
 build/
 dist/
-build/
+# PyInstaller 配置：打包/xiaoling.spec 是唯一需要入库的 spec，其余一律忽略
 *.spec
+!打包/xiaoling.spec
 # 运行期产物（成长管线本地数据，不入库）
 .star_core/growth/records.db
 .star_core/growth/*.json

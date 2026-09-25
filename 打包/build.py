@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """小凌 XIAOLING · 一键打包器（Windows / macOS / Linux）
 
-    python3 packaging/build.py                    # 当前平台，标准版（含全部资源 + Qt + GL）
-    python3 packaging/build.py --lite             # 精简版（无 torch/Qt/全量模型，软件渲染）
-    python3 packaging/build.py --lite --onefile   # 单文件精简版
-    python3 packaging/build.py --zip              # 额外产出可分发的压缩包
-    python3 packaging/build.py --deb --appimage   # Linux 额外产出 .deb / AppImage
-    python3 packaging/build.py --dmg              # macOS 额外产出 .dmg
-    python3 packaging/build.py --check            # 只做环境体检
+    python3 打包/build.py                    # 当前平台，标准版（含全部资源 + Qt + GL）
+    python3 打包/build.py --lite             # 精简版（无 torch/Qt/全量模型，软件渲染）
+    python3 打包/build.py --lite --onefile   # 单文件精简版
+    python3 打包/build.py --zip              # 额外产出可分发的压缩包
+    python3 打包/build.py --deb --appimage   # Linux 额外产出 .deb / AppImage
+    python3 打包/build.py --dmg              # macOS 额外产出 .dmg
+    python3 打包/build.py --check            # 只做环境体检
 
 产物：dist/xiaoling[.exe | /小凌.app] + dist/manifest.json（sha256 / 体积 / 说明）
 注意：PyInstaller **不支持交叉编译**——Windows 包必须在 Windows 上打，macOS 包必须在 macOS 上打；
@@ -89,7 +89,7 @@ def check_env(lite: bool) -> dict:
             info[f'dep_{mod}'] = 'missing'
             (info['issues'] if need else info['warn']).append(f'缺少 {mod}（{why}）')
     if not (PROJECT / '角色模型' / '小凌.vrm').exists():
-        info['issues'].append('缺少 角色模型/小凌.vrm（先用 tools/xiaoling_avatar.py 生成）')
+        info['issues'].append('缺少 角色模型/小凌.vrm（先用 工具/xiaoling_avatar.py 生成）')
     return info
 
 
@@ -182,20 +182,20 @@ def make_deb(app: Path) -> Path | None:
     _copy_app(app, root / 'opt')
     arch = 'arm64' if platform.machine() in ('aarch64', 'arm64') else 'amd64'
     (root / 'DEBIAN/control').write_text(
-        'Package: xiaoling\nVersion: 1.0.0\nSection: utils\nPriority: optional\n'
+        'Package: xiaoling\nVersion: 0.0.2\nSection: utils\nPriority: optional\n'
         f'Architecture: {arch}\nMaintainer: XIAOLING <xiaoling@local>\n'
         'Depends: libosmesa6 | libgl1, libgl1-mesa-dri | libglx-mesa0\n'
         'Description: 小凌 XIAOLING - 3D digital companion (pure Python)\n',
         encoding='utf-8')
     (root / 'usr/share/applications').mkdir(parents=True, exist_ok=True)
-    desktop = PROJECT / 'packaging/linux/xiaoling.desktop'
+    desktop = PROJECT / '打包/linux/xiaoling.desktop'
     if desktop.exists():
         shutil.copy(desktop, root / 'usr/share/applications/xiaoling.desktop')
     (root / 'usr/bin').mkdir(parents=True, exist_ok=True)
     launcher = root / 'usr/bin/xiaoling'
     launcher.write_text(f'#!/bin/sh\nexec /opt/{app.name}/xiaoling "$@"\n', encoding='utf-8')
     launcher.chmod(0o755)
-    out = DIST / f'xiaoling_1.0.0_{arch}.deb'
+    out = DIST / f'xiaoling_0.0.2_{arch}.deb'
     subprocess.run(['dpkg-deb', '--build', str(root), str(out)], check=True)
     log(f'Debian 包：{out}（{human(out.stat().st_size)}）')
     return out
@@ -210,7 +210,7 @@ def make_appimage(app: Path) -> Path | None:
     shutil.rmtree(root, ignore_errors=True)
     _copy_app(app, root / 'usr/bin')
     for f in ('AppRun', 'xiaoling.desktop', 'xiaoling.png'):
-        src = PROJECT / 'packaging/linux' / f
+        src = PROJECT / '打包/linux' / f
         if src.exists():
             shutil.copy(src, root / f)
     (root / 'AppRun').chmod(0o755)
@@ -225,7 +225,7 @@ def make_dmg(app: Path) -> Path | None:
     if not shutil.which('hdiutil'):
         log('跳过 dmg：仅 macOS 支持')
         return None
-    out = DIST / 'xiaoling-1.0.0.dmg'
+    out = DIST / 'xiaoling-0.0.2.dmg'
     subprocess.run(['hdiutil', 'create', '-volname', '小凌 XIAOLING', '-srcfolder', str(app),
                     '-ov', '-format', 'UDZO', str(out)], check=True)
     log(f'DMG：{out}（{human(out.stat().st_size)}）')
@@ -284,7 +284,7 @@ def main(argv=None):
         if p:
             artifacts.append(str(p))
 
-    manifest = {'name': '小凌 XIAOLING', 'version': '1.0.0-fusion', 'target': target_name(),
+    manifest = {'name': '小凌 XIAOLING', 'version': '0.0.2', 'target': target_name(),
                 'mode': 'lite' if a.lite else 'full', 'onefile': a.onefile,
                 'built_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'python': sys.version.split()[0],
                 'artifacts': []}

@@ -111,7 +111,7 @@ class PythonAvatar:
             return False
         self.window = PetWindow(self.renderer, engine=self.engine, on_quit=self.on_quit,
                                 log=self.log, width=self.renderer.width,
-                                height=self.renderer.height,
+                                height=self.renderer.height, host=self,
                                 status_provider=lambda: self.status_text)
         ok = self.window.run(block=False)
         if not ok:
@@ -234,11 +234,8 @@ class PythonAvatar:
         return self.renderer.scale
 
     def play_audio(self, path_or_url):
-        try:
-            from core import tts
-            tts.speak_blocking('', None) if False else None
-        except Exception:                                                 # noqa: BLE001
-            pass
+        # 原本这里有一句 `tts.speak_blocking('', None) if False else None`：被 if False
+        # 永久短路，且空文本 + None 情绪本身也不会发声，属于纯死代码，删除。
         p = str(path_or_url)
         if p.startswith('file://'):
             p = p[7:]
