@@ -60,11 +60,15 @@ def _format_prompt(tok, q, a):
 
 def train_lora(base_dir: Path, adapter_dir: Path, corpus: Path | None = None,
                epochs: int = 2, batch_size: int = 2, lr: float = 1e-4,
-               max_len: int = 512, lora_r: int = 8, log=print) -> dict:
+               max_len: int = 512, lora_r: int = 8, grad_accum: int = 1,
+               quant: str = 'none', log=print) -> dict:
     """在已有（或新建）LoRA 适配器上继续训练。返回统计信息。
 
-    算力策略：检测到 GPU 就把模型铺上 GPU（device_map=auto，装不下的层自动
-    offload 到 CPU），没有 GPU 再整体走 CPU——训练不再永远固定在 fp32 CPU 上。
+    算力策略（对应设计文档 6.3 / 6.5）：
+      · 检测到 GPU 就把模型铺上 GPU（device_map=auto，装不下的层自动 offload 到 CPU）
+      · `quant='4bit'|'8bit'` 时用 bitsandbytes 量化加载基底（没装 bnb 自动降级）
+      · `grad_accum>1` 用梯度累积，等效大 batch 但显存占用按 batch_size 计
+      · 训练结束写 `train_log.jsonl`（每步 loss），供成长仪表盘画损失曲线
     """
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -81,7 +85,22 @@ def train_lora(base_dir: Path, adapter_dir: Path, corpus: Path | None = None,
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     log(f'  [训练] 算力检测：{device}' + ('（GPU 优先加载，溢出自动回落 CPU）' if device == 'cuda' else ''))
-    model = AutoModelForCausalLM.from_pretrained(str(base_dir), **device_kwargs(device))
+    kw = device_kwargs(device)
+    quant_note = ''
+    if quant in ('4bit', '8bit') and device == 'cuda':
+        try:
+            import bitsandbytes                                        # noqa: F401
+            from transformers import BitsAndBytesConfig
+            cfgs = {'4bit': dict(load_in_4bit=True, bnb_4bit_compute_dtype=kw.get('dtype'),
+                                 bnb_4bit_quant_type='nf4', bnb_4bit_use_double_quant=True),
+                    '8bit': dict(load_in_8bit=True)}
+            kw['quantization_config'] = BitsAndBytesConfig(**cfgs[quant])
+            kw.pop('dtype', None)
+            quant_note = f'（{quant} 量化基底）'
+        except Exception as e:                                         # noqa: BLE001
+            quant_note = f'（{quant} 量化不可用，降级为默认精度：{type(e).__name__}）'
+    log(f'  [训练] 加载基底{quant_note}')
+    model = AutoModelForCausalLM.from_pretrained(str(base_dir), **kw)
     has_adapter = (Path(adapter_dir) / 'adapter_config.json').exists()
     if has_adapter:
         log(f'  [训练] 续训已有适配器：{adapter_dir}')
@@ -100,7 +119,10 @@ def train_lora(base_dir: Path, adapter_dir: Path, corpus: Path | None = None,
 
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr)
     texts = [_format_prompt(tok, r['q'], r['a']) for r in rows]
-    total, steps = 0, 0
+    grad_accum = max(int(grad_accum or 1), 1)
+    log(f'  [训练] batch={batch_size} × accum={grad_accum}（等效 batch={batch_size * grad_accum}）')
+    total, steps, micro = 0, 0, 0
+    curve = []
     for ep in range(epochs):
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
@@ -108,17 +130,35 @@ def train_lora(base_dir: Path, adapter_dir: Path, corpus: Path | None = None,
             labels = enc['input_ids'].clone()
             labels[enc['attention_mask'] == 0] = -100
             out = model(**enc, labels=labels)
-            loss = out.loss
+            loss = out.loss / grad_accum
             loss.backward()
-            opt.step()
-            opt.zero_grad()
-            total += float(loss.detach())
+            micro += 1
+            if micro % grad_accum == 0:
+                opt.step()
+                opt.zero_grad()
+            raw = float(loss.detach()) * grad_accum
+            total += raw
             steps += 1
+            curve.append({'epoch': ep + 1, 'step': steps, 'loss': round(raw, 5)})
             if steps % 5 == 0:
                 log(f'  [训练] epoch {ep + 1}/{epochs} step {steps} loss={total / steps:.4f}')
+    if micro % grad_accum:
+        opt.step()
+        opt.zero_grad()
     Path(adapter_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(adapter_dir))
     tok.save_pretrained(str(adapter_dir))
     avg = total / max(steps, 1)
-    return {'ok': True, 'steps': steps, 'avg_loss': round(avg, 4),
-            'summary': f'{len(rows)} 条语料 × {epochs} epoch，{steps} 步，loss={avg:.4f}'}
+    # 损失曲线落盘（成长仪表盘读取）
+    try:
+        import json as _json
+        with open(Path(adapter_dir).parent / 'growth' / 'train_log.jsonl', 'a',
+                  encoding='utf-8') as f:
+            for c in curve:
+                f.write(_json.dumps(c, ensure_ascii=False) + '\n')
+    except OSError:
+        pass
+    return {'ok': True, 'steps': steps, 'avg_loss': round(avg, 4), 'grad_accum': grad_accum,
+            'quant': quant, 'curve_tail': curve[-3:],
+            'summary': f'{len(rows)} 条语料 × {epochs} epoch，batch={batch_size}×accum={grad_accum}，'
+                       f'{steps} 步，loss={avg:.4f}'}

@@ -36,13 +36,42 @@ DEFAULTS = {
         'auto_download': True,
     },
     'growth': {
+        'auto_train': True,                  # 满足触发条件就自动训练
         'auto_check_after_train': True,      # 每轮训练后自动检查体积
-        'retire_mode': 'delete',             # delete（默认，原基底自动删除）/ archive
+        'retire_mode': 'trash',              # trash（默认：移入回收区，稳定期后清理）/ delete / archive
         'keep_backup': False,
         'simulate_without_torch': False,
         'train_epochs': 2,
         'train_batch': 2,
         'train_lr': 0.0001,
+        # 触发策略（设计文档 2.3）
+        'min_samples': 500,                  # 高质量样本数达标
+        'manual_min_samples': 20,            # 手动说「蒸馏」时的放宽阈值
+        'min_interval_hours': 24,            # 距上次训练间隔
+        'require_device_idle': True,         # 设备空闲（不在游戏/会议）
+        'require_power_ok': True,            # 电量/温度允许
+        'allow_train_on_cpu': False,         # 无 GPU 时是否仍然训练
+        # 训练与防遗忘（设计文档 2.4 / 7.1）
+        'base_mix_ratio': 0.15,              # 混入 10%~20% 通用语料
+        'init_rank': 8,                      # 新一代 LoRA 起始 rank
+        'max_rank': 256,                     # rank 上限（超过改用多适配器堆叠）
+        'min_quality': 0.5,                  # 训练样本最低质量分
+        # 晋升评估（设计文档 2.5 / 7.3）
+        'require_eval': True,                # 是否启用三条件评估
+        'pass_threshold': 0.9,               # 条件 C 通用基准通过率阈值
+        # 生命周期（设计文档 4 / 7.6）
+        'keep_generations': 2,               # 保留代数（当前 + 上一代）
+        'max_generations': 5,                # 最多晋升代数
+        'max_total_bytes': 10737418240,      # 总体积上限（10GB）
+        'stability_hours': 24,               # 稳定期：小时
+        'stability_rounds': 100,             # 稳定期：对话轮次
+        # 蒸馏节流（设计文档 3.4）
+        'distill_enabled': True,             # 关闭则纯本地成长
+        'distill_daily_limit': 200,          # 每日 API 调用上限
+        'teacher_price_in': 1.0,             # 示例单价（元/百万 token，非官方报价）
+        'teacher_price_out': 2.0,
+        # 用户控制（设计文档 7.7）
+        'paused': False,                     # 一键暂停成长
     },
     # ---- 老师（蒸馏）----
     'deepseek_api_key': '暂未填入',

@@ -82,3 +82,87 @@ def device_kwargs(device: str | None = None, dtype='auto') -> dict:
         import torch
         kw.update({'dtype': torch.float32 if dtype == 'auto' else dtype})
     return kw
+
+
+# --------------------------------------------------------------- 显存分级策略
+# 对应设计文档 6.4「自动策略（启动时探测显存）」与 6.5「桌宠场景推荐配置」
+VRAM_TIERS = (
+    # (上限 GB, 档位, 推理策略, 是否允许训练, 说明)
+    (4.0, 'cpu_only', '纯 CPU 推理（fp32，low_cpu_mem_usage）', False,
+     '显存 < 4GB：纯 CPU 推理，训练延后（可用 XIAOLING_ALLOW_TRAIN=1 强制）'),
+    (8.0, 'partial_gpu', '4bit 量化 + 部分层上 GPU（n_gpu_layers / device_map=auto）', True,
+     '显存 4~8GB：4bit + 部分层 GPU，LoRA + gradient_checkpointing 可训'),
+    (float('inf'), 'full_gpu', '全量上 GPU（bf16/fp16）+ LoRA 训练', True,
+     '显存 > 8GB：全 GPU + LoRA 训练'),
+)
+
+
+def vram_gb() -> float:
+    """当前可用显存（GB）。无 GPU / 无 torch 时返回 0.0。"""
+    info = gpu_info()
+    return float(info.get('vram_gb') or 0.0)
+
+
+def plan(vram: float | None = None, allow_train: bool | None = None) -> dict:
+    """按显存给出推理/训练档位（设计文档 6.4）。
+
+    返回 {'tier', 'strategy', 'can_train', 'device', 'vram_gb', 'limits', 'note'}
+    """
+    dev = best_torch_device()
+    gb = vram_gb() if vram is None else float(vram)
+    tier, strategy, can_train, note = VRAM_TIERS[-1][1:]
+    for limit, t, s, c, n in VRAM_TIERS:
+        if gb < limit:
+            tier, strategy, can_train, note = t, s, c, n
+            break
+    if dev == 'mps':
+        tier, strategy, can_train = 'mps', 'Apple Silicon MPS（fp16），训练可用但建议小 batch', True
+        note = 'Apple Silicon：MPS 推理，LoRA 可训（batch_size 建议 1）'
+    if dev == 'cpu':
+        tier, strategy, can_train = 'cpu_only', '纯 CPU 推理（fp32）', False
+        note = '未检测到 GPU：推理走 CPU；训练建议延后或走云，或用 XIAOLING_ALLOW_TRAIN=1 强制'
+    env_force = os.environ.get('XIAOLING_ALLOW_TRAIN', '').strip() in ('1', 'true', 'yes')
+    if allow_train is False:
+        can_train = False
+    elif allow_train is True or env_force:
+        can_train = True
+    return {'tier': tier, 'strategy': strategy, 'can_train': bool(can_train), 'device': dev,
+            'vram_gb': round(gb, 1), 'limits': train_plan(tier)[0] if can_train else None,
+            'note': note}
+
+
+def train_plan(tier: str | None = None) -> tuple:
+    """训练参数档位（设计文档 6.5）：batch / accumulation / 量化 / offload。
+
+    返回 ({'batch_size','grad_accum','quant','offload_optimizer','gradient_checkpointing'}, 说明)
+    """
+    if tier is None:
+        tier = plan()['tier']
+    if tier == 'full_gpu':
+        cfg = {'batch_size': 4, 'grad_accum': 2, 'quant': 'none', 'offload_optimizer': False,
+               'gradient_checkpointing': True}
+        note = '全 GPU：batch 4 × accum 2，LoRA + 梯度检查点'
+    elif tier == 'partial_gpu':
+        cfg = {'batch_size': 1, 'grad_accum': 8, 'quant': '4bit', 'offload_optimizer': True,
+               'gradient_checkpointing': True}
+        note = '4bit + 部分层 GPU：batch 1 × accum 8，优化器状态卸到 CPU 内存'
+    elif tier == 'mps':
+        cfg = {'batch_size': 1, 'grad_accum': 8, 'quant': 'fp16', 'offload_optimizer': False,
+               'gradient_checkpointing': True}
+        note = 'MPS：batch 1 × accum 8'
+    else:
+        cfg = {'batch_size': 1, 'grad_accum': 16, 'quant': 'fp32', 'offload_optimizer': True,
+               'gradient_checkpointing': True}
+        note = '纯 CPU：batch 1 × accum 16，训练耗时显著，建议延后到空闲时段'
+    return cfg, note
+
+
+def describe_plan() -> str:
+    """一句话策略描述（启动日志/仪表盘用）。"""
+    p = plan()
+    cfg, note = train_plan(p['tier']) if p['can_train'] else (None, '当前档位不触发训练')
+    line = f"{describe()}\n  策略档位：{p['tier']}（显存 {p['vram_gb']}GB）→ {note}"
+    if cfg:
+        line += f"\n  训练参数：batch={cfg['batch_size']} accum={cfg['grad_accum']} " \
+                f"quant={cfg['quant']} offload={cfg['offload_optimizer']}"
+    return line
