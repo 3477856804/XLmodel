@@ -6819,18 +6819,67 @@ def _count_corpus():
     except Exception:
         return 0
 
-def _ensure_deps():
-    """v0.0.4 fix：启动时自动检查并安装 AI 依赖（用户要求"启动就装好"）。
+def _torch_install_command() -> str:
+    """按平台/GPU 给出正确的 torch 安装命令（乙-2：程序不再自动装 torch）。"""
+    try:
+        from core.device import torch_install_plan
+        idx = torch_install_plan().get('index_url') or ''
+    except Exception:                                                 # noqa: BLE001
+        idx = ''
+    cmd = f'"{sys.executable}" -m pip install torch'
+    return f'{cmd} --index-url {idx}' if idx else cmd
 
-    缺 torch/transformers/peft → 自动安装：
-    - Termux：pkg install python-torch python-psutil + pip install transformers peft accelerate
-    - 桌面：pip install torch transformers peft accelerate
-    失败不阻塞启动（降级规则引擎）。
+
+def _report_torch_state() -> None:
+    """只**报告** torch 状态，绝不安装。"""
+    try:
+        import torch  # noqa
+    except Exception:                                                 # noqa: BLE001
+        print("  [依赖] 未安装 torch：本地模型推理与蒸馏训练不可用（桌宠/对话不受影响）。")
+        try:
+            from core.device import torch_install_plan
+            _p = torch_install_plan()
+            if _p.get('reason'):
+                print(f"  [依赖] 本机建议：{_p['reason']}")
+        except Exception:                                             # noqa: BLE001
+            pass
+        print(f"  [依赖] 手动安装：{_torch_install_command()}")
+        print("  [依赖] 或启动后在「环境配置向导」里一键安装。")
+        return
+    cuda = getattr(getattr(torch, 'version', None), 'cuda', None)
+    try:
+        avail = bool(torch.cuda.is_available())
+        name = torch.cuda.get_device_name(0) if avail else ''
+    except Exception:                                                 # noqa: BLE001
+        avail, name = False, ''
+    tag = f'CUDA {cuda}' if cuda else 'CPU 版'
+    extra = f'，已启用 GPU：{name}' if avail else ''
+    print(f"  [依赖] torch 已就绪：{torch.__version__}（{tag}）{extra}")
+
+
+def _ensure_deps():
+    """启动时检查依赖（**乙-2 改版**：默认不再自动安装 torch）。
+
+    策略：
+      * PyInstaller 打包后：依赖已内嵌，直接返回
+      * ``XL_NO_AUTO_DEPS=1``：完全跳过任何 pip 操作（只报告状态）
+      * 默认：只装缺失的**非 torch** 依赖（桌宠/渲染/语音必需）
+      * **torch 一律不自动安装**。原因：
+          1. 体积大（CUDA 版约 3.5GB）；
+          2. 默认 PyPI 给的是 CPU 轮子，会**覆盖**用户已装的 cu128 版本
+             （这正是"uv 装好 cu128 后被程序换成 CPU 版"的根因）；
+          3. 真正需要时由用户在「环境配置向导」里显式点击安装（按 GPU 自动选源）。
     """
     try:
         # PyInstaller 打包后的 exe：依赖已全部内嵌，禁止再调 pip（sys.executable 是 exe 不是 Python）
         if getattr(sys, "frozen", False):
             return True
+
+        if os.environ.get("XL_NO_AUTO_DEPS") == "1":
+            print("  [依赖] 已跳过自动安装（XL_NO_AUTO_DEPS=1）")
+            _report_torch_state()
+            return True
+
         # 桌宠/渲染/语音必需依赖：缺了自动装（保证中文目录与 3D 模型正常起、不乱码）
         _pet_missing = []
         for _mod, _pkg in (("PySide6", "PySide6"), ("PIL", "Pillow"),
@@ -6847,28 +6896,7 @@ def _ensure_deps():
                      timeout=900)
             print("  [依赖] 桌宠依赖安装完成")
 
-        # 蒸馏/LoRA 成长所需的 torch 体积大，不阻塞桌宠开窗——放后台线程装，
-        # 这样小凌先出来，torch 下好后蒸馏训练与适配器合并自动可用。
-        def _bg_install_torch():
-            import subprocess as _sp3
-            try:
-                _sp3.run([sys.executable, "-m", "pip", "install",
-                          "torch", "transformers", "peft", "accelerate"],
-                         timeout=1800)
-                try:
-                    import torch  # noqa
-                    print("  [依赖] 蒸馏引擎（torch）后台安装完成，成长/蒸馏已可用")
-                except Exception:
-                    print("  [依赖] 蒸馏引擎安装后仍未就绪（可能 Python 版本过新无预编译包），"
-                          "桌宠不受影响；蒸馏时可手动 pip install torch")
-            except Exception as _e:
-                print(f"  [依赖] 蒸馏引擎后台安装未完成：{_e}（不影响桌宠）")
-        try:
-            import torch  # noqa
-        except Exception:
-            import threading as _th
-            print("  [依赖] 桌宠已就绪；蒸馏引擎 torch 正在后台安装（不挡窗口）…")
-            _th.Thread(target=_bg_install_torch, daemon=True).start()
+        _report_torch_state()
         return True
     except Exception:
         return False

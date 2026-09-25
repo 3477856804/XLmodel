@@ -166,3 +166,100 @@ def describe_plan() -> str:
         line += f"\n  训练参数：batch={cfg['batch_size']} accum={cfg['grad_accum']} " \
                 f"quant={cfg['quant']} offload={cfg['offload_optimizer']}"
     return line
+
+
+# --------------------------------------------------------------------------- #
+#  torch 尚未安装时的 GPU 探测（鸡生蛋问题）
+#
+#  上面所有函数（best_torch_device / gpu_info / vram_gb / plan）都先 import torch，
+#  所以「torch 还没装、但需要决定装 cu128 还是 cpu」这个场景它们全部返回 cpu。
+#  这一节用 nvidia-smi 做**完全不依赖 torch** 的探测，供环境配置向导选安装源。
+# --------------------------------------------------------------------------- #
+TORCH_INDEX_CU128 = 'https://download.pytorch.org/whl/cu128'
+TORCH_INDEX_CU124 = 'https://download.pytorch.org/whl/cu124'
+TORCH_INDEX_CU118 = 'https://download.pytorch.org/whl/cu118'
+TORCH_INDEX_CPU = 'https://download.pytorch.org/whl/cpu'
+
+
+def find_nvidia_smi() -> str | None:
+    """定位 nvidia-smi。WSL2 里它常在 /usr/lib/wsl/lib 而不在 PATH 上。"""
+    import shutil
+    exe = shutil.which('nvidia-smi')
+    if exe:
+        return exe
+    for p in ('/usr/lib/wsl/lib/nvidia-smi', '/usr/bin/nvidia-smi',
+              '/usr/local/bin/nvidia-smi'):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def nvidia_smi_info() -> dict:
+    """**不依赖 torch** 的 NVIDIA 探测。
+
+    返回 {'found', 'name', 'driver', 'compute_cap', 'sm', 'wsl'}
+    * sm 由 compute_cap 换算（"12.0" → 120），与 setup_kali.sh 的 50 系判定一致。
+    * 在 WSL2 下额外标记 wsl=True，供向导提示"需在 Windows 侧升级驱动"。
+    """
+    out = {'found': False, 'name': '', 'driver': '', 'compute_cap': '', 'sm': 0, 'wsl': False}
+    try:
+        out['wsl'] = ('microsoft' in (os.uname().release or '').lower()) \
+            if hasattr(os, 'uname') else False
+    except Exception:                                                 # noqa: BLE001
+        out['wsl'] = False
+    exe = find_nvidia_smi()
+    if not exe:
+        return out
+    try:
+        import subprocess
+        r = subprocess.run([exe, '--query-gpu=name,driver_version,compute_cap',
+                            '--format=csv,noheader'],
+                           capture_output=True, text=True, timeout=10)
+        lines = [ln for ln in (r.stdout or '').strip().splitlines() if ln.strip()]
+        if not lines:
+            return out
+        parts = [p.strip() for p in lines[0].split(',')]
+        out['found'] = True
+        out['name'] = parts[0] if len(parts) > 0 else ''
+        out['driver'] = parts[1] if len(parts) > 1 else ''
+        cap = parts[2] if len(parts) > 2 else ''
+        out['compute_cap'] = cap
+        if cap:
+            try:
+                out['sm'] = int(round(float(cap) * 10))
+            except Exception:                                         # noqa: BLE001
+                out['sm'] = 0
+    except Exception:                                                 # noqa: BLE001
+        pass
+    return out
+
+
+def torch_install_plan() -> dict:
+    """该机器上 torch 应该从哪个源装（**不依赖 torch**）。
+
+    返回 {'index_url', 'variant', 'reason', 'gpu'}
+    规则与 setup_kali.sh 的方案表一致：
+      * macOS            → 默认 PyPI（轮子自带 MPS）
+      * sm >= 120（50 系）→ cu128
+      * sm >= 80（30/40 系）→ cu124
+      * 其它 NVIDIA      → cu118
+      * 无 NVIDIA        → cpu
+    """
+    import platform
+    gpu = nvidia_smi_info()
+    if platform.system() == 'Darwin':
+        return {'index_url': '', 'variant': 'default',
+                'reason': 'macOS：PyPI 默认轮子已自带 MPS 支持', 'gpu': gpu}
+    if gpu.get('found'):
+        sm = int(gpu.get('sm') or 0)
+        name = gpu.get('name') or 'NVIDIA GPU'
+        if sm >= 120:
+            return {'index_url': TORCH_INDEX_CU128, 'variant': 'cu128',
+                    'reason': f'{name}（sm_{sm}，50 系）→ cu128', 'gpu': gpu}
+        if sm >= 80:
+            return {'index_url': TORCH_INDEX_CU124, 'variant': 'cu124',
+                    'reason': f'{name}（sm_{sm}，30/40 系）→ cu124', 'gpu': gpu}
+        return {'index_url': TORCH_INDEX_CU118, 'variant': 'cu118',
+                'reason': f'{name}（sm_{sm}）→ cu118', 'gpu': gpu}
+    return {'index_url': TORCH_INDEX_CPU, 'variant': 'cpu',
+            'reason': '未检测到 NVIDIA GPU → CPU 版', 'gpu': gpu}
