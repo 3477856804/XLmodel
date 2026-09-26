@@ -46,6 +46,10 @@ hidden = [
     'core.fusion', 'core.rag', 'core.search', 'core.vision', 'core.tts', 'core.asr',
     'core.perception', 'core.proactive', 'core.reminder', 'core.imagen', 'core.filebox',
     'core.selftest',
+    # 成长/评估链路上的模块：多由 core.growth 在函数体内延迟 import，
+    # 显式列出以免打包版在跑成长流程时才报 ModuleNotFoundError。
+    'core.device', 'core.eval', 'core.growth_store', 'core.lifecycle',
+    'core.rank', 'core.throttle', 'core.voices', 'core.launcher_ui',
     'renderer.app', 'renderer.renderer', 'renderer.gl', 'renderer.soft', 'renderer.model',
     'renderer.pose', 'renderer.gltf', 'renderer.vrma', 'renderer.camera', 'renderer.window',
     'renderer.settings', 'renderer.lipsync',
