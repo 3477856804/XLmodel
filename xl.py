@@ -5261,7 +5261,7 @@ class XiaoLing:
                           "请安装：pip install -r requirements.txt（Termux: pkg install python-torch）")
             elif not _has_w:
                 notice = ("现在我的语言模型还没加载好，只能用规则引擎简单回你。"
-                          "你可以补全 .star_core/XLmodel/model.safetensors 权重，"
+                          "你可以补全 .star_core/XLmodel/ 下的基底权重（任意 *.safetensors / *.bin 均可），"
                           "或者在配置里填入 deepseek_api_key，我就能好好聊天了。")
             else:
                 notice = ("我的语言模型还在加载中，先用规则引擎简单回你。"
@@ -6237,7 +6237,8 @@ def _self_check(app):
             issues.append("  " + " | ".join(_errs))
             issues.append("  解决: pip install -r requirements.txt（Termux: pkg install python-torch && pip install transformers peft accelerate）")
     else:
-        issues.append("本地模型权重为空（蒸馏微调不可用）→ 补全 .star_core/XLmodel/model.safetensors")
+        issues.append("本地模型权重为空（蒸馏微调不可用）→ 往 .star_core/XLmodel/ 放入基底权重"
+                      "（任意 *.safetensors / *.bin 均可），或让程序首次启动自动下载")
 
     # 3. 成长包
     if app.growth.total_items > 0:
