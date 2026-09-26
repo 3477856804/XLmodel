@@ -135,6 +135,10 @@ DEFAULTS = {
     'render': {
         'backend': 'auto',          # auto / gpu / soft / osmesa（对应 XIAOLING_RENDER_BACKEND）
     },
+    # ---- 启动方式（xl 启动时先问一次，可记住）----
+    'startup': {
+        'mode': 'ask',              # ask（每次问）/ pet（3D 桌宠）/ chat（对话窗口）/ cli（纯命令行）
+    },
 }
 
 

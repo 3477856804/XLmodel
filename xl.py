@@ -6160,20 +6160,54 @@ def main():
             print(distill_train(epochs=args.epochs))
             print("  [训练] 完成。", flush=True)
             return
+        # ── 启动方式：桌宠 / 对话窗口 / 纯命令行 ──
+        # 优先级：命令行参数（--no-pet）> 配置里记住的选择 > 弹「启动页」问一次。
+        # 起因：3D 桌宠在无 GPU / 软件渲染 / 远程环境里体验很差，但那些环境更需要能对话，
+        # 所以给一条不依赖 3D 的 GUI 路径（renderer/chat_ui.py）。
+        _mode = 'cli' if args.no_pet else None
+        if _mode is None:
+            try:
+                from renderer import startup_ui as _su
+                _m = _su.current_mode()
+                if _m == 'ask':
+                    _picked, _remember = _su.choose_startup_mode(log=print)
+                    if _picked and _picked != 'ask':
+                        _m = _picked
+                        if _remember:
+                            _su.save_mode(_picked)
+                            print(f"  [启动] 已记住启动方式：{_picked}")
+                    else:
+                        # 用户取消 / 没有 Qt：选更稳的对话窗口；没 Qt 时它自己会回退
+                        _m = 'chat' if _picked != 'ask' else 'ask'
+                _mode = _m if _m in ('pet', 'chat', 'cli') else 'chat'
+            except Exception as _su_err:   # noqa: BLE001
+                print(f"  [启动] 启动方式选择跳过（{_su_err}），按命令行启动")
+                _mode = 'cli'
+        print(f"  [启动] 启动方式：{_mode}")
+
+        if _mode == 'chat' and not _IS_TERMUX:
+            try:
+                from renderer.chat_ui import open_chat_window
+                if open_chat_window(app, log=print):
+                    return
+            except Exception as _chat_err:   # noqa: BLE001
+                print(f"  [对话窗口] 打开失败，回退命令行：{_chat_err}")
+            _mode = 'cli'
+
         # v0.0.2：全平台桌宠——Windows/Linux/macOS 用tkinter桌宠，Termux用ASCII动画桌宠
         import sys as _sys
         _is_windows = (_sys.platform.startswith("win"))
         _pet_ok = False
 
         # Termux：ASCII动画桌宠（终端里的小凌）
-        if _IS_TERMUX and not args.no_pet:
+        if _IS_TERMUX and _mode == 'pet':
             try:
                 _pet_ok = _start_ascii_pet(app)
             except Exception as e:
                 print(f"  [桌宠] ASCII桌宠启动失败：{e}")
 
         # Windows/Linux/macOS：tkinter图形桌宠
-        if not _pet_ok and not args.no_pet:
+        if not _pet_ok and _mode == 'pet':
             _pet_ok = _start_pet_background(app)
 
         app.run()
