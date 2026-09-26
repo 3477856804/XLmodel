@@ -128,6 +128,13 @@ class PythonAvatar:
         return True
 
     def _wait(self):
+        """已废弃：历史实现。
+
+        原先 start(block=True) 走的是 run(block=False) + 本方法轮询 window._running，
+        但 _running 只在 _exec() 里才置 True，而 block=False 从不调用 _exec() ——
+        于是事件循环没跑、窗口没 show()、本方法立刻返回，主流程直接退出。
+        现已改为把 block 透传给 window.run()。此方法保留仅为兼容可能有外部调用。
+        """
         try:
             while not self._stop and self.window is not None and self.window._running:
                 time.sleep(0.3)

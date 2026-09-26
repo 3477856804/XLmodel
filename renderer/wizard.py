@@ -562,6 +562,14 @@ def run_wizard(parent=None, log=print) -> bool:
         btn_torch.setEnabled(bool(mm) and os.environ.get('XL_NO_AUTO_DEPS') != '1')
 
     def _run_install(kind):
+        if getattr(sys, 'frozen', False):
+            # 打包版（exe）：依赖已内嵌，sys.executable 是 exe 而不是 Python，
+            # 在这里调 pip 只会得到莫名其妙的错误。直接说清楚。
+            dep_log.setVisible(True)
+            dep_log.appendPlainText(
+                '打包版（exe）不支持在向导里安装依赖：依赖已内嵌在程序内。\n'
+                '若确有缺失，请改用源码方式运行，并在源码环境里安装（或跑 setup_kali.sh）。')
+            return
         if os.environ.get('XL_NO_AUTO_DEPS') == '1':
             dep_log.setVisible(True)
             dep_log.appendPlainText(t('deps.no_auto'))

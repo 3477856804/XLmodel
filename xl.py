@@ -7043,6 +7043,19 @@ if __name__ == "__main__":
     # 打包后的 exe：双击直接开训练工作台（不进命令行、不弹黑窗）
     if getattr(sys, "frozen", False) and not any(_a.startswith("--") for _a in sys.argv[1:]):
         try:
+            # 零配置直接启动：全新机器上先弹「环境配置向导」（缺依赖 / 缺 API Key /
+            # 缺模型权重时），配好再进工作台。
+            # 此前这里**直接**开工作台，于是打包版永远看不到向导自动弹出
+            # （只能从工作台右下角 + 菜单里手动打开）—— 与"零配置直接启动"的目标不符。
+            try:
+                from renderer import i18n as _i18n
+                from renderer import wizard as _wiz
+                _i18n.init_from_config()
+                if _wiz.should_auto_show():
+                    _wiz.run_wizard(log=print)
+            except Exception as _wiz_err:   # noqa: BLE001
+                print(f"  [向导] 打开失败（继续启动工作台）：{_wiz_err}")
+
             from renderer.dashboard import run_dashboard
             sys.exit(0 if run_dashboard() else 1)
         except SystemExit:
