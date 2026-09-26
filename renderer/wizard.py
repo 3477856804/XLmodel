@@ -281,8 +281,11 @@ def console_env_summary(rep: dict | None = None) -> str:
         L.append(f"  显卡：{g.get('name')}（驱动 {g.get('driver')}，sm_{g.get('sm')}）")
     else:
         L.append('  显卡：未检测到 NVIDIA 显卡')
-    if rep['platform']['is_wsl']:
-        L.append('  [WSL2] 请在 Windows 侧安装 NVIDIA 驱动（建议 ≥ 570）')
+    # WSL2 提示只在**真的没识别出显卡**时才给 —— 否则驱动正常、CUDA 可用的机器
+    # 也会被叫去装驱动（实测 RTX 5060 / 驱动 592.01 也中过这个误导）。
+    if rep['platform']['is_wsl'] and not g.get('found'):
+        L.append('  [WSL2] 未识别到显卡：请确认已在 Windows 侧安装 NVIDIA 驱动（建议 ≥ 570），')
+        L.append('         WSL 内的显卡由 Windows 驱动透传；装好后重开 WSL 再试。')
     if miss_c:
         L.append('  安装界面依赖：')
         L.append(f'    "{sys.executable}" -m pip install ' + ' '.join(d['pkg'] for d in miss_c))
@@ -296,7 +299,8 @@ def console_env_summary(rep: dict | None = None) -> str:
     if not rep['api'].get('configured'):
         L.append(f"  未配置 DeepSeek API Key（可选）：写进 {rep['api'].get('path')} 的 deepseek_api_key")
     if not rep['model'].get('ok'):
-        L.append(f"  未检测到基底权重：放进 {rep['model'].get('dir')}（或首次启动自动下载）")
+        L.append(f"  未检测到基底权重（默认不会自动下载）：放进 {rep['model'].get('dir')}，")
+        L.append('         或运行 xl 后在「环境配置向导 → 模型」里点「下载基底模型」')
     return '\n'.join(L)
 
 
