@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
-.venv/
+# .venv 用不带斜杠的写法：既能忽略目录，也能忽略**指向别处 venv 的符号链接**
+# （多份测试副本共用同一个环境时常用这种软链，带斜杠的 .venv/ 匹配不到链接本身）
+.venv
 build/
 dist/
 # PyInstaller 配置：打包/xiaoling.spec 是唯一需要入库的 spec，其余一律忽略
