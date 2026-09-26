@@ -180,6 +180,15 @@ def _downloaded_mb():
             + _dir_mb(BASE_DIR / '.star_core' / 'XLmodel'))
 
 
+def mark_wizard_shown() -> None:
+    """由 xl.py 在「环境配置向导」显示过之后调用。
+
+    向导的「模型」页已经让用户选过基底档位，因此 bootstrap 不该再弹一次旧的
+    core.launcher_ui 启动器（实测用户会连着看到两个"选模型"界面）。
+    """
+    _STATE['wizard_shown'] = True
+
+
 def bootstrap(select_model_on_start, ensure_base_model=None):
     """在 main() 之前调用（xl.py 的 __main__ 里）。
 
@@ -203,23 +212,28 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
         else:
             select_model_on_start()
         return False
-    # v1.1：GUI 模式 + 无权重 → 优先弹全UI启动器选档位 + 一键下载
-    try:
-        from core import launcher_ui
-        if launcher_ui.is_ui_available():
-            print('  [启动器] 弹出全UI启动器选择基底模型')
-            chosen = launcher_ui.select_model_on_start_ui()
-            if chosen:
-                # 同步刷新内存 CONFIG 里的 base_model，确保 get_model_preset 用新值
-                try:
-                    from core import config as _cfg_mod
-                    _cfg = _cfg_mod.load()
-                    _cfg['model']['base_model'] = chosen
-                    _cfg_mod.save(_cfg)
-                except Exception:
-                    pass
-    except Exception as _e:
-        print(f'  [启动器] UI 启动器不可用（{_e}），回退到后台下载')
+    # v1.1：GUI 模式 + 无权重 → 优先弹全UI启动器选档位 + 一键下载。
+    # 但若「环境配置向导」这一次已经问过档位（它的「模型」页），就不再重复弹一次——
+    # 实测用户会连着看到两个"选模型"界面，非常困惑。
+    if _STATE.get('wizard_shown'):
+        print('  [模型] 已通过「环境配置向导」确认过档位，跳过旧启动器')
+    else:
+        try:
+            from core import launcher_ui
+            if launcher_ui.is_ui_available():
+                print('  [启动器] 弹出全UI启动器选择基底模型')
+                chosen = launcher_ui.select_model_on_start_ui()
+                if chosen:
+                    # 同步刷新内存 CONFIG 里的 base_model，确保 get_model_preset 用新值
+                    try:
+                        from core import config as _cfg_mod
+                        _cfg = _cfg_mod.load()
+                        _cfg['model']['base_model'] = chosen
+                        _cfg_mod.save(_cfg)
+                    except Exception:
+                        pass
+        except Exception as _e:
+            print(f'  [启动器] UI 启动器不可用（{_e}），回退到后台下载')
     print('  [模型] 未检测到基底权重 → 后台下载中，进度会同步出现在桌宠气泡里')
 
     def _worker():

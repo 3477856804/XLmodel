@@ -152,6 +152,21 @@ class PetWindow:
             self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
         self.widget.show()
         self._running = True
+        # ★ 让 Ctrl+C 真正能退出。
+        # Qt 的事件循环**不处理 Python 信号**：进程收到 SIGINT 时，Python 层的
+        # KeyboardInterrupt 只能等解释器有空隙才会抛出，而 Qt 主循环几乎不给这个空隙，
+        # 于是表现为"在桌宠窗口里按 Ctrl+C 毫无反应，只能 kill 进程"（实测）。
+        # 标准做法：自己装一个 SIGINT 处理器 + 一个空转的 QTimer 给解释器留出处理机会。
+        try:
+            import signal
+            self._prev_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, lambda *_: self.app.quit())
+            self._sig_timer = QtCore.QTimer()
+            self._sig_timer.start(200)
+            self._sig_timer.timeout.connect(lambda: None)
+        except Exception:                                                 # noqa: BLE001
+            # 非主线程 / 不支持的平台：静默降级（Ctrl+C 仍可按老样子处理）
+            self._sig_timer = None
         try:
             self.app.exec_() if hasattr(self.app, 'exec_') else self.app.exec()
         finally:

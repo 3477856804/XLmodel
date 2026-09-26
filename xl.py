@@ -350,8 +350,39 @@ def _is_base_weight(p) -> bool:
         return False
 
 
+_BASE_DL_LOCK = threading.Lock()
+_BASE_DL_ACTIVE = False
+
+
 def ensure_base_model():
-    """v0.1.0：确保基底模型存在。缺失时自动下载并平铺到 MODEL_DIR。
+    """确保基底模型存在 —— **带并发保护** 的对外入口。
+
+    同一进程里有三条路径都会走到这里：
+      ① core.fusion.bootstrap 的后台线程（thread name='model-download'）—— GUI 模式主路径
+      ② XiaoLing._ensure_model() 首次推理时的懒加载
+      ③ core.launcher_ui 的「一键下载」
+    它们可能同时进入，导致同一个约 4.8GB 的模型被**并发拉取两遍**：
+    两条进度条交错输出、带宽翻倍、临时文件互相覆盖（实测出现过"两个进程同时在拉"，
+    而且 Ctrl+C 也停不下来）。这里用进程内锁保证同一时刻只有一次下载；
+    若已有下载在进行，其它调用立即返回，等下次（例如下次推理）再复用结果。
+    """
+    global _BASE_DL_ACTIVE
+    with _BASE_DL_LOCK:
+        if _BASE_DL_ACTIVE:
+            print("  [模型] 已有下载任务在进行中，跳过重复拉取（避免并发下载同一个模型）")
+            return False
+        _BASE_DL_ACTIVE = True
+    try:
+        return _ensure_base_model_impl()
+    finally:
+        with _BASE_DL_LOCK:
+            _BASE_DL_ACTIVE = False
+
+
+def _ensure_base_model_impl():
+    """基底模型的原有实现（不做并发保护，只应由 ensure_base_model 调用）。
+
+    v0.1.0：确保基底模型存在。缺失时自动下载并平铺到 MODEL_DIR。
 
     - 下载到临时目录（ModelScope 国内源优先），成功后平铺复制到 .star_core/XLmodel/
     - 清理品牌文件（README/说明/品牌目录），目录内只留模型必需文件
@@ -7053,6 +7084,11 @@ if __name__ == "__main__":
                 _i18n.init_from_config()
                 if _wiz.should_auto_show():
                     _wiz.run_wizard(log=print)
+                    try:
+                        from core import fusion as _fusion_mark
+                        _fusion_mark.mark_wizard_shown()
+                    except Exception:
+                        pass
             except Exception as _wiz_err:   # noqa: BLE001
                 print(f"  [向导] 打开失败（继续启动工作台）：{_wiz_err}")
 
@@ -7091,6 +7127,12 @@ if __name__ == "__main__":
             _i18n.init_from_config()
             if _wizard.should_auto_show():
                 _wizard.run_wizard(log=print)
+                # 通知融合层：向导已问过档位，别再弹旧的启动器选择界面
+                try:
+                    from core import fusion as _fusion_mark
+                    _fusion_mark.mark_wizard_shown()
+                except Exception:
+                    pass
         except Exception as _wiz_err:   # noqa: BLE001
             print(f"  [向导] 打开失败（不影响启动）：{_wiz_err}")
         # v1.0 融合层：桌面（GUI）模式下不阻塞在控制台交互上——
