@@ -34,7 +34,7 @@ DEFAULTS = {
         'hf_id': 'openbmb/MiniCPM5-2B',
         'ms_id': 'OpenBMB/MiniCPM5-2B',
         'quant': 'q4_k_m',
-        'auto_download': True,
+        'auto_download': False,          # 缺模型时自动下载（约 4.8GB；默认关，改由向导/启动器的按钮显式触发）
     },
     'growth': {
         'auto_train': True,                  # 满足触发条件就自动训练

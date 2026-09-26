@@ -215,6 +215,7 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
     # v1.1：GUI 模式 + 无权重 → 优先弹全UI启动器选档位 + 一键下载。
     # 但若「环境配置向导」这一次已经问过档位（它的「模型」页），就不再重复弹一次——
     # 实测用户会连着看到两个"选模型"界面，非常困惑。
+    _explicit = False            # 用户是否明确同意下载（启动器里确认过）
     if _STATE.get('wizard_shown'):
         print('  [模型] 已通过「环境配置向导」确认过档位，跳过旧启动器')
     else:
@@ -224,6 +225,8 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
                 print('  [启动器] 弹出全UI启动器选择基底模型')
                 chosen = launcher_ui.select_model_on_start_ui()
                 if chosen:
+                    # 用户在启动器里点了档位（其按钮就是"一键下载"）→ 视为显式同意
+                    _explicit = True
                     # 同步刷新内存 CONFIG 里的 base_model，确保 get_model_preset 用新值
                     try:
                         from core import config as _cfg_mod
@@ -233,7 +236,24 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
                     except Exception:
                         pass
         except Exception as _e:
-            print(f'  [启动器] UI 启动器不可用（{_e}），回退到后台下载')
+            print(f'  [启动器] UI 启动器不可用（{_e}）')
+
+    # auto_download 默认 False：不再"未经同意就拉 4.8GB"。
+    # 只有「启动器里确认过」或「用户自己在配置里把 auto_download 打开」才下载；
+    # 否则只给出获取方式（环境向导的「模型」页也有下载按钮）。
+    _auto = False
+    try:
+        _auto = bool((config_mod.load().get('model') or {}).get('auto_download', False))
+    except Exception:                                                 # noqa: BLE001
+        _auto = False
+    if not (_explicit or _auto):
+        print('  [模型] 未检测到基底权重：已按默认策略**跳过自动下载**（约 4.8GB，需你明确同意）')
+        print('  [模型]   任选其一：')
+        print('  [模型]     · 运行 xl，在「环境配置向导 → 模型」里点「下载基底模型」')
+        print('  [模型]     · 把权重（任意 *.safetensors / *.bin）放进 .star_core/XLmodel/')
+        print('  [模型]     · 改 .star_core/xiaoling_config.json 的 model.auto_download = true')
+        return False
+
     print('  [模型] 未检测到基底权重 → 后台下载中，进度会同步出现在桌宠气泡里')
 
     def _worker():
@@ -245,7 +265,8 @@ def bootstrap(select_model_on_start, ensure_base_model=None):
                 stop.wait(2.0)
         threading.Thread(target=_poll, daemon=True).start()
         try:
-            ensure_base_model()
+            # force=True：上面已经确认过是"显式同意"或"配置允许"，这里不再被 auto_download 拦
+            ensure_base_model(force=True)
             set_progress('基底模型就绪，正在唤醒小凌…')
         except Exception as e:                                        # noqa: BLE001
             set_progress(f'模型下载中断：{type(e).__name__}（可稍后重试）')

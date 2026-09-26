@@ -92,10 +92,27 @@ STRINGS: dict[str, dict[str, str]] = {
 
     # ---- 模型页 ----
     'model.header':         {'zh': '基底模型档位',  'en': 'Base model preset'},
-    'model.hint':           {'zh': '选择后写入 .star_core/model_choice.txt 并同步到配置；'
-                                   '基底权重约 4.8GB，首次使用时会自动下载。',
+    'model.weights_ok':     {'zh': '基底权重已就位（{human}）',
+                             'en': 'Base weights present ({human})'},
+    'model.weights_missing': {'zh': '尚未检测到基底权重。程序默认不会自动下载，'
+                                   '需要你点下面的按钮明确同意后才会开始。',
+                              'en': 'No base weights yet. Auto-download is OFF by default — '
+                                    'click the button below to start.'},
+    'model.download':       {'zh': '下载基底模型',  'en': 'Download base model'},
+    'model.download_confirm': {'zh': '将下载基底模型（{size}）。\n'
+                                     '来源为国内魔塔社区，视网速可能需要较久。\n\n确定开始吗？',
+                               'en': 'Download the base model ({size})?\n'
+                                     'This may take a while depending on your connection.'},
+    'model.downloading':    {'zh': '下载中…（进度也会同步显示在桌宠气泡里，请勿关闭窗口）',
+                             'en': 'Downloading… (progress also shows in the pet bubble)'},
+    'model.download_done':  {'zh': '下载完成，基底权重已就位', 'en': 'Done — base weights are in place'},
+    'model.download_busy':  {'zh': '已有下载任务在进行中，请稍候', 'en': 'A download is already running'},
+    'model.download_fail':  {'zh': '下载未完成：{msg}（可稍后重试，或手动放入权重文件）',
+                             'en': 'Download did not finish: {msg}'},
+    'model.hint':           {'zh': '选择后写入 .star_core/model_choice.txt 并同步到配置。'
+                                   '权重默认不自动下载，需在上方按钮明确同意。',
                              'en': 'Saved to .star_core/model_choice.txt and the config. '
-                                   'Base weights are ~4.8GB and download on first use.'},
+                                   'Weights are NOT auto-downloaded by default.'},
 
     # ---- 渲染页 ----
     'render.header':        {'zh': '渲染后端',      'en': 'Render backend'},

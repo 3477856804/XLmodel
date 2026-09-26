@@ -354,8 +354,13 @@ _BASE_DL_LOCK = threading.Lock()
 _BASE_DL_ACTIVE = False
 
 
-def ensure_base_model():
+def ensure_base_model(force: bool = False):
     """确保基底模型存在 —— **带并发保护** 的对外入口。
+
+    force=True：显式触发下载（「环境配置向导 → 模型 → 下载基底模型」这类用户点击的
+    入口），**无视** model.auto_download=False 的默认策略。
+    force=False：只有配置里 model.auto_download=true 才会真的下载；
+    默认（False）下只打印"缺权重 + 三种获取方式"然后返回。
 
     同一进程里有三条路径都会走到这里：
       ① core.fusion.bootstrap 的后台线程（thread name='model-download'）—— GUI 模式主路径
@@ -373,13 +378,13 @@ def ensure_base_model():
             return False
         _BASE_DL_ACTIVE = True
     try:
-        return _ensure_base_model_impl()
+        return _ensure_base_model_impl(force=force)
     finally:
         with _BASE_DL_LOCK:
             _BASE_DL_ACTIVE = False
 
 
-def _ensure_base_model_impl():
+def _ensure_base_model_impl(force: bool = False):
     """基底模型的原有实现（不做并发保护，只应由 ensure_base_model 调用）。
 
     v0.1.0：确保基底模型存在。缺失时自动下载并平铺到 MODEL_DIR。
@@ -413,8 +418,18 @@ def _ensure_base_model_impl():
         print(f"  [模型] 基底缺失（当前档位：自研{_preset_size_label(name)}模型）")
         print(f"  [模型] {preset['desc']} | {preset['size_hint']}")
         print(f"  [模型] 更换档位：运行 xl 后在「环境配置向导 → 模型」里选，或写 .star_core/model_choice.txt")
-        if CONFIG.get("model", {}).get("auto_download", True):
-            print(f"  [模型] 尝试自动下载（魔塔社区，safetensors 版，带进度条）...")
+        # auto_download 默认 False（约 4.8GB，不该未经用户同意就下）：
+        # 只有显式触发才下载 —— force=True（环境向导/启动器的按钮），
+        # 或用户自己把 config 的 model.auto_download 改成 true。
+        if not (force or CONFIG.get("model", {}).get("auto_download", False)):
+            print(f"  [模型] 未自动下载（默认不自动拉取 {preset['size_hint']} 的权重）。")
+            print(f"  [模型]   可任选其一：")
+            print(f"  [模型]     · 运行 xl，在「环境配置向导 → 模型」里点「下载基底模型」")
+            print(f"  [模型]     · 把权重文件（任意 *.safetensors / *.bin）放进 {MODEL_DIR}")
+            print(f"  [模型]     · 改 .star_core/xiaoling_config.json 的 model.auto_download = true")
+            return False
+        if True:
+            print(f"  [模型] 尝试下载（魔塔社区，safetensors 版，带进度条）...")
             try:
                 import subprocess as _sp
                 # v0.0.1 fix：魔塔社区（ModelScope）优先，下载 safetensors 版
@@ -662,7 +677,7 @@ CONFIG = {
         "hf_id": "openbmb/MiniCPM5-2B",     # HuggingFace 模型 ID
         "ms_id": "OpenBMB/MiniCPM5-2B",     # ModelScope 模型 ID（国内加速）
         "quant": "q4_k_m",                   # 量化档（q4_k_m 默认）
-        "auto_download": True,               # 缺模型时自动下载
+        "auto_download": False,          # 缺模型时自动下载（默认关：改由向导/启动器按钮显式触发）
     },
     "enable_voice": True,           # v0.0.3：语音朗读开关
     "voice_rate": 175,              # 语音语速（字/分钟）

@@ -26,6 +26,7 @@ import os
 import platform
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -687,12 +688,38 @@ def run_wizard(parent=None, log=print) -> bool:
     mdl_state = _muted()
     mv.addWidget(mdl_state)
     mv.addWidget(_muted(t('model.hint')))
-    mv.addStretch(1)
+    # 权重状态 + **显式下载**入口（auto_download 默认关，这里是唯一的 GUI 触发点）
+    mdl_weights = _muted()
+    mv.addWidget(mdl_weights)
+    mdl_log = QtWidgets.QPlainTextEdit()
+    mdl_log.setReadOnly(True)
+    mdl_log.setMaximumBlockCount(500)
+    mdl_log.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;'
+                          'font-size:11px;font-family:monospace;')
+    mdl_log.setVisible(False)
+    mv.addWidget(mdl_log, 1)
     mdl_row = QtWidgets.QHBoxLayout()
     btn_save_mdl = _btn(t('common.save'))
+    btn_dl_mdl = _btn(t('model.download'), '#5a7a8a')
     mdl_row.addWidget(btn_save_mdl)
+    mdl_row.addWidget(btn_dl_mdl)
     mdl_row.addStretch(1)
     mv.addLayout(mdl_row)
+
+    def _human(n):
+        n = float(n or 0)
+        for u, d in (('GB', 1 << 30), ('MB', 1 << 20), ('KB', 1 << 10)):
+            if n >= d:
+                return f'{n / d:.1f} {u}'
+        return f'{int(n)} B'
+
+    def _fill_model():
+        m = state['rep'].get('model') or {}
+        if m.get('ok'):
+            mdl_weights.setText('✅ ' + t('model.weights_ok', human=_human(m.get('bytes'))))
+        else:
+            mdl_weights.setText('⚠ ' + t('model.weights_missing'))
+        btn_dl_mdl.setEnabled(not m.get('ok') and getattr(sys, 'frozen', False) is False)
 
     def _save_model():
         btn = mdl_group.checkedButton()
@@ -708,10 +735,50 @@ def run_wizard(parent=None, log=print) -> bool:
             _cfg3.patch({'model': {'base_model': key}})
             mdl_state.setText(t('common.saved') + f'：{key}')
             state['rep'] = check_env()
+            _fill_model()
         except Exception as e:                                        # noqa: BLE001
             QtWidgets.QMessageBox.warning(dlg, t('common.failed'), str(e))
 
+    def _download_model():
+        """显式下载基底模型（auto_download 默认关闭后，这是 GUI 唯一的触发点）。"""
+        if getattr(sys, 'frozen', False):
+            QtWidgets.QMessageBox.information(dlg, t('common.note'), t('deps.no_auto'))
+            return
+        size = '约 4.8GB' if (mdl_group.checkedButton() is None
+                             or mdl_group.checkedButton().property('choice_key') == '自研2B模型') else '约 2.1GB'
+        if QtWidgets.QMessageBox.question(
+                dlg, t('model.download'),
+                t('model.download_confirm', size=size),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes:
+            return
+        # 先把当前选中的档位落盘，保证下载的是用户选的档位
+        _save_model()
+        mdl_log.setVisible(True)
+        mdl_log.appendPlainText(t('model.downloading'))
+        btn_dl_mdl.setEnabled(False)
+
+        def _worker():
+            msg = None
+            try:
+                # 复用 xl.py 里的实现（若已加载就直接取，避免重复执行其模块级融合安装）
+                mod = sys.modules.get('xl')
+                if mod is None:
+                    import xl as mod                    # noqa: PLC0415
+                # force=True：用户在这里明确点了按钮
+                okd = mod.ensure_base_model(force=True)
+                msg = t('model.download_done') if okd else t('model.download_fail', msg='未完成')
+            except Exception as e:                                # noqa: BLE001
+                msg = t('model.download_fail', msg=f'{type(e).__name__}: {e}')
+            QtCore.QMetaObject.invokeMethod(mdl_log, 'appendPlainText',
+                QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, msg))
+            QtCore.QMetaObject.invokeMethod(btn_dl_mdl, 'setEnabled',
+                QtCore.Qt.QueuedConnection, QtCore.Q_ARG(bool, True))
+            state['rep'] = check_env()          # 后台刷新报告（下次填充时生效）
+
+        threading.Thread(target=_worker, daemon=True, name='wizard-model-download').start()
+
     btn_save_mdl.clicked.connect(_save_model)
+    btn_dl_mdl.clicked.connect(_download_model)
 
     # ------------------------------------------------------------- 渲染页
     rnd_tab = QtWidgets.QWidget()
@@ -830,6 +897,7 @@ def run_wizard(parent=None, log=print) -> bool:
 
     _fill_deps()
     _fill_api()
+    _fill_model()
 
     if not rep['platform']['is_windows'] and (rep.get('gpu') or {}).get('wsl'):
         # 只在**显卡没被识别出来**时才提示装 Windows 侧驱动。
