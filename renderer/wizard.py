@@ -59,6 +59,12 @@ MIRRORS = {
     'official': '',
 }
 
+#: QApplication 的**模块级强引用**。
+#: PySide6 里若 QApplication 只有局部变量引用，run_wizard() 返回后它会被 GC，
+#: 底层 C++ 对象随之销毁 —— 之后任何 QWidget 构造都会致命退出
+#: （QWidget: Must construct a QApplication before a QWidget）。必须留住它。
+_APP_REF: list = []
+
 
 # --------------------------------------------------------------------------- #
 #  体检（零 Qt、尽量零重量级 import）
@@ -389,7 +395,11 @@ def run_wizard(parent=None, log=print) -> bool:
 
     # 启动路径上通常还没有 QApplication（融合层之后才会建）。
     # 这里先建一个：必须在主线程，且后面 fusion/桌宠会用 instance() 复用同一个。
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication(sys.argv[:1])
+    if not _APP_REF:
+        _APP_REF.append(app)          # 强引用，别让 Python 把它 GC 掉
     app.setApplicationName('小凌')
 
     rep = check_env()
@@ -814,9 +824,23 @@ def run_wizard(parent=None, log=print) -> bool:
     _fill_api()
 
     if not rep['platform']['is_windows'] and (rep.get('gpu') or {}).get('wsl'):
-        dv.addWidget(_muted('ℹ ' + t('gpu.wsl_hint')))
+        # 只在**显卡没被识别出来**时才提示装 Windows 侧驱动。
+        # 之前是无条件显示，于是在"驱动正常 + 显卡已识别 + CUDA 可用"的机器上
+        # 也会让用户去重装驱动，属于误导（实测 RTX 5060/驱动 592.01 也会被提示）。
+        if not (rep.get('gpu') or {}).get('found'):
+            dv.addWidget(_muted('ℹ ' + t('gpu.wsl_hint')))
 
-    return bool(dlg.exec())
+    # ⚠️ 关闭向导不能终止整个进程：向导往往是此刻唯一的窗口，而 Qt 默认
+    # quitOnLastWindowClosed=True —— 关掉最后一个窗口会让 QApplication 直接退出，
+    # 后面的桌宠就没机会启动（这正是日志里"点了暂时跳过，程序自己退了"的原因）。
+    # 只在向导这段时间内关掉它，返回前恢复，避免影响工作台/桌宠的原有语义。
+    _prev_qolwc = app.quitOnLastWindowClosed()
+    app.setQuitOnLastWindowClosed(False)
+    try:
+        result = bool(dlg.exec())
+    finally:
+        app.setQuitOnLastWindowClosed(_prev_qolwc)
+    return result
 
 
 def main(argv=None) -> int:

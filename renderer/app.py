@@ -113,14 +113,18 @@ class PythonAvatar:
                                 log=self.log, width=self.renderer.width,
                                 height=self.renderer.height, host=self,
                                 status_provider=lambda: self.status_text)
-        ok = self.window.run(block=False)
+        ok = self.window.run(block=block)
         if not ok:
             return False
         self.backend = self.renderer.backend_kind
         self.log(f'  [数字人] 已启动（渲染后端：{self.renderer.backend_kind}，'
                  f'模型：{self.renderer.model_path.name}）')
-        if block:
-            self._wait()
+        # 说明：以前这里是 run(block=False) + self._wait()，但 _wait() 轮询的
+        # window._running 只在 _exec() 里才置 True，而 block=False 从不调用 _exec()
+        # —— 于是事件循环根本没跑起来、窗口也没 show()，_wait() 立刻返回，
+        # 主流程直接走到 app.run() 并退出（表现为"桌宠一闪/没出现，程序自己退了"）。
+        # 现在把 block 透传给 run()，block=True 就老老实实阻塞在 Qt 事件循环里，
+        # 这与 fusion 里 _start_pet_background 的注释（"主线程被 3D 窗口占用"）一致。
         return True
 
     def _wait(self):

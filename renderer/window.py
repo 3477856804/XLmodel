@@ -124,6 +124,21 @@ class PetWindow:
                 self.log(f'  [窗口] 未找到 Qt（pip install PySide6 或 PyQt5）：{e}')
                 return False
         self.qt = (QtCore, QtGui, QtWidgets)
+
+        # ★★ QApplication 必须在**任何 QWidget 之前**创建 ★★
+        # 下面 _try_gl_widget / _make_image_widget 会立刻实例化 QWidget 子类；
+        # 此时若没有 QApplication，Qt 会直接致命退出：
+        #     QWidget: Must construct a QApplication before a QWidget  → SIGILL
+        # 原先这段代码只在 _exec() 里创建 app，等于"先造控件、后造 app"，
+        # 只有在别处（launcher_ui / wizard / dashboard）恰好先建过 app 时才不炸——
+        # 一旦那些路径被跳过（例如用户在向导里点了「暂时跳过」，或基底权重已就绪
+        # 导致档位选择被跳过），启动桌宠就会必崩。
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            app = QtWidgets.QApplication(sys.argv[:1])
+        self.app = app                       # 强引用，防止 Python 侧被 GC 回收
+        self._owns_app = True
+
         gl_ok = self._try_gl_widget(QtCore, QtGui, QtWidgets)
         if not gl_ok:
             self._make_image_widget(QtCore, QtGui, QtWidgets)
@@ -133,7 +148,8 @@ class PetWindow:
 
     def _exec(self):
         QtCore, QtGui, QtWidgets = self.qt
-        self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+        if self.app is None:
+            self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
         self.widget.show()
         self._running = True
         try:

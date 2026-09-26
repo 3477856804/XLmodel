@@ -649,12 +649,18 @@ preflight_check() {
 
 # ─────────────────────────── Phase 4.5：放置模型 ───────────────────────────
 # 在目录里找第一个"有效"权重：任意 *.safetensors / *.bin 且 > MODEL_MIN_SIZE。
-# 与 xl.py 的 _find_base_weights 口径一致——不看文件名，只看扩展名与体积。
+# 与 xl.py 的 _find_base_model_file 口径一致——不看文件名，只看扩展名与体积。
+#
+# ★ 但必须**排除 adapter***：适配器是 LoRA（十几 MB），基底是数 GB 的完整权重。
+#   兜底的 `find ... -name '*.safetensors' -size +10M` 会搜进 .star_core/，
+#   把 17.6MB 的 adapter_model.safetensors 当成基底权重复制进 .star_core/XLmodel/，
+#   程序随后误判"基底已就位"、跳过真正权重的下载（日志表现为「基底 17.6MB / 100%」）。
 find_weight_in() {
     local dir="$1" p
     [ -d "$dir" ] || return 1
     for p in "$dir"/*.safetensors "$dir"/*.bin; do
         [ -f "$p" ] || continue
+        case "$(basename "$p")" in adapter* | ADAPTER*) continue ;; esac
         [ "$(stat -c%s "$p" 2>/dev/null || echo 0)" -gt "$MODEL_MIN_SIZE" ] && { echo "$p"; return 0; }
     done
     return 1
@@ -673,8 +679,12 @@ find_model_source() {
              "$HOME/xiaoling1" "$HOME/xiaoling"; do
         p=$(find_weight_in "$d") && { echo "$p"; return 0; }
     done
-    p=$(find "$SCRIPT_DIR" -maxdepth 3 -type f \( -name '*.safetensors' -o -name '*.bin' \) \
-        -size +"$((MODEL_MIN_SIZE / 1024 / 1024))M" 2>/dev/null | head -1)
+    # 兜底：浅层搜索，但**剪掉** .star_core / .git / .venv / build / dist，并排除 adapter*，
+    # 否则会把适配器或缓存里的权重当成基底（见上面的说明）。
+    p=$(find "$SCRIPT_DIR" -maxdepth 3 \
+            \( -name '.star_core' -o -name '.git' -o -name '.venv' -o -name 'build' -o -name 'dist' \) -prune -o \
+            -type f \( -name '*.safetensors' -o -name '*.bin' \) \
+            ! -name 'adapter*' -size +"$((MODEL_MIN_SIZE / 1024 / 1024))M" -print 2>/dev/null | head -1)
     [ -n "$p" ] && { echo "$p"; return 0; }
     return 1
 }

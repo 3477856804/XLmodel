@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """成长闭环回归测试（无需 torch，走 dry-run 路径验证流程正确性）。"""
+import functools
 import json
 import sys
 import tempfile
@@ -8,6 +9,34 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.growth import GrowthEngine  # noqa: E402
+
+
+def _simulate_no_ml_deps(fn):
+    """临时让 torch / transformers 不可导入。
+
+    本文件是"无需 torch"的流程回归测试（见文件头），断言的是 dry-run + **缺依赖降级**
+    路径（core/eval.py 只在缺 torch/transformers 时才模拟条件 C）。
+    但在已装好这两个包的机器上，条件 C 会去**真跑基准**，而这里用的是全零占位权重
+    （不是真模型、没有可用 tokenizer），于是变成 mode='error'、晋升不再发生 ——
+    测试失败但与代码正确性无关。为了在"装/不装依赖"两种环境下都稳定覆盖本意路径，
+    这里显式屏蔽这两个包（只影响被装饰的测试函数，调用结束立刻还原）。
+    """
+    @functools.wraps(fn)
+    def wrapper(*a, **k):
+        import builtins
+        real = builtins.__import__
+
+        def fake(name, *aa, **kk):
+            if str(name).split('.')[0] in ('torch', 'transformers'):
+                raise ImportError(f'{name} 被测试临时隐藏（模拟缺依赖环境）')
+            return real(name, *aa, **kk)
+
+        builtins.__import__ = fake
+        try:
+            return fn(*a, **k)
+        finally:
+            builtins.__import__ = real
+    return wrapper
 
 
 def _make_fake_model(root: Path, base_mb=4, adapter_kb=64):
@@ -27,6 +56,7 @@ def _make_fake_model(root: Path, base_mb=4, adapter_kb=64):
     return base, adp
 
 
+@_simulate_no_ml_deps
 def test_grow_then_promote():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -62,6 +92,7 @@ def test_grow_then_promote():
         print('[OK] 适配器增长 → 合并 → 自研模型 → 基底退役 → 适配器晋升：全部通过')
 
 
+@_simulate_no_ml_deps
 def test_training_round_and_report():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -76,6 +107,7 @@ def test_training_round_and_report():
         print('[OK] 训练轮次 + 进度报告：通过')
 
 
+@_simulate_no_ml_deps
 def test_second_generation():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -93,6 +125,7 @@ def test_second_generation():
         print('[OK] 第 2 代自我进化（在新基底上继续成长并再次晋升）：通过')
 
 
+@_simulate_no_ml_deps
 def test_legacy_adapter_layout():
     """旧版把 LoRA 直接放在 .star_core/ 的布局必须兼容（并自动迁移到 .star_core/adapter/）。"""
     with tempfile.TemporaryDirectory() as td:

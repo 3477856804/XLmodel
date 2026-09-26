@@ -329,6 +329,27 @@ def _download_multipart(url, dest, threads=6, min_part=64 * 1024 * 1024):
     return False, dest.stat().st_size if dest.exists() else 0
 
 
+def _is_base_weight(p) -> bool:
+    """判定一个文件能否充当**基底权重**（全项目「基底是否就位」判定的唯一口径）。
+
+    ★ 必须排除 ``adapter*``：适配器是 LoRA（十几 MB 量级），基底是数 GB 的完整权重。
+      实际踩过的坑：setup_kali.sh 的兜底搜索把 .star_core/adapter_model.safetensors
+      当成基底权重复制进了 .star_core/XLmodel/，于是程序误判"基底已就位"、
+      跳过真正权重的下载，日志显示「成长中：适配器 17.6MB（基底 17.6MB 的 100%）」。
+      这里做统一防御：无论文件是谁放进来的，adapter* 一律不算基底。
+    """
+    try:
+        from pathlib import Path as _P
+        p = _P(p)
+        if not p.is_file():
+            return False
+        if p.name.lower().startswith('adapter'):
+            return False
+        return p.stat().st_size > 10 * 1024 * 1024
+    except Exception:                                                 # noqa: BLE001
+        return False
+
+
 def ensure_base_model():
     """v0.1.0：确保基底模型存在。缺失时自动下载并平铺到 MODEL_DIR。
 
@@ -340,17 +361,18 @@ def ensure_base_model():
     try:
         preset, name = get_model_preset()
         # v0.0.1 fix：已有模型检查兼容任意 safetensors/bin 文件名（魔塔格式）
+        # 统一用 _is_base_weight：排除 adapter*，避免把 LoRA 当成基底
         model_file = MODEL_DIR / "model.safetensors"
-        _has_model = model_file.exists() and model_file.stat().st_size > 10 * 1024 * 1024
+        _has_model = _is_base_weight(model_file)
         if not _has_model:
             for _p in MODEL_DIR.glob("*.safetensors"):
-                if _p.stat().st_size > 10 * 1024 * 1024:
+                if _is_base_weight(_p):
                     model_file = _p
                     _has_model = True
                     break
         if not _has_model:
             for _p in MODEL_DIR.glob("*.bin"):
-                if _p.stat().st_size > 10 * 1024 * 1024:
+                if _is_base_weight(_p):
                     model_file = _p
                     _has_model = True
                     break
@@ -359,7 +381,7 @@ def ensure_base_model():
         # 缺失 → 提示（不显示品牌名）
         print(f"  [模型] 基底缺失（当前档位：自研{_preset_size_label(name)}模型）")
         print(f"  [模型] {preset['desc']} | {preset['size_hint']}")
-        print(f"  [模型] 更换档位：编辑 xl.py 顶部 CONFIG['model']['base_model']")
+        print(f"  [模型] 更换档位：运行 xl 后在「环境配置向导 → 模型」里选，或写 .star_core/model_choice.txt")
         if CONFIG.get("model", {}).get("auto_download", True):
             print(f"  [模型] 尝试自动下载（魔塔社区，safetensors 版，带进度条）...")
             try:
@@ -490,7 +512,7 @@ def ensure_base_model():
                     _sh.rmtree(tmp_dl)
                 except Exception:
                     pass
-                if model_file.exists() and model_file.stat().st_size > 10 * 1024 * 1024:
+                if _is_base_weight(model_file):
                     print(f"  [模型] 自动下载完成：自研{_preset_size_label(name)}模型已就位")
                     print(f"  [模型] 目录已清理品牌信息，只保留模型必需文件")
                     return True
@@ -891,17 +913,19 @@ class GrowthManager:
 
 # v0.0.5 fix：动态查找基底权重（兼容魔塔 model-00000-of-00001.safetensors 文件名）
 def _find_base_model_file():
-    """返回基底权重文件（兼容 model.safetensors / model-0000x-of-xxxxx.safetensors / pytorch_model.bin）。"""
+    """返回基底权重文件（兼容 model.safetensors / model-0000x-of-xxxxx.safetensors / pytorch_model.bin）。
+
+    统一用 _is_base_weight 判定，**排除 adapter*** —— 否则一旦 XLmodel/ 里混进
+    适配器文件，这里就会把它当成基底返回（见 _is_base_weight 的说明）。
+    """
     try:
         for _c in [MODEL_DIR / "model.safetensors", MODEL_DIR / "pytorch_model.bin"]:
-            if _c.exists() and _c.stat().st_size > 10 * 1024 * 1024:
+            if _is_base_weight(_c):
                 return _c
-        for _p in MODEL_DIR.glob("*.safetensors"):
-            if _p.stat().st_size > 10 * 1024 * 1024:
-                return _p
-        for _p in MODEL_DIR.glob("*.bin"):
-            if _p.stat().st_size > 10 * 1024 * 1024:
-                return _p
+        for _pat in ("*.safetensors", "*.bin"):
+            for _p in sorted(MODEL_DIR.glob(_pat)):
+                if _is_base_weight(_p):
+                    return _p
     except Exception:
         pass
     return MODEL_DIR / "model.safetensors"
@@ -2016,20 +2040,21 @@ class LocalModel:
     def _load(self):
         # v0.0.1 fix：兼容魔塔社区下载的任意 safetensors 格式
         # 支持：model.safetensors 单文件 / model-0000x-of-xxxxx.safetensors 分片 / pytorch_model.bin
+        # 统一用 _is_base_weight（排除 adapter*）
         model_file = self.model_dir / "model.safetensors"
         _has_weights = False
-        if model_file.exists() and model_file.stat().st_size > 10 * 1024 * 1024:
+        if _is_base_weight(model_file):
             _has_weights = True
         else:
             # 检查分片 safetensors / bin
             for p in self.model_dir.glob("*.safetensors"):
-                if p.stat().st_size > 10 * 1024 * 1024:
+                if _is_base_weight(p):
                     _has_weights = True
                     model_file = p
                     break
             if not _has_weights:
                 for p in self.model_dir.glob("*.bin"):
-                    if p.stat().st_size > 10 * 1024 * 1024:
+                    if _is_base_weight(p):
                         _has_weights = True
                         model_file = p
                         break
@@ -4656,14 +4681,14 @@ class Guard:
 class XiaoLing:
     def __init__(self):
         print("=" * 55)
-        print("  小凌 v1.0 融合版启动中（3D 数字人 · 本地模型优先 · 离线可用 · 自我进化）")
+        print(f"  小凌 v{CONFIG.get('version', '0.0.2')} 启动中（3D 数字人 · 本地模型优先 · 离线可用 · 自我进化）")
         print("  不是被定义的答案，而是经历中一步步长出来的自我")
         print("=" * 55)
         # v0.0.9：基底模型档位提示（默认 MiniCPM5-2B）
         try:
             _preset, _pname = get_model_preset()
             print(f"  [模型] 基底档位：{_pname}（{_preset['size_hint']}）")
-            print(f"  [模型] 更换档位：编辑 xl.py 顶部 CONFIG['model']['base_model']")
+            print(f"  [模型] 更换档位：运行 xl 后在「环境配置向导 → 模型」里选，或写 .star_core/model_choice.txt")
         except Exception:
             pass
 
@@ -5188,11 +5213,9 @@ class XiaoLing:
             # v0.0.4 fix：降级提示按真实状态区分（模型缺失 vs 缺 torch 运行时）
             try:
                 _has_w = any(
-                    p.stat().st_size > 10 * 1024 * 1024
-                    for p in MODEL_DIR.glob("*.safetensors")
+                    _is_base_weight(p) for p in MODEL_DIR.glob("*.safetensors")
                 ) or any(
-                    p.stat().st_size > 10 * 1024 * 1024
-                    for p in MODEL_DIR.glob("*.bin")
+                    _is_base_weight(p) for p in MODEL_DIR.glob("*.bin")
                 )
             except Exception:
                 _has_w = False
@@ -6129,7 +6152,7 @@ def _self_check(app):
     # 1. DeepSeek Key
     api_key = CONFIG.get("deepseek_api_key", "")
     if not api_key or api_key == "暂未填入":
-        issues.append("DeepSeek Key 未配置（蒸馏/智能问答不可用）→ xl.py 顶部 CONFIG['deepseek_api_key']")
+        issues.append("DeepSeek Key 未配置（蒸馏/智能问答不可用）→ 在「环境配置向导 → API」里填，或写入 .star_core/xiaoling_config.json 的 deepseek_api_key")
     else:
         print("  [自检] DeepSeek 老师：已配置")
 
@@ -6467,7 +6490,7 @@ def run_distill(app, rounds=6, epochs=2):
     """
     api_key = CONFIG.get("deepseek_api_key", "")
     if not api_key or api_key == "暂未填入":
-        print("\n  [提示]  蒸馏需要 DeepSeek 老师在线：请先在 xl.py 顶部 CONFIG['deepseek_api_key'] 填入 API Key")
+        print("\n  [提示]  蒸馏需要 DeepSeek 老师在线：请先在「环境配置向导 → API」里填入 API Key（或写入 .star_core/xiaoling_config.json 的 deepseek_api_key）")
         print("     DeepSeek 是老师（生成知识），本地模型是学生（LoRA 微调学习）")
         return "蒸馏未启动：未配置 DeepSeek API Key"
 
@@ -6937,12 +6960,13 @@ def _select_model_on_start():
     """
     try:
         # 已有有效模型则跳过（不重复询问）
+        # 统一用 _is_base_weight：排除 adapter*，避免把 LoRA 误当基底
         mf = MODEL_DIR / "model.safetensors"
-        if mf.exists() and mf.stat().st_size > 10 * 1024 * 1024:
+        if _is_base_weight(mf):
             return
         for p in MODEL_DIR.glob("*.safetensors"):
-            if p.stat().st_size > 10 * 1024 * 1024:
-                return  # 已有魔塔下载的模型
+            if _is_base_weight(p):
+                return  # 已有（可能是魔塔分片命名的）模型
 
         # v1.1：全UI启动器优先——有 PySide6 且有图形环境时直接弹窗选择
         chosen = None
@@ -6983,7 +7007,7 @@ def _select_model_on_start():
             chosen = mapping.get(choice, "自研2B模型")
             CONFIG["model"]["base_model"] = chosen
             print(f"  [OK] 已选择：{chosen}")
-            print(f"      （如需更换，改 xl.py 顶部 CONFIG['model']['base_model']）")
+            print(f"      （如需更换，改 .star_core/model_choice.txt，或在「环境配置向导 → 模型」里选）")
             try:
                 _choice_file = Path(BASE_DIR) / ".star_core" / "model_choice.txt"
                 _choice_file.write_text(chosen, encoding="utf-8")

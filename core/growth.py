@@ -197,21 +197,29 @@ class GrowthEngine:
 
     # ------------------------------------------------------------------ 量测
     @staticmethod
-    def _dir_weight_bytes(d: Path, exts=MODEL_WEIGHT_EXT) -> int:
+    def _dir_weight_bytes(d: Path, exts=MODEL_WEIGHT_EXT, exclude_adapter: bool = False) -> int:
         if not d or not d.exists():
             return 0
         total = 0
         for p in d.rglob('*'):
             try:
-                if p.is_file() and (not exts or p.suffix.lower() in exts):
-                    total += p.stat().st_size
+                if not p.is_file():
+                    continue
+                if exts and p.suffix.lower() not in exts:
+                    continue
+                # 统计"基底"体积时必须排除 adapter*：否则 .star_core/XLmodel/ 里
+                # 一旦混入适配器文件，base_bytes 会被撑大，界面显示成
+                # 「基底 17.6MB（100%）」这种假象，还会让人误以为基底已就位。
+                if exclude_adapter and p.name.lower().startswith('adapter'):
+                    continue
+                total += p.stat().st_size
             except OSError:
                 pass
         return total
 
     @property
     def base_bytes(self) -> int:
-        return self._dir_weight_bytes(self.base_model_dir)
+        return self._dir_weight_bytes(self.base_model_dir, exclude_adapter=True)
 
     @property
     def adapter_bytes(self) -> int:
@@ -677,8 +685,15 @@ class GrowthEngine:
             from core.rank import grow_lora_rank
         except Exception as e:                                       # noqa: BLE001
             return {'ok': False, 'error': f'{type(e).__name__}: {e}'}
-        res = grow_lora_rank(self.adapter_dir, new_rank, max_rank=int(self.cfg('max_rank')),
-                             dry_run=self.dry_run, log=self.log)
+        try:
+            res = grow_lora_rank(self.adapter_dir, new_rank, max_rank=int(self.cfg('max_rank')),
+                                 dry_run=self.dry_run, log=self.log)
+        except Exception as e:                                       # noqa: BLE001
+            # 适配器文件损坏 / 不是合法 safetensors（占位文件、写坏的权重、
+            # 或误把别的文件放进适配器目录）时，绝不能让整个成长流程崩掉——
+            # 只报告这一轮升 rank 失败，训练与晋升流程继续可用。
+            res = {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                   'message': f'升 rank 失败（适配器可能损坏）：{type(e).__name__}: {e}'}
         self._journal('rank_up', **{k: v for k, v in res.items() if k != 'message'})
         if res.get('ok'):
             self.log(f"  [成长] LoRA rank 提升到 {res.get('rank_to')}"

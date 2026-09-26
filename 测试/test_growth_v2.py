@@ -121,6 +121,56 @@ def test_throttle():
 
 
 # ------------------------------------------------------------------ 三条件
+def _has_ml_deps() -> bool:
+    """torch + transformers 是否都可用（用于分环境断言）。"""
+    import importlib.util as _u
+    return _u.find_spec('torch') is not None and _u.find_spec('transformers') is not None
+
+
+def _without_ml_deps():
+    """上下文管理器：临时让 torch / transformers 不可导入。
+
+    core/eval.py 只在**缺** torch/transformers 时才用演练模拟条件 C；依赖齐备时会去
+    真跑基准，而本测试用的是 _fake_model 造的假模型（没有可用 tokenizer），于是变成
+    mode='error'。为了在"装/不装依赖"两种环境下都稳定覆盖本意路径，这里显式屏蔽它们
+    （块内结束立刻还原；未匹配到的 import 一律透传给真正的 __import__）。
+    """
+    import builtins
+    import contextlib
+
+    @contextlib.contextmanager
+    def _cm():
+        real = builtins.__import__
+
+        def fake(name, *a, **k):
+            if str(name).split('.')[0] in ('torch', 'transformers'):
+                raise ImportError(f'{name} 被测试临时隐藏（模拟缺依赖环境）')
+            return real(name, *a, **k)
+
+        builtins.__import__ = fake
+        try:
+            yield
+        finally:
+            builtins.__import__ = real
+    return _cm()
+
+
+def _simulate_no_ml_deps(fn):
+    """装饰器版：让整个测试函数跑在"没有 torch/transformers"的模拟环境下。
+
+    用途同 _without_ml_deps —— 有些断言针对"缺依赖降级"路径（例如
+    after_training_round 在依赖齐备时会去真跑基准、假模型上必然 error，
+    于是 action 变成 rank_up 而不是 promoted）。被装饰的函数在调用期临时屏蔽这两个包。
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*a, **k):
+        with _without_ml_deps():
+            return fn(*a, **k)
+    return wrapper
+
+
 def test_eval_conditions():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -134,18 +184,27 @@ def test_eval_conditions():
         assert a['ok'] is False and a['percent'] < 100, a
         (adp / 'adapter_model.safetensors').write_bytes(b'\0' * (2 * 1024 * 1024))
         assert ev.condition_a()['ok'] is True
-        b = ev.condition_b()
-        c = ev.condition_c()
-        assert b['simulated'] and c['simulated'], (b, c)
-        assert c['pass_rate'] >= c['threshold'], c
-        res = ev.evaluate_all()
-        assert res['pass'] is True and res['simulated'] is True, res
-        assert '晋升' in res['summary']
-        # 真实模式（无 torch）→ 不当作通过，且明确标注未评估
-        ev2 = Evaluator(root, eng.base_model_dir, eng.adapter_dir, engine=eng, dry_run=False)
-        c2 = ev2.condition_c()
-        assert c2['ok'] is False and c2['mode'] == 'requires_torch', c2
-        assert 'torch' in c2['detail']
+        # ── 缺依赖降级路径：显式模拟"没有 torch/transformers"，保证在依赖齐备的机器上
+        #    也能稳定覆盖本意路径（C 走演练模拟；真实模式标注 requires_torch）──
+        with _without_ml_deps():
+            b = ev.condition_b()
+            c = ev.condition_c()
+            assert b['simulated'] and c['simulated'], (b, c)
+            assert c['pass_rate'] >= c['threshold'], c
+            res = ev.evaluate_all()
+            assert res['pass'] is True and res['simulated'] is True, res
+            assert '晋升' in res['summary']
+            # 真实模式（无 torch）→ 不当作通过，且明确标注未评估
+            ev2 = Evaluator(root, eng.base_model_dir, eng.adapter_dir, engine=eng, dry_run=False)
+            c2 = ev2.condition_c()
+            assert c2['ok'] is False and c2['mode'] == 'requires_torch', c2
+            assert 'torch' in c2['detail']
+
+        # ── 依赖齐备时的真实路径：假模型（没有可用 tokenizer）必须报 error，
+        #    绝不能把假模型当成"评估通过" ──
+        if _has_ml_deps():
+            c3 = ev.condition_c()
+            assert c3['ok'] is False and c3['mode'] == 'error', c3
         print('[OK] 晋升三条件：内置测试集/体积判定/演练模式/缺依赖诚实降级：通过')
 
 
@@ -236,6 +295,7 @@ def test_rank_growth():
 
 
 # --------------------------------------------------------------- 触发与引擎
+@_simulate_no_ml_deps
 def test_engine_trigger_and_control():
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
