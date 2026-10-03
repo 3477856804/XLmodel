@@ -687,7 +687,34 @@ def install(g):
     # ---- 命令行参数 ----
     wrap_main(g)
     g.setdefault('FUSION_BOOTSTRAP', bootstrap)
-    _log("融合层安装完成：3D 数字人 / RAG / 视觉 / 搜索 / 提醒 / 生图 / 成长闭环 已接入")
+
+    # ---- v0.0.4 新增：人格系统 ----
+    try:
+        from core.persona_emotion import EmotionEngine
+        from core.persona_relationship import RelationshipEngine
+        _STATE['emotion'] = EmotionEngine()
+        _STATE['relationship'] = RelationshipEngine()
+        _log("人格系统已接入：情绪状态机 + 关系亲密度")
+    except Exception as e:                                            # noqa: BLE001
+        _log(f"人格系统跳过（{e}）")
+
+    # ---- v0.0.4 新增：插件系统 ----
+    try:
+        from core.plugin_manager import PluginManager
+        _STATE['plugins'] = PluginManager()
+        _log(f"插件系统已接入：{len(_STATE['plugins'].list_plugins())} 个内置插件")
+    except Exception as e:                                            # noqa: BLE001
+        _log(f"插件系统跳过（{e}）")
+
+    # ---- v0.0.4 新增：短期记忆 ----
+    try:
+        from core.memory_short import ShortTermMemory
+        _STATE['short_memory'] = ShortTermMemory(max_size=20)
+        _log("短期记忆已接入")
+    except Exception as e:                                            # noqa: BLE001
+        _log(f"短期记忆跳过（{e}）")
+
+    _log("融合层安装完成：3D 数字人 / RAG / 视觉 / 搜索 / 提醒 / 生图 / 成长闭环 / 人格 / 插件 已接入")
     # 算力探测：启动即告知 GPU/CPU 策略（渲染与训练都会用到）
     try:
         from core.device import describe as _dev_desc
@@ -836,18 +863,58 @@ def wrap_engine_class(g):
             print(f'\n小凌：{out}\n')
             _avatar_say(out)
             return out
+
+        # v0.0.4: 更新情绪和关系
+        try:
+            emotion = _STATE.get('emotion')
+            if emotion:
+                emotion.update(user_input)
+            relationship = _STATE.get('relationship')
+            if relationship:
+                relationship.interact(quality=0.5)
+        except Exception:                                             # noqa: BLE001
+            pass
+
+        # v0.0.4: 短期记忆记录
+        try:
+            sm = _STATE.get('short_memory')
+            if sm:
+                sm.add('user', user_input)
+        except Exception:                                             # noqa: BLE001
+            pass
+
         # RAG 记忆
         if getattr(self, 'rag', None):
             try:
                 self.rag.add(user_input, meta={'source': 'chat', 'user': self.user_name})
             except Exception:                                         # noqa: BLE001
                 pass
-        result = orig_chat(self, user_input)
+
+        # v0.0.4: 注入情绪和关系 prompt
+        augmented_input = user_input
+        try:
+            emotion = _STATE.get('emotion')
+            relationship = _STATE.get('relationship')
+            suffix_parts = []
+            if emotion:
+                suffix_parts.append(emotion.get_prompt_suffix())
+            if relationship:
+                suffix_parts.append(relationship.get_prompt_suffix())
+            if suffix_parts:
+                augmented_input = user_input + ' ' + ' '.join(suffix_parts)
+        except Exception:                                             # noqa: BLE001
+            pass
+
+        result = orig_chat(self, augmented_input)
         try:
             if isinstance(result, str) and result:
                 if getattr(self, 'rag', None):
                     self.rag.add(result[:800], meta={'source': 'xiaoling'})
                 _avatar_say(result)
+                # v0.0.4: 短期记忆记录小凌回复
+                sm = _STATE.get('short_memory')
+                if sm:
+                    sm.add('assistant', result)
         except Exception:                                             # noqa: BLE001
             pass
         # 成长数据记账（设计文档 2.2 第 1 路：真实对话全量记录 + 稳定期对话轮次）

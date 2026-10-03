@@ -56,7 +56,7 @@ def resource_dir() -> Path:
 RESOURCE_DIR = resource_dir()
 APP_DIR = app_dir()
 STAR_DIR = APP_DIR / '.star_core'
-DATA_DIR = APP_DIR / '数据'
+DATA_DIR = APP_DIR / 'data'
 
 
 def resource(*parts, must_exist=False) -> Path:
