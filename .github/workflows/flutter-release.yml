@@ -18,6 +18,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '3.27.4', channel: 'stable' }
+      - name: 强制 Flutter 使用 VS2022
+        shell: bash
+        run: |
+          VS_FILE="$FLUTTER_ROOT/packages/flutter_tools/lib/src/windows/visual_studio.dart"
+          sed -i 's/Visual Studio 16 2019/Visual Studio 17 2022/g' "$VS_FILE"
+          rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot"
+          echo "Patched: $(grep 'Visual Studio 17' "$VS_FILE" | head -1)"
       - run: flutter create . --platforms=windows --project-name=xiaoling
       - run: flutter pub get
       - run: flutter build windows --release
