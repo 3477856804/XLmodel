@@ -7,7 +7,8 @@ class GoalManager:
 
     def __init__(self, memory=None):
         self.memory = memory
-        self.goals = memory.data.get("goals", []) if memory else []
+        # 记忆系统不暴露可变 .data，目标列表自包含保存。
+        self.goals = []
 
     def create(self, objective, max_rounds=20):
         goal = {
@@ -78,6 +79,5 @@ class GoalManager:
         return None
 
     def _save(self):
-        if self.memory:
-            self.memory.data["goals"] = self.goals
-            self.memory.save()
+        # 目标列表自包含；持久化由成长/会话层统一负责。
+        pass

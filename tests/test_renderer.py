@@ -18,6 +18,10 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'backend'))
+# 资源统一在 resources/ 下
+MODELS_DIR = ROOT / 'resources' / 'models'
+ANIM_DIR = ROOT / 'resources' / 'animations'
 os.environ.setdefault('XIAOLING_GALLIUM_DRIVER', os.environ.get('XIAOLING_GALLIUM_DRIVER', 'llvmpipe'))
 
 
@@ -50,7 +54,7 @@ def test_no_javascript():
 def test_model_and_skinning():
     from renderer.model import VRMModel
     from renderer.pose import Pose
-    m = VRMModel(ROOT / 'models' / '小凌.vrm')
+    m = VRMModel(MODELS_DIR / '小凌.vrm')
     assert len(m.humanoid) > 40, '缺少人形骨骼'
     assert m.expressions, '缺少表情（BlendShape）'
     assert m.triangle_count() > 5000
@@ -112,8 +116,8 @@ def test_vrma_and_springs():
     from renderer.model import VRMModel
     from renderer.pose import Pose, SpringBones
     from renderer.vrma import VRMAFile
-    m = VRMModel(ROOT / 'models' / '小凌.vrm')
-    files = sorted(glob.glob(str(ROOT / 'animations' / '*.vrma')))
+    m = VRMModel(MODELS_DIR / '小凌.vrm')
+    files = sorted(glob.glob(str(ANIM_DIR / '*.vrma')))
     assert len(files) >= 10, '动作库缺失'
     ok, empty = 0, []
     for f in files:
@@ -141,13 +145,14 @@ def test_vrma_and_springs():
 def test_soft_backend():
     """CPU 光栅后端放到子进程里测：避免与 OSMesa 上下文在同一进程互相干扰。"""
     import subprocess
+    backend_dir = str(ROOT / 'backend')
     code = (
         "import sys; sys.path.insert(0, %r)\n"
         "from renderer.renderer import AvatarRenderer\n"
         "r = AvatarRenderer(backend='soft', width=140, height=200, log=lambda *a: None)\n"
         "img = r.frame(with_pose=False)\n"
         "assert r.backend_kind == 'soft' and img.shape == (200,140,3) and img.std() > 5\n"
-        "print(r.soft_renderer.stats()['triangles'])\n" % str(ROOT))
+        "print(r.soft_renderer.stats()['triangles'])\n" % backend_dir)
     out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
                          timeout=600, cwd=str(ROOT))
     assert out.returncode == 0, f'CPU 光栅后端失败：{out.stderr[-400:]}'

@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 
-def test_import(module_name: str) -> tuple[bool, str]:
+def _import_module(module_name: str) -> tuple[bool, str]:
     """测试模块导入"""
     try:
         __import__(module_name)
@@ -21,36 +21,44 @@ def test_import(module_name: str) -> tuple[bool, str]:
 def main():
     modules = [
         # core 基础设施
-        "core.platform",
         "core.paths",
         "core.config",
-        "core.hardware",
+        "core.system",
+        "core.throttle",
 
-        # 记忆系统
-        "core.memory_short",
-        "core.memory_long",
+        # 记忆 / 人格 / 知识
+        "core.memory",
+        "core.persona",
+        "core.knowledge",
 
-        # 人格系统
-        "core.persona_emotion",
-        "core.persona_relationship",
+        # 成长 / 训练
+        "core.growth",
+        "core.growth_store",
+        "core.training",
 
-        # 插件系统
+        # 模型 / 引擎 / 会话
+        "core.model",
+        "core.engine",
+        "core.session",
+
+        # 插件 / 工具 / 目标 / 守卫
         "core.plugin_manager",
+        "core.tools",
+        "core.goal_manager",
+        "core.guards",
 
-        # 通信通道
-        "core.channel_base",
-        "core.channel_webhook",
-        "core.channel_telegram",
-        "core.channel_discord",
-        "core.channel_feishu",
-        "core.channel_email",
-        "core.channel_manager",
+        # 多 Agent / 定时 / 通信 / 搜索
+        "core.multi_agent",
+        "core.scheduler",
+        "core.channels",
+        "core.search",
 
-        # 自动更新
+        # 语音 / 视觉 / 文件箱 / 头像 / 更新
+        "core.voice",
+        "core.vision",
+        "core.filebox",
+        "core.avatar",
         "core.updater",
-
-        # 模型商店
-        "core.model_store",
     ]
 
     passed = 0
@@ -62,7 +70,7 @@ def main():
     print("=" * 60)
 
     for mod in modules:
-        ok, err = test_import(mod)
+        ok, err = _import_module(mod)
         if ok:
             print(f"  [OK] {mod}")
             passed += 1

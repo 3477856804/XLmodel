@@ -56,8 +56,8 @@ def _get_engine(log=print):
         if _engine is not None:
             return _engine
         try:
-            import xl as _xl
-            _engine = _xl.XiaoLing()
+            from core.engine import XiaoLing
+            _engine = XiaoLing()
             if not _engine_logged:
                 log('  [gRPC] XiaoLing 引擎就绪')
                 _engine_logged = True
@@ -98,6 +98,16 @@ def _quick_reply(text: str) -> str:
     return f'你说「{t}」——我记住啦。（AI 引擎还没连上，这是兜底回复）'
 
 
+def _parse_size_mb(hint: str) -> float:
+    """把 '~2GB' / '512MB' 这类提示解析成 MB 数。"""
+    import re
+    m = re.search(r'([\d.]+)\s*(GB|MB)', (hint or '').upper())
+    if not m:
+        return 0.0
+    val = float(m.group(1))
+    return val * 1024.0 if m.group(2) == 'GB' else val
+
+
 # --------------------------------------------------------------------------- #
 #  gRPC Servicer
 # --------------------------------------------------------------------------- #
@@ -114,7 +124,9 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             if engine is None:
                 reply = _quick_reply(text)
             else:
-                reply = str(engine.chat(text))
+                out = engine.chat(text)
+                # engine.chat 返回 (reply, meta)，兼容只返回字符串的旧路径
+                reply = out[0] if isinstance(out, (tuple, list)) else out
             # 模拟打字机：按 8 字一块流式吐出
             for i in range(0, len(reply), 8):
                 yield pb.ChatChunk(delta=reply[i:i+8])
@@ -178,7 +190,10 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             engine = _get_engine()
             if engine is None:
                 return pb.CommandReply(output='引擎未就绪，无法执行指令。')
-            from core import fusion as _fusion
+            try:
+                from core import fusion as _fusion
+            except Exception:                                              # noqa: BLE001
+                return pb.CommandReply(output=f'指令「{cmd}」：指令解析模块已下线，暂不支持。')
             out = _fusion.try_command(engine, cmd)
             return pb.CommandReply(output=str(out) if out is not None else f'未知指令：{cmd}')
         except Exception as e:                                              # noqa: BLE001
@@ -226,17 +241,18 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- DetectHardware ----------------
     def DetectHardware(self, request, context):
         try:
-            from core.hardware import detect_hardware
-            hw = detect_hardware()
+            import platform as _pl
+            from core.system import get_system_info, detect_best_device
+            info = get_system_info()
+            mem = info.get('memory', {}) or {}
+            device = detect_best_device()
             return pb.HardwareInfo(
-                vram_gb=hw.vram_gb,
-                ram_gb=hw.ram_gb,
-                cpu_cores=hw.cpu_cores,
-                disk_free_gb=hw.disk_free_gb,
-                gpu_name=hw.gpu_name,
-                platform=hw.platform,
-                has_cuda=hw.has_cuda,
-                has_metal=hw.has_metal,
+                ram_gb=float(mem.get('total_gb', 0.0) or 0.0),
+                cpu_cores=float(os.cpu_count() or 0),
+                gpu_name=str(info.get('gpu', '')),
+                platform=info.get('os', _pl.system()),
+                has_cuda=(device == 'cuda'),
+                has_metal=(device == 'mps'),
             )
         except Exception as e:
             context.set_details(f'硬件检测失败：{e}')
@@ -246,22 +262,15 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListRecommendedModels ----------------
     def ListRecommendedModels(self, request, context):
         try:
-            from core.hardware import detect_hardware, recommend_models
-            hw = detect_hardware()
-            models = recommend_models(hw)
+            from core.model import MODEL_PRESETS
             out = []
-            for m in models:
+            for name, p in MODEL_PRESETS.items():
+                size_hint = p.get('size_hint', '')
                 out.append(pb.RecommendedModel(
-                    name=m['name'],
-                    params=m['params'],
-                    quant=m['quant'],
-                    vram_gb=m['vram_gb'],
-                    ram_gb=m['ram_gb'],
-                    quality=m['quality'],
-                    context=m['context'],
-                    size_mb=m['size_mb'],
-                    can_run=m['can_run'],
-                    recommended=m['can_run'] and m['quality'] >= 80,
+                    name=name,
+                    size_mb=int(_parse_size_mb(size_hint)),
+                    can_run=True,
+                    recommended=True,
                 ))
             return pb.RecommendedModelList(models=out)
         except Exception as e:
@@ -272,15 +281,10 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- DownloadModel（流式） ----------------
     def DownloadModel(self, request, context):
         try:
-            from core.model_store import ModelStore
+            from core.model import ModelStore
             store = ModelStore()
             model_name = request.model_name
-            quant = request.quant or 'Q4_K_M'
-
-            def progress_cb(percent):
-                pass  # 流式 yield 里处理
-
-            task = store.download_model(model_name, quant, progress_callback=progress_cb)
+            store.download(model_name, "")
             # 模拟流式进度
             for i in range(10):
                 yield pb.DownloadProgress(
@@ -302,11 +306,10 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListInstalledModels ----------------
     def ListInstalledModels(self, request, context):
         try:
-            from core.model_store import ModelStore
+            from core.model import ModelStore
             store = ModelStore()
-            installed = store.list_installed()
-            out = [pb.ModelInfo(name=m['name'], path=m['path'], size_mb=m['size_mb'])
-                   for m in installed]
+            installed = store.list_models()
+            out = [pb.ModelInfo(name=n, path=str(store.store_dir / n)) for n in installed]
             return pb.ModelList(models=out)
         except Exception as e:
             context.set_details(f'列出已安装模型失败：{e}')
@@ -316,20 +319,22 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- DeleteModel ----------------
     def DeleteModel(self, request, context):
         try:
-            from core.model_store import ModelStore
+            import shutil
+            from core.model import ModelStore
             store = ModelStore()
-            ok = store.delete_model(request.name)
-            return pb.StatusReply(ok=ok, message=f'已删除 {request.name}' if ok else '删除失败')
+            target = store.store_dir / request.name
+            if target.exists() and target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+                return pb.StatusReply(ok=True, message=f'已删除 {request.name}')
+            return pb.StatusReply(ok=False, message='未找到该模型')
         except Exception as e:
             return pb.StatusReply(ok=False, message=str(e))
 
     # ---------------- ListVoices ----------------
     def ListVoices(self, request, context):
         try:
-            from core.voices import list_voices
-            voices = list_voices()
-            out = [pb.VoiceInfo(id=v['id'], name=v['name'], lang=v.get('lang', 'zh-CN'))
-                   for v in voices]
+            from core.voice import VOICE_MAP
+            out = [pb.VoiceInfo(id=v, name=k, lang='zh-CN') for k, v in VOICE_MAP.items()]
             return pb.VoiceList(voices=out)
         except Exception as e:
             context.set_details(f'列出音色失败：{e}')
@@ -348,14 +353,14 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ReadAloud（流式音频） ----------------
     def ReadAloud(self, request, context):
         try:
-            from core.tts import synthesize
-            audio = synthesize(request.text)
+            from core.voice import TTS
+            audio = TTS().synthesize(request.text) or b''
             # 分块发送
             chunk_size = 4096
             for i in range(0, len(audio), chunk_size):
                 yield pb.AudioChunk(data=audio[i:i+chunk_size])
             yield pb.AudioChunk(done=True)
-        except Exception as e:
+        except Exception:
             yield pb.AudioChunk(done=True)
 
     # ---------------- GetSettings ----------------

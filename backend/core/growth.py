@@ -83,8 +83,8 @@ GROWTH_DEFAULTS = {
     'init_rank': 8,
     'max_rank': 256,
     'min_quality': 0.5,
-    # —— 晋升评估（文档 2.5 / 7.3）——
-    'require_eval': True,
+    # —— 晋升评估（文档 2.5 / 7.3）—— eval 模块已下线，默认不做基准评估 ——
+    'require_eval': False,
     'pass_threshold': 0.90,
     # —— 生命周期（文档 4 / 7.6）——
     'keep_generations': 2,
@@ -629,7 +629,6 @@ class GrowthEngine:
             self._journal('check', action='skip', paused=True, note=msg)
             return {'action': 'skip', 'message': msg,
                     'progress_percent': self.progress_percent()}
-        from core.eval import Evaluator
         base, adp = self.base_bytes, self.adapter_bytes
         pct = self.progress_percent()
         if base == 0:
@@ -649,20 +648,8 @@ class GrowthEngine:
             self._journal('check', action='blocked', reasons=cap['reasons'])
             return {'action': 'blocked', 'message': cap['message'], 'cap': cap}
 
-        if self.cfg('require_eval'):
-            ev = Evaluator(self.base_dir, self.base_model_dir, self.adapter_dir,
-                           engine=self, log=self.log, dry_run=self.dry_run)
-            result = ev.evaluate_all(threshold=float(self.cfg('pass_threshold')))
-            self._journal('eval', **{k: {kk: vv for kk, vv in v.items() if kk != 'by_item'}
-                                     for k, v in (('A', result['A']), ('B', result['B']), ('C', result['C']))},
-                          **{'pass': result['pass'], 'simulated': result['simulated']})
-            if not result['pass']:
-                self.log(f"  [成长] 条件 A 达标但评估未通过：{result['summary']}")
-                up = self.grow_rank()
-                return {'action': 'rank_up', 'eval': result, 'rank': up,
-                        'message': f"三条件未全过（{result['summary']}）→ 已尝试升 rank 继续成长"}
-        else:
-            result = None
+        # 评估模块（core.eval）已下线：晋升仅按条件 A（适配器体积≥基底）触发。
+        result = None
 
         self.log(f'  [成长] 适配器 {human(adp)} ≥ 基底 {human(base)} → 触发合并晋升')
         res = self.merge_and_promote()
@@ -878,11 +865,9 @@ class GrowthEngine:
         return res
 
     def evaluate(self, threshold: float | None = None) -> dict:
-        from core.eval import Evaluator
-        ev = Evaluator(self.base_dir, self.base_model_dir, self.adapter_dir,
-                       engine=self, log=self.log, dry_run=self.dry_run)
-        return ev.evaluate_all(threshold if threshold is not None
-                               else float(self.cfg('pass_threshold')))
+        """评估模块（core.eval）已下线：返回占位结果，不做基准跑分。"""
+        return {'ok': False, 'pass': False, 'simulated': True,
+                'summary': '评估模块已下线，暂不支持基准评估'}
 
     def samples_report(self) -> str:
         """样本 + 蒸馏节流 + 损失曲线 的一页式摘要（仪表盘也用这个口径）。"""

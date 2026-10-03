@@ -66,10 +66,12 @@ def resource(*parts, must_exist=False) -> Path:
     当成命中，导致找不到 _internal/ 里的模型与动作。
     """
     rel = Path(*parts)
+    # 资源统一放在 resources/ 下；开发态 APP_DIR=RESOURCE_DIR=项目根，
+    # 因此既兼容旧的顶层平铺，也兼容 resources/ 子目录布局。
     for base in (APP_DIR, RESOURCE_DIR):
-        p = base / rel
-        if p.exists():
-            return p
+        for cand in (base / rel, base / 'resources' / rel):
+            if cand.exists():
+                return cand
     if must_exist:
         raise FileNotFoundError(f'资源不存在：{rel}（已查 {APP_DIR}、{RESOURCE_DIR}）')
     return APP_DIR / rel          # 都不存在 → 返回可写位置（调用方可能要新建）

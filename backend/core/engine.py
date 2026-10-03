@@ -26,11 +26,15 @@ class XiaoLing:
 
         # 记忆
         self.memory = LongTermMemory("data/memory.json")
-        self.memory.data["last_active"] = time.time()
+        self.last_active = time.time()
 
         # 成长
         self.growth = GrowthEngine()
-        print(f"  [成长] 已积累{self.growth.total_items}条知识")
+        try:
+            _st = self.growth.status()
+            print(f"  [成长] 进度 {_st.get('progress_percent', 0):.1f}%")
+        except Exception as e:                                       # noqa: BLE001
+            print(f"  [成长] 状态读取跳过：{e}")
 
         # 模型替换
         self.model_replace = ModelReplacement()
@@ -91,13 +95,16 @@ class XiaoLing:
         self.session.append_turn(text, "")
 
         # 插件钩子：聊天前
-        self.plugins.execute_hook("before_chat", {"text": text})
+        self.plugins.emit("before_chat", text)
 
         # 基础回复
         reply = f"你说的是：{text}"
 
-        # 插件钩子：聊天后
-        reply = self.plugins.execute_hook("after_chat", {"reply": reply})
+        # 插件钩子：聊天后（插件可改写回复）
+        try:
+            reply = self.plugins.process_message(reply) or reply
+        except Exception:                                           # noqa: BLE001
+            pass
 
         self.session.append_turn(text, reply)
         self.interaction_count += 1
