@@ -35,7 +35,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: xiaoling-windows
-          path: xiaoling-windows-x64.zip
+          path: frontend/xiaoling-windows-x64.zip
 
   # ---------------- macOS: .dmg ---------------- #
   build-macos:
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: xiaoling-linux
-          path: xiaoling-linux-x64.tar.gz
+          path: frontend/xiaoling-linux-x64.tar.gz
 
   # ---------------- 汇总到 Release ---------------- #
   release:
