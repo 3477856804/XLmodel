@@ -1,5 +1,6 @@
-"""定时任务调度器 - 简化 cron"""
+"""定时系统 - 定时任务调度器 + 主动行为（提醒/搭话）"""
 import json
+import random
 import threading
 import time
 
@@ -84,3 +85,47 @@ class CronScheduler:
         for i, j in enumerate(self.jobs, 1):
             lines.append(f"  {i}. {j['desc']}（{j['spec']}，已执行{j['runs']}次）")
         return "\n".join(lines)
+
+
+class ProactiveEngine:
+    """主动行为引擎 - 定时提醒 + 专注计时 + 主动搭话"""
+
+    def __init__(self, app=None):
+        self.app = app
+        self.last_talk = time.time()
+        self.talk_interval = 1800  # 30分钟主动搭话一次
+        self.reminders = []
+
+    def add_reminder(self, text: str, minutes: int = 30):
+        """添加提醒"""
+        self.reminders.append({
+            "text": text,
+            "time": time.time() + minutes * 60,
+            "done": False,
+        })
+        return f"已添加提醒：{text}（{minutes}分钟后）"
+
+    def check_reminders(self):
+        """检查提醒"""
+        now = time.time()
+        due = []
+        for r in self.reminders:
+            if not r["done"] and now >= r["time"]:
+                due.append(r["text"])
+                r["done"] = True
+        return due
+
+    def should_talk(self) -> bool:
+        """是否应该主动搭话"""
+        return time.time() - self.last_talk > self.talk_interval
+
+    def talk(self) -> str:
+        """主动搭话"""
+        self.last_talk = time.time()
+        phrases = [
+            "在忙吗？",
+            "要不要休息一下？",
+            "我在想你呢～",
+            "今天过得怎么样？",
+        ]
+        return random.choice(phrases)
