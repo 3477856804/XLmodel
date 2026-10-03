@@ -236,6 +236,75 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         threading.Thread(target=_later, daemon=True).start()
         return pb.StatusReply(ok=True, message='正在关闭…')
 
+    # ---------------- GetGrowthStatus（Flutter 成长可视化） ----------------
+    def GetGrowthStatus(self, request, context):
+        try:
+            from core.growth import GrowthEngine
+            from core.paths import APP_DIR
+            eng = GrowthEngine(base_dir=APP_DIR, log=lambda *a: None)
+            st = eng.status()
+            rank = '青铜'
+            try:
+                rank = str(eng.rank_status().get('rank', '青铜'))
+            except Exception:
+                pass
+            return pb.GrowthStatusReply(
+                stage=str(st.get('stage', '初始化')),
+                progress_percent=float(st.get('progress_percent', 0.0)),
+                total_interactions=int(st.get('total_interactions', 0)),
+                current_generation=int(st.get('current_generation', 1)),
+                total_generations=int(st.get('total_generations', 1)),
+                current_rank=rank,
+                emotion=str(st.get('emotion', '平静')),
+                training_paused=bool(st.get('paused', False)),
+            )
+        except Exception as e:
+            return pb.GrowthStatusReply(stage='未知', status_text=f'{type(e).__name__}: {e}')
+
+    # ---------------- GetTrainingStatus（Flutter 训练五维可视化） ----------------
+    def GetTrainingStatus(self, request, context):
+        try:
+            from core.growth import GrowthEngine
+            from core.paths import APP_DIR
+            eng = GrowthEngine(base_dir=APP_DIR, log=lambda *a: None)
+            st = eng.status()
+            prog = float(st.get('progress_percent', 0.0))
+            dims = [
+                pb.TrainingDimension(name='感知', value=min(100.0, prog * 1.1), label='环境感知'),
+                pb.TrainingDimension(name='理解', value=min(100.0, prog * 0.95), label='语义理解'),
+                pb.TrainingDimension(name='决策', value=min(100.0, prog * 0.85), label='行为决策'),
+                pb.TrainingDimension(name='进化', value=min(100.0, prog * 0.7), label='自我进化'),
+                pb.TrainingDimension(name='守护', value=min(100.0, prog * 0.6), label='安全守护'),
+            ]
+            return pb.TrainingStatusReply(
+                is_training=False,
+                current_epoch=0,
+                total_epochs=0,
+                loss=0.0,
+                dimensions=dims,
+                status_text=f"成长进度 {prog:.1f}% · {st.get('stage', '初始化')}",
+            )
+        except Exception as e:
+            return pb.TrainingStatusReply(status_text=f'{type(e).__name__}: {e}')
+
+    # ---------------- ListPlugins（Flutter 插件管理） ----------------
+    def ListPlugins(self, request, context):
+        try:
+            from core.plugin_manager import PluginManager
+            pm = PluginManager()
+            out = []
+            for p in pm.list_plugins():
+                out.append(pb.PluginInfo(
+                    name=str(p.get('name', '')),
+                    description=str(p.get('description', '')),
+                    version=str(p.get('version', '0.0.1')),
+                    enabled=bool(p.get('enabled', True)),
+                    category=str(p.get('category', '通用')),
+                ))
+            return pb.PluginList(plugins=out)
+        except Exception as e:
+            return pb.PluginList()
+
     # ==================== v0.0.1 新增 ====================
 
     # ---------------- DetectHardware ----------------

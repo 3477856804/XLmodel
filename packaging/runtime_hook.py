@@ -4,7 +4,7 @@
 
 * 统一 UTF-8（Windows 控制台中文不乱码）
 * 无 GPU / 驱动异常时的软件 OpenGL 兜底（Mesa/Gallium 环境变量）
-* 关闭无关噪音（Qt 高分屏、HuggingFace 遥测）
+* 关闭无关噪音（HuggingFace 遥测）
 * 标记 XIAOLING_FROZEN 供 core.paths 使用
 """
 import os
@@ -29,12 +29,8 @@ if not os.environ.get('XIAOLING_GALLIUM_DRIVER'):
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
 
-# Qt：透明窗 + 高 DPI 行为（Windows 上避免缩放糊成一团）
-os.environ.setdefault('QT_LOGGING_RULES', '*.debug=false')
-os.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
-
 if sys.platform.startswith('win'):
-    try:                                    # 高 DPI 感知（PySide6 未加载前设置）
+    try:                                    # 高 DPI 感知
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:

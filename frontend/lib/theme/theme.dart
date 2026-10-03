@@ -16,6 +16,12 @@ class AppTheme {
   // 卡片玻璃质感
   static const Color glassBg = Color(0x33FFFFFF);
   static const Color glassBorder = Color(0x44FFFFFF);
+  static const Color soft = Color(0xFFFFE0EA);
+
+  // 金色点缀（粉+黑+金主题）
+  static const Color gold = Color(0xFFD4AF37);
+  static const Color goldLight = Color(0xFFF0C75E);
+  static const Color black = Color(0xFF1A1015);
 
   // 文字
   static const Color textPrimary = Color(0xFF2D1B2E);

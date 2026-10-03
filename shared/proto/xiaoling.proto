@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package xiaoling;
 
-// 小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+// 小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
 // Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
 service XiaoLing {
@@ -11,6 +11,13 @@ service XiaoLing {
 
   // ===== 状态 =====
   rpc GetStatus (StatusRequest) returns (StatusReply);
+
+  // ===== 成长 / 训练（Flutter 可视化） =====
+  rpc GetGrowthStatus (Empty) returns (GrowthStatusReply);
+  rpc GetTrainingStatus (Empty) returns (TrainingStatusReply);
+
+  // ===== 插件系统 =====
+  rpc ListPlugins (Empty) returns (PluginList);
 
   // ===== 模型管理 =====
   rpc ListModels (ListRequest) returns (ModelList);
@@ -26,35 +33,34 @@ service XiaoLing {
   // ===== 关闭 =====
   rpc Shutdown (ShutdownRequest) returns (StatusReply);
 
-  // ===== v0.0.4 新增 =====
-  // 硬件检测
+  // ===== 硬件检测 =====
   rpc DetectHardware (Empty) returns (HardwareInfo);
 
-  // 智能模型推荐
+  // ===== 智能模型推荐 =====
   rpc ListRecommendedModels (HardwareRequest) returns (RecommendedModelList);
 
-  // 模型下载（流式进度）
+  // ===== 模型下载（流式进度） =====
   rpc DownloadModel (DownloadRequest) returns (stream DownloadProgress);
 
-  // 列出已安装模型
+  // ===== 列出已安装模型 =====
   rpc ListInstalledModels (Empty) returns (ModelList);
 
-  // 删除模型
+  // ===== 删除模型 =====
   rpc DeleteModel (ModelNameRequest) returns (StatusReply);
 
-  // 音色列表
+  // ===== 音色列表 =====
   rpc ListVoices (Empty) returns (VoiceList);
 
-  // 切换音色
+  // ===== 切换音色 =====
   rpc SetVoice (VoiceRequest) returns (StatusReply);
 
-  // 语音朗读（流式音频）
+  // ===== 语音朗读（流式音频） =====
   rpc ReadAloud (ReadRequest) returns (stream AudioChunk);
 
-  // 读取设置
+  // ===== 读取设置 =====
   rpc GetSettings (Empty) returns (SettingsReply);
 
-  // 更新设置
+  // ===== 更新设置 =====
   rpc UpdateSettings (SettingsRequest) returns (StatusReply);
 }
 
@@ -123,6 +129,45 @@ message PlayActionRequest {
 }
 
 message ShutdownRequest {}
+
+// ===== 成长状态（Flutter 可视化） =====
+message GrowthStatusReply {
+  string stage = 1;           // 初始化 / 适配期 / 晋升中 / 已晋升
+  double progress_percent = 2;
+  int32 total_interactions = 3;
+  int32 current_generation = 4;
+  int32 total_generations = 5;
+  string current_rank = 6;    // 青铜 / 白银 / 黄金 ...
+  string emotion = 7;
+  bool training_paused = 8;
+}
+
+// ===== 训练状态（Flutter 五维可视化） =====
+message TrainingDimension {
+  string name = 1;    // 感知 / 理解 / 决策 / 进化 / 守护
+  double value = 2;   // 0-100
+  string label = 3;
+}
+message TrainingStatusReply {
+  bool is_training = 1;
+  int32 current_epoch = 2;
+  int32 total_epochs = 3;
+  double loss = 4;
+  repeated TrainingDimension dimensions = 5;
+  string status_text = 6;
+}
+
+// ===== 插件列表 =====
+message PluginInfo {
+  string name = 1;
+  string description = 2;
+  string version = 3;
+  bool enabled = 4;
+  string category = 5;
+}
+message PluginList {
+  repeated PluginInfo plugins = 1;
+}
 
 // ===== 硬件检测 =====
 message HardwareInfo {

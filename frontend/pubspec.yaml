@@ -10,14 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   grpc: ^4.0.1
-  protobuf: ^3.1.0
+  protobuf: ^4.0.0
   fixnum: ^1.1.0
-  # v0.0.1 自动更新：
-  #   macOS: Sparkle（sparkle_bridge）
-  #   Windows: win32_updater（MSIX/NSIS 自更新）
-  #   Linux: AppImageUpdate（外部 AppImageUpdate 工具）
-  sparkle_bridge: ^0.5.0
-  win32_updater: ^1.2.0
   path_provider: ^2.1.0
   http: ^1.2.0
 

@@ -1,6 +1,6 @@
 name: flutter-release
 
-# 打 tag 形如 flutter-v0.0.3 时触发，自动打包三平台 Flutter 桌面端
+# 打 tag 形如 flutter-v0.0.1 时触发，自动打包三平台 Flutter 桌面端
 on:
   push:
     tags: ['flutter-v*']

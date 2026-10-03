@@ -1,11 +1,11 @@
-// 小凌 · 跨平台自动更新（v0.0.3 真实现）
+// 小凌 · 跨平台自动更新（v0.0.1 真实现）
 // 启动时拉 GitHub Release API，比对版本号，有新版就提示。
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class Updater {
   static const String _repo = '3477856804/XLmodel-release';
-  static const String _current = '0.0.3';
+  static const String _current = '0.0.1';
 
   static Future<(bool, String, String)> check() async {
     try {

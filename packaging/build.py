@@ -82,10 +82,10 @@ def check_env(lite: bool) -> dict:
         info['pyinstaller'] = getattr(PyInstaller, '__version__', '?')
     except Exception:                                            # noqa: BLE001
         info['issues'].append('缺少 PyInstaller：pip install pyinstaller')
-    for mod, why, need in (('PySide6', '桌面窗口（透明置顶窗）', not lite),
-                           ('OpenGL', 'GPU 渲染（GLSL）', not lite),
+    for mod, why, need in (('OpenGL', 'GPU 渲染（GLSL）', not lite),
                            ('numpy', '渲染/记忆/数学', True),
                            ('PIL', '贴图与形象处理', True),
+                           ('grpcio', 'gRPC 通信（Flutter ↔ Python）', True),
                            ('torch', '本地模型推理 + 成长闭环', not lite),
                            ('transformers', '本地模型推理', not lite),
                            ('peft', 'LoRA 训练/合并（成长闭环）', not lite)):
@@ -95,8 +95,8 @@ def check_env(lite: bool) -> dict:
         except Exception:                                        # noqa: BLE001
             info[f'dep_{mod}'] = 'missing'
             (info['issues'] if need else info['warn']).append(f'缺少 {mod}（{why}）')
-    if not (PROJECT / 'models' / '小凌.vrm').exists():
-        info['issues'].append('缺少 models/小凌.vrm（先用 工具/xiaoling_avatar.py 生成）')
+    if not (PROJECT / 'resources' / 'models').exists():
+        info['issues'].append('缺少 resources/models/ 目录（角色模型）')
     return info
 
 
@@ -189,7 +189,7 @@ def make_deb(app: Path) -> Path | None:
     _copy_app(app, root / 'opt')
     arch = 'arm64' if platform.machine() in ('aarch64', 'arm64') else 'amd64'
     (root / 'DEBIAN/control').write_text(
-        'Package: xiaoling\nVersion: 0.0.2\nSection: utils\nPriority: optional\n'
+        'Package: xiaoling\nVersion: 0.0.1\nSection: utils\nPriority: optional\n'
         f'Architecture: {arch}\nMaintainer: XIAOLING <xiaoling@local>\n'
         'Depends: libosmesa6 | libgl1, libgl1-mesa-dri | libglx-mesa0\n'
         'Description: 小凌 XIAOLING - 3D digital companion (pure Python)\n',
@@ -202,7 +202,7 @@ def make_deb(app: Path) -> Path | None:
     launcher = root / 'usr/bin/xiaoling'
     launcher.write_text(f'#!/bin/sh\nexec /opt/{app.name}/xiaoling "$@"\n', encoding='utf-8')
     launcher.chmod(0o755)
-    out = DIST / f'xiaoling_0.0.2_{arch}.deb'
+    out = DIST / f'xiaoling_0.0.1_{arch}.deb'
     subprocess.run(['dpkg-deb', '--build', str(root), str(out)], check=True)
     log(f'Debian 包：{out}（{human(out.stat().st_size)}）')
     return out
@@ -232,7 +232,7 @@ def make_dmg(app: Path) -> Path | None:
     if not shutil.which('hdiutil'):
         log('跳过 dmg：仅 macOS 支持')
         return None
-    out = DIST / 'xiaoling-0.0.2.dmg'
+    out = DIST / 'xiaoling-0.0.1.dmg'
     subprocess.run(['hdiutil', 'create', '-volname', '小凌 XIAOLING', '-srcfolder', str(app),
                     '-ov', '-format', 'UDZO', str(out)], check=True)
     log(f'DMG：{out}（{human(out.stat().st_size)}）')
@@ -255,7 +255,7 @@ def main(argv=None):
     log(f"目标平台：{target_name()}｜Python {sys.version.split()[0]}"
         f"｜模式：{'精简' if a.lite else '标准'}{'（单文件）' if a.onefile else '（目录）'}")
     info = check_env(a.lite)
-    for k in ('pyinstaller', 'dep_PySide6', 'dep_OpenGL', 'dep_numpy', 'dep_PIL', 'dep_torch',
+    for k in ('pyinstaller', 'dep_OpenGL', 'dep_numpy', 'dep_PIL', 'dep_grpcio', 'dep_torch',
               'dep_transformers', 'dep_peft'):
         if k in info:
             log(f'  {k:18s} {info[k]}')
@@ -291,7 +291,7 @@ def main(argv=None):
         if p:
             artifacts.append(str(p))
 
-    manifest = {'name': '小凌 XIAOLING', 'version': '0.0.2', 'target': target_name(),
+    manifest = {'name': '小凌 XIAOLING', 'version': '0.0.1', 'target': target_name(),
                 'mode': 'lite' if a.lite else 'full', 'onefile': a.onefile,
                 'built_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'python': sys.version.split()[0],
                 'artifacts': []}

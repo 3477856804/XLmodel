@@ -66,7 +66,7 @@ def main():
     failures = []
 
     print("=" * 60)
-    print("小凌 v0.0.4 模块导入测试")
+    print("小凌 v0.0.1 模块导入测试")
     print("=" * 60)
 
     for mod in modules:

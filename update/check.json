@@ -1,5 +1,5 @@
 {
-  "latest": "0.0.4",
+  "latest": "0.0.1",
   "release_date": "2026-10-04",
   "changelog": [
     "全新 Flutter UI 界面",
@@ -12,17 +12,17 @@
     "三平台正式安装包"
   ],
   "windows": {
-    "url": "https://github.com/3477856804/XLmodel-release/releases/download/v0.0.4/XiaoLing-0.0.4-Setup.exe",
+    "url": "https://github.com/3477856804/XLmodel-release/releases/download/v0.0.1/XiaoLing-0.0.1-Setup.exe",
     "sha256": "",
     "size_mb": 320
   },
   "macos": {
-    "url": "https://github.com/3477856804/XLmodel-release/releases/download/v0.0.4/XiaoLing-0.0.4.dmg",
+    "url": "https://github.com/3477856804/XLmodel-release/releases/download/v0.0.1/XiaoLing-0.0.1.dmg",
     "sha256": "",
     "size_mb": 290
   },
   "linux": {
-    "url": "https://github.com/3477856804/XLmodel-release/releases/download/v0.0.4/XiaoLing-0.0.4.AppImage",
+    "url": "https://github.com/3477856804/XLmodel-release/releases/download/v0.0.1/XiaoLing-0.0.1.AppImage",
     "sha256": "",
     "size_mb": 420
   }

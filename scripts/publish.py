@@ -10,7 +10,7 @@ Token 只从环境变量读，绝不写进仓库：
 用法：
     python3 工具/publish.py all                    # 全流程
     python3 工具/publish.py gitee [-m "提交说明"]   # 只同步源码到 Gitee
-    python3 工具/publish.py release [--tag v0.0.2] # 只建 Release 并上传 APK
+    python3 工具/publish.py release [--tag v0.0.1] # 只建 Release 并上传 APK
     python3 工具/publish.py site                   # 只生成官网
     python3 工具/publish.py pages [--project xiaoling]  # 只部署官网
 """
@@ -42,7 +42,7 @@ CF_API = 'https://api.cloudflare.com/client/v4'
 SYNC_EXCLUDE_DIRS = {'.git', '__pycache__', '.buildozer', '.gradle', 'dist', 'build',
                      'android/bin', 'android/native/app/build', 'android/native/.gradle',
                      'android/native/app/src/main/python', 'android/native/app/src/main/assets'}
-SYNC_EXCLUDE_FILES = {'xiaoling-0.0.2-android-arm64.apk'}
+SYNC_EXCLUDE_FILES = {'xiaoling-0.0.1-android-arm64.apk'}
 # 明确排除：第三方 VRM 模型（授权多为"禁止再分发"）
 SYNC_EXCLUDE_GLOBS = ('models/*.vrm', '*.vrm', '*.apk')
 
@@ -253,21 +253,21 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='小凌发布工具')
     ap.add_argument('cmd', choices=['all', 'gitee', 'release', 'site', 'pages'])
     ap.add_argument('-m', '--message', default=None, help='Gitee 提交说明')
-    ap.add_argument('--tag', default='v0.0.2')
+    ap.add_argument('--tag', default='v0.0.1')
     ap.add_argument('--project', default=PAGES_PROJECT)
-    ap.add_argument('--apk', default=str(ROOT / 'android/bin/xiaoling-0.0.2-android-arm64-debug.apk'))
+    ap.add_argument('--apk', default=str(ROOT / 'android/bin/xiaoling-0.0.1-android-arm64-debug.apk'))
     a = ap.parse_args(argv)
     state_file = ROOT / 'website' / 'downloads.json'
 
     if a.cmd in ('all', 'gitee'):
-        msg = a.message or f'小凌 v0.0.2：3D 数字人 + 成长闭环 + 全平台打包（纯 Python）'
+        msg = a.message or f'小凌 v0.0.1：3D 数字人 + 成长闭环 + 全平台打包（纯 Python）'
         gitee_sync(msg)
     if a.cmd in ('all', 'release'):
         apk = Path(a.apk)
         if not apk.exists():
             log(f'找不到 APK：{apk}（跳过 Release）')
         else:
-            body = ('小凌 XIAOLING v0.0.2\n\n'
+            body = ('小凌 XIAOLING v0.0.1\n\n'
                     '- 3D 数字人（白裙 / 白丝 / 小凌脸），46 个 VRMA 动作\n'
                     '- 成长闭环：适配器 ≥ 基底 → merge_and_unload → 自研模型 → 基底退役 → 适配器晋升\n'
                     '- 全平台：Android APK / Windows / macOS / Linux / Termux\n'
