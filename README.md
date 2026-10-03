@@ -1,267 +1,129 @@
-# 小凌 XIAOLING · v0.0.2
+# 小凌 XIAOLING · v0.0.4
 
-![小凌形象](docs/小凌形象卡片.png)
-
-> **全平台 AI 伴侣 —— 会成长的数字生命。**
-> 这一版，小凌换上了 3D 的身体（**白裙 · 白丝 · 她自己的脸**），同时保住了会自我进化的灵魂。
-
-**一句话**：`xiao.zip`（小玥 · Electron 3D 桌面数字人） + `xiaoling.zip`（小凌 · Python 成长型 AI 伴侣） = 本项目。
+> **会成长的 3D AI 桌宠 —— Flutter + Python + gRPC 三语言架构**
 
 ---
 
-## 这一版整合了什么
+## v0.0.4 更新了什么
 
-| | 来自 | 融合结果 |
-|---|---|---|
-|  **3D 数字人** | 小玥（渲染层已全量重写为 Python） | VRM 角色 + 46 个 VRMA 动作（待机/舞蹈/手势/情绪）、透明置顶窗、拖拽缩放、右键菜单、气泡对话、视线跟随、呼吸浮动、弹簧骨（头发/裙摆会晃） |
-|  **小凌专属形象** | 新增 | `小凌.vrm`：**白裙（程序化生成 + 蒙皮）+ 白丝（按模型空间坐标精确绘制）+ 小凌的脸（浅亚麻金发 / 湛蓝眼 / 冷白皮 / 软粉小口）** |
-|  **口型与语音** | 小玥 | 文本→口型时间轴（离线）、minimax/edge-tts/pyttsx3 三引擎情感语音、百度 STT 语音输入 |
-|  **会成长的大脑** | 小凌 | 基底模型 + LoRA 适配器 → 蒸馏 → **适配器长大后自动合并晋升 → 完全脱离原基底** |
-|  **纯 Python 渲染** | 本次改造 | 50,374 面 / 54 骨 / 14 组表情 / 46 个动作，全部由 Python 驱动 GLSL 与 numpy 渲染 |
-|  **感知与记忆** | 小玥 + 小凌 | 本地 RAG 长期记忆、联网搜索 Agent、截屏视觉理解、电脑状态感知、主动搭话、定时提醒、AI 生图、文件工具箱 |
+### 架构升级
+- **三语言分离**：Flutter (Dart) 写 UI + Python 写 AI 后端 + gRPC 写通信
+- **目录精简**：根目录从 20+ 文件夹 → 8 个，干净工整
+- **删除 PySide6**：全部 UI 用 Flutter 重写
 
-### 语言选型（重点）
+### 新功能
+- **智能模型商店**：自动检测硬件 → 推荐能跑的最强模型 → 一键下载
+- **持久记忆**：短期对话记忆 + 长期向量记忆
+- **拟人化人格**：情绪状态机（7种情绪）+ 关系亲密度（5个等级）
+- **插件系统**：万物皆插件，右下角+号开关
+- **通信通道**：Webhook + Telegram 接入
+- **自动更新**：三平台增量更新
 
-> **全项目统一 Python —— 包括 3D 渲染层。项目内没有任何 JavaScript / HTML / CSS。**
+---
 
-- **成长闭环只能 Python**：`peft.merge_and_unload()`、`transformers`、`torch` 是唯一可行栈——Node 侧没有可用的 LoRA 训练框架。
-- **3D 渲染层本次也已重写为 Python**（`renderer/`）：
-  glTF/VRM 解析、人形骨骼、蒙皮、表情形变、弹簧骨、VRMA 动作重定向、MToon 风格卡通着色、
-  透明置顶窗、气泡/菜单/设置页 —— 全部 Python。
-  GPU 侧只有 GLSL 着色器（它是显卡指令集，等价于字节码，作为字符串内联在 `renderer/gl.py` 中）。
-- 三层降级，永不黑屏：**OpenGL（真机 GPU / 无 GPU 时 Mesa 软件 GL）→ numpy 纯软件光栅 → 2D 视频桌宠 → 命令行**。
-- 详见 [`docs/语言选型.md`](docs/语言选型.md)。
+## 项目结构
+
+```
+XLmodel/
+├── frontend/          # Flutter UI (Dart)
+│   └── lib/
+│       ├── theme/       # 粉色少女风主题
+│       ├── pages/       # 5个页面
+│       └── rpc/         # gRPC 客户端
+│
+├── backend/            # Python AI 后端
+│   ├── core/            # 35个 AI 模块
+│   ├── renderer/        # 3D 渲染引擎
+│   └── rpc/             # gRPC 服务
+│
+├── shared/proto/        # gRPC 通信契约
+├── resources/          # 模型/动作/材质/音效
+├── packaging/          # 三平台打包配置
+├── scripts/            # 工具脚本
+├── tests/              # 测试
+└── docs/               # 文档
+```
 
 ---
 
 ## 快速开始
 
-### 环境
-- Windows 10/11、Linux、macOS
-- Python 3.10+（唯一的语言运行时）
+### 环境要求
+- Python 3.10+
+- Flutter 3.16+
+- 支持 OpenGL 的显卡（或软件渲染）
 
 ### 安装
 ```bash
-git clone <你的仓库> && cd xiaoling
+git clone https://gitee.com/COSMOnb666/XLmodel.git
+cd XLmodel
 pip install -r requirements.txt
 ```
 
 ### 启动
 ```bash
-python xl.py                # 3D 数字人 + 对话（推荐）
-python xl.py --no-pet       # 纯命令行
-python xl.py --avatar-only  # 只开 3D 数字人窗口
-./start.sh                  # Linux/macOS 一键（先自检再启动）
+# 启动 Python 后端
+python -m backend.rpc.server
 
-python -m renderer.app --probe            # 渲染层无头自检（不开窗）
-python -m renderer.app --showcase preview # 离线出图（形象四视图 + 舞蹈）
-python pet.py --mode 3d                   # 只启动 3D 桌宠
-python pet.py --mode webm                 # 2D 视频桌宠（兜底）
-```
-
-> **没有 GPU/GL/Qt 也不会崩**：自动按 `OpenGL → numpy 光栅 → 2D 视频桌宠 → 命令行` 逐级降级。
-
-### 第一次启动会看到什么（重要）
-
-```
-$ python xl.py                     # ← 启动即出 3D 桌宠（透明置顶窗）
-  [依赖]  检测到缺少 torch…（首次会自动 pip 安装，约 2-5 分钟）
-  [模型]  未检测到基底权重 → 后台下载中，进度会同步出现在桌宠气泡里
-  [渲染]  OpenGL 后端就绪：<你的显卡 / llvmpipe>
-  [数字人] 渲染后端 gl｜模型 小凌.vrm｜动作 46 个
-  [桌宠]  正在打开 3D 数字人窗口（透明置顶）…
-```
-
-| 你会看到 | 说明 |
-|---|---|
-| **3D 小凌**（白裙 / 白丝 / 蓝眼）悬浮在桌面上 | 可拖拽移动、滚轮缩放、左键拖动 |
-| **对话气泡** | 问候语、提醒、主动搭话都在气泡里 |
-| **双击她** → 聊天输入框 | 输入文字回车即可对话 |
-| **右键她** → 菜单 | 打开对话 / 跳个舞 / 回到待机 / 切换角色 / **换装** / 成长状态 / **设置** / 隐藏 / 退出 |
-| **第一次缺模型时** | 控制台出现下拉式下载进度条 + 桌宠气泡同步显示「正在下载基底模型… 已获取 X MB」；下载完成自动继续启动 |
-| 档位/Key 想改？ | 右键 → 设置（图形设置页，由配置结构自动生成）；或直接编辑 `.star_core/xiaoling_config.json` |
-
-> 说明：**模型下载只有"控制台进度条 + 桌宠气泡"，没有独立网页**（旧版小玥的网页设置页已换成 Python 图形设置页）。
-> GUI 模式下启动时会跳过控制台的"档位选择菜单"（档位读配置，默认自研2B模型）；
-> 想用控制台交互式选档位/下载，请用 `python xl.py --no-pet`。
-
-### 体检与成长
-```bash
-python -m core.selftest        # 全系统体检（依赖/模型/形象/渲染层/记忆/磁盘）
-python -m core.growth status   # 成长阶段 + 进度条
-python -m core.growth train    # 训练一轮 → 自动体积检查 → 达标即合并晋升
-python -m core.growth simulate # 干跑一次完整晋升流程（不动真模型）
-```
-
-### 首次启动（v1.1 全UI）
-
-> 直接 `python xl.py`，**首次启动会弹出全UI启动器**——选基底档位（2B / 1B）、点"开始唤醒小凌"，
-> 启动器自动写入配置并触发后台下载（进度同步到桌宠气泡），无需敲一行命令。
-> 没有 PySide6 或无图形环境时**自动回退**到控制台选择，永远不会卡在选择上。
-
-- **工作台顶部下拉框** `🧠 自研 N B 模型`：切换基底 LLM 档位，切换后自动后台下载新权重；
-- **旁边** `models` 下拉框：切 VRM 形象（共 7 个），**导入模型** 加新角色；
-- **顶部 `?`**：一分钟上手小凌的帮助卡片；
-- **关于**：项目信息卡片。
-
----
-
-## 更新日志 · 2026-09-25（全UI启动器 + 工作台升级）
-
-* **全UI启动器 `core/launcher_ui.py`**：首次启动弹出 PySide6 启动器，可视化选择基底档位（自研2B / 自研1B），一键触发下载；无 PySide6 / 无图形环境自动回退到命令行 input()。
-* **工作台新增 `🧠` 基底LLM档位下拉框**：可视化切换大脑模型，切换后写配置 + 后台下载，不阻塞 UI。
-* **顶部品牌区**：logo + 项目名 + 副标题；4 个状态标签（● 在线 / 自主扫描 / 5 MIN / UI MODE）+ 右上角 `?` 帮助按钮。
-* **「关于」对话框升级**：emoji 标题 + 信息卡片（平台 / LLM / 角色 / 渲染 / 启动 五条核心信息）。
-* **「?」帮助对话框**：一分钟上手指南（首次启动 / 切 LLM / 切角色 / 对话 / 成长 / 指令 / 下载 7 条要点）。
-* **`core/fusion.py`**：`bootstrap` 在 GUI 模式下优先调 UI 启动器；CLI 模式仍走原控制台流程，零回归。
-* **`xl.py::_select_model_on_start`**：有 UI 时优先弹启动器，回退命令行；保证既有 `--no-pet` 行为不变。
-* **新增 `tests/test_launcher_ui.py`**：5 个用例覆盖档位列表、label 查询、配置写入、可用性检测、dashboard 联动。
-
----
-
-## 更新日志 · 2026-09-24（渲染与算力专项）
-
-* **正面朝向修复**：相机默认机位改到模型正面（VRM 资产正面朝 +Z），工作台/桌宠打开即正脸；
-  拖拽转头以正面为中心左右各 60°，工作台新增「正面 / 转身」按钮，`XIAOLING_FRONT_YAW` 可覆盖。
-* **自动取景（不再巨大/偏移）**：相机按「头骨高度 + 包围盒」自适应——半身照以脸部为中心、
-  全身照自动收紧，水平/前后按包围盒居中；滚轮/滑块缩放 0.4x~2.5x。
-* **GPU 检测与加速（全链路）**：
-  - 新增 `core/device.py`：启动即打印算力策略；CUDA 优先铺显存、装不下的层经
-    `device_map="auto"` 自动回落 CPU（推理 / LoRA 蒸馏训练 / 合并晋升 全部生效），MPS(Apple) 支持。
-  - 渲染：新增 EGL 离屏上下文（Linux 有驱动时真 GPU）；工作台优先用 QOpenGLWidget GPU 直绘，
-    失败自动回退 CPU 贴图；GL 不可用时给出可执行的安装提示（如 `sudo apt install libosmesa6`）。
-* **工作台更流畅**：软件渲染默认降低内部分辨率（`XIAOLING_DASH_RES`，默认 0.55，显示平滑放大），
-  帧率自适应节流；修复下拉框切换角色不生效的 bug、重复 addLayout 警告。
-* **模型选择/导入界面**：工作台新增「导入模型」按钮（选 .vrm 自动拷入 `models/` 并切换）；
-  新增「基底模型?」说明弹窗（大脑权重放在 `.star_core/XLmodel/`，与 VRM 形象模型的区别讲清楚）。
-
----
-
-## 成长闭环（她越用越强）
-
-```
-基底模型 + LoRA 适配器
-        ↓ 蒸馏训练（DeepSeek 老师教）
-    适配器持续增长
-        ↓ 每轮训练后自动检查
-   适配器体积 ≥ 基底体积？
-        ├─ 否 → 继续成长（显示进度 X%）
-        └─ 是 → ① peft merge_and_unload 合并 LoRA 进基底
-                ② 合并模型成为「自研模型」
-                ③ 原基底权重退役（默认自动删除，可配置为归档）
-                ④ 适配器晋升为新基底 → 完全脱离原基底
-```
-- 实现：`core/growth.py`（原子化合并 + 校验回滚 + 结构化成长日志 `journal.jsonl`）
-- 训练：`core/peft_train.py`（续训已有适配器，体积持续增长、低配友好、离线）
-- 说法：对她说 **「蒸馏」** 就开始学习；说 **「成长进度」** 看进度条。
-
----
-
-## 手机（Android）也能跑
-
-同一份 Python 代码（`core/` + `renderer/`）可以跑在 Android 的 CPython 里，
-画面走 numpy 软件光栅渲染，长按出菜单、左滑转视角、双击打招呼。
-
-- 手机端**没有 torch**（Android 无官方 wheel），所以成长闭环训练请走 Termux：
-  `pkg install python python-torch && bash packaging/termux/install.sh`，
-  训练出的 `adapter/` 可直接拷回手机或电脑复用。
-- APK 打包脚手架位于 `packaging/`（Windows: `packaging/windows/xiaoling.iss`，
-  Linux: `packaging/linux/`，macOS: `packaging/macos/make_dmg.sh`，Android/Termux: `packaging/termux/`）。
-  **仓库不附带已构建的安装包**，请按 `packaging/README.md` 在本地环境实际构建后再分发。
-- 聊天：设置里填 DeepSeek（或任意 OpenAI 兼容）Key → 真聊天；不填则规则引擎 + 本地记忆。
-
----
-
-## 常用指令
-
-| 你说 | 她做 |
-|---|---|
-| `变身` / `开数字人` | 启动 3D 数字人形象 |
-| `跳舞` / `全身` / `半身` | 跳舞、切换全身/半身视角 |
-| `换角色` / `换装 Rabbit_Peridot` | 切换 VRM 角色 / 用新基底重新生成小凌形象 |
-| `开心一点` / `难过一点` | 情绪 → 表情联动 |
-| `看屏幕` | 截屏 + 多模态理解，帮你看代码/图片 |
-| `搜索 <关键词>` | 联网检索并总结 |
-| `电脑状态` | 感知你在写代码/看视频/摸鱼 |
-| `30分钟后提醒我喝水` | 定时提醒（到点气泡 + 语音） |
-| `生图 <描述>` | AI 生图（参考图可说「把这张图作为参考图」） |
-| `整理文件夹 <路径>` | 文件工具箱：整理/图片压缩/视频压缩/内容去重 |
-| `成长进度` / `记忆检索 <词>` | 成长报告 / 本地记忆检索 |
-| `暂停成长` / `恢复成长` | 暂停或恢复自训练（桌宠照常聊天） |
-| `成长条件` | 说明"现在能不能训练、卡在哪一条" |
-| `晋升评估` | 跑一遍晋升三条件（体积 / 验证集 / 通用基准） |
-| `升 rank` | 适配器长不动时手动升一档 LoRA rank |
-| `样本状态` | 样本量、反馈分布、蒸馏用量与本月预估费用 |
-| `点赞` / `点踩` / `纠正为 <正确回答>` | 给上一条回答打反馈，直接影响训练样本 |
-| `回滚模型` / `清理旧代` / `导出模型` | 回滚到上一代 / 释放空间 / 打包自己的模型 |
-| `蒸馏` / `spawn 任务 N` / `kg 查询` | 蒸馏学习 / 子 Agent / 知识图谱（沿用原小凌） |
-
----
-
-## 目录结构
-
-```
-XLmodel/
-├── xl.py                  # 唯一入口（对话引擎 + 融合层接入）
-├── pet.py                 # 桌宠入口：--mode auto|3d|2d|console（2D 为程序化绘制，无素材依赖）
-├── core/                  # ★ 融合层与业务逻辑（Python）
-│   ├── growth.py          #   成长闭环引擎 v2：触发→训练→三条件→晋升→退役
-│   ├── growth_store.py    #   训练数据仓库（SQLite + 质量分 + 去重 + DPO 偏好对）
-│   ├── eval.py            #   晋升三条件评估 + 内置基准测试集
-│   ├── rank.py            #   动态升 rank（LoRA 体积真正长大）
-│   ├── lifecycle.py       #   模型生命周期：trash 退役 / 稳定期 / GC / 回滚 / 导出
-│   ├── throttle.py        #   DeepSeek 蒸馏节流：缓存 / 限流 / 开关 / 成本估算
-│   ├── device.py          #   算力探测与显存分级策略（推理 + 训练）
-│   ├── peft_train.py      #   LoRA 蒸馏训练器（量化 / 梯度累积 / 损失曲线）
-│   ├── avatar.py fusion.py config.py paths.py launcher_ui.py
-│   └── rag.py search.py vision.py tts.py asr.py perception.py
-│       proactive.py reminder.py imagen.py filebox.py voices.py selftest.py
-├── renderer/              # ★ 3D 渲染层（100% Python）
-│   ├── gltf.py model.py pose.py vrma.py camera.py   # 解析 / VRM 语义 / 蒙皮 / 动作 / 相机
-│   ├── gl.py soft.py      # OpenGL(GPU, GLSL) 后端 / numpy 软件光栅兜底
-│   ├── lipsync.py renderer.py window.py settings.py
-│   └── app.py dashboard.py # 引擎宿主 / 3D 工作台
-├── models/              # 7 个 VRM（含 小凌.vrm）
-├── animations/              # 46 个 VRMA 动作
-├── material/                  # 形象素材（xiaoling.png 等）
-├── sounds/tool/           # 8 个工具音效（由 工具/make_sounds.py 程序化生成）
-├── assets/                # 图标等打包资源
-├── 工具/                  # 形象流水线 / 发布 / 音效（vrm_lib / xiaoling_avatar / publish / make_sounds）
-├── tests/                  # 回归测试：成长 v2 / 成长 / 融合 / 渲染 / 形象 / 启动器
-├── docs/                  # 分析报告 · 语言选型 · 接口契约 · 功能映射 · 成长管线规范
-├── skills/ data/ scripts/ packaging/ .star_core/ .github/
-└── README.md
-```
----
-
-## 文档
-
-| 文档 | 内容 |
-|---|---|
-| [`docs/分析报告.md`](docs/分析报告.md) | 整合全过程：上游解剖、改造技术、验证结果、授权提示 |
-| [`docs/语言选型.md`](docs/语言选型.md) | 为什么统一到 Python（含渲染层重写方案） |
-| [`docs/接口契约.md`](docs/接口契约.md) · [`.csv`](docs/接口契约.csv) · [`openapi.yaml`](docs/openapi.yaml) | 渲染层 Python API / 成长 API / 平台回调 |
-| [`docs/功能映射.md`](docs/功能映射.md) | 小玥每一项功能 → Python 实现的对照表 |
-| [`docs/features.json`](docs/features.json) · [`docs/tree.json`](docs/tree.json) · [`docs/stats.json`](docs/stats.json) | 结构化功能清单 / 文件树 / 规模统计 |
-| [`docs/成长管线规范.md`](docs/成长管线规范.md) | 成长闭环的落地规范与全部可调参数 |
-| [`docs/小凌形象卡片.png`](docs/小凌形象卡片.png) | 形象卡片 |
-
----
-
-## 授权提示（务必阅读）
-
-`models/` 中的 VRM 基底模型授权为 **`Redistribution_Prohibited`**（多数商业使用为 `Disallow`）。
-因此 **改造产物 `models/小凌.vrm` 仅供本地自用，请勿再分发或商用**。
-流水线 `工具/xiaoling_avatar.py` 保持可重放：只要你持有合法授权的 VRM，一条命令即可生成属于自己的小凌形象：
-
-```bash
-python3 工具/xiaoling_avatar.py build \
-    --base models/你的授权模型.vrm \
-    --face assets/xiaoling.png \
-    --out models/小凌.vrm --preview preview
+# 启动 Flutter 前端
+cd frontend
+flutter run
 ```
 
 ---
 
-> 小凌 v0.0.2 —— 3D 数字人 + 会成长的灵魂。
-> 如果你喜欢她，欢迎点亮 Star。
+## 核心特性
+
+### 会成长的大脑
+基底模型 + LoRA 适配器 → 蒸馏训练 → 适配器长大后自动合并晋升 → 完全脱离原基底 → 循环成长
+
+### 3D 数字人
+- 8 个角色模型（VRM/FBX）
+- 46 个动作（待机/舞蹈/手势/情绪）
+- 透明置顶窗，可拖拽
+- 弹簧骨（头发/裙摆会晃）
+- 口型同步
+
+### 语音系统
+- 每个角色专属音色
+- 文本→语音合成
+- 语音识别输入
+- 阅读模式自动朗读
+
+### 智能模型商店
+- 自动检测硬件（GPU/内存/磁盘）
+- 推荐能跑的最强模型
+- 国内镜像加速下载（ModelScope）
+- 断点续传
+
+---
+
+## 三平台支持
+
+| 平台 | 格式 | 状态 |
+|---|---|---|
+| Windows | .exe (NSIS) | 配置完成 |
+| macOS | .dmg | 配置完成 |
+| Linux | .AppImage | 配置完成 |
+
+---
+
+## 技术栈
+
+- **UI**: Flutter 3 (Dart) + Material 3 + Riverpod
+- **后端**: Python 3.10+ + gRPC + PyTorch + transformers
+- **渲染**: Python 纯软件光栅 + OpenGL
+- **通信**: gRPC (localhost)
+- **打包**: PyInstaller + NSIS + create-dmg + linuxdeploy
+
+---
+
+## 开发计划
+
+详见 [docs/小凌v0.0.4开发计划.md](docs/小凌v0.0.4开发计划.md)
+
+---
+
+## License
+
+私有项目，保留所有权利。
