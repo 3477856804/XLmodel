@@ -29,7 +29,6 @@ jobs:
             --name XiaoLing \
             --add-data "backend${SEP}backend" \
             --add-data "resources${SEP}resources" \
-            --add-data "assets${SEP}assets" \
             --exclude-module torch \
             --exclude-module PySide6 \
             --exclude-module PyQt5 \
