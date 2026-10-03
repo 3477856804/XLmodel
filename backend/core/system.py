@@ -1,6 +1,7 @@
-"""系统信息 - 硬件检测 + 设备信息"""
+"""系统模块 - 硬件检测 + 设备信息 + 生命周期 + 自检"""
 import platform
 import subprocess
+import time
 
 
 # ===== 硬件检测 =====
@@ -76,3 +77,76 @@ def get_system_info() -> dict:
         "gpu": get_gpu_info(),
         "best_device": detect_best_device(),
     }
+
+
+# ===== 生命周期 =====
+class Lifecycle:
+    """生命周期管理"""
+
+    def __init__(self):
+        self.start_time = time.time()
+        self.state = "init"
+        self._handlers = {}
+
+    def on(self, event: str, handler):
+        """注册事件处理器"""
+        if event not in self._handlers:
+            self._handlers[event] = []
+        self._handlers[event].append(handler)
+
+    def emit(self, event: str, *args):
+        """触发事件"""
+        if event in self._handlers:
+            for handler in self._handlers[event]:
+                try:
+                    handler(*args)
+                except Exception as e:
+                    print(f"  [生命周期] {event} 处理器失败: {e}")
+
+    def uptime(self) -> float:
+        """运行时间（秒）"""
+        return time.time() - self.start_time
+
+    def set_state(self, state: str):
+        """设置状态"""
+        old = self.state
+        self.state = state
+        self.emit("state_changed", old, state)
+
+
+# ===== 自检 =====
+def selftest() -> dict:
+    """全系统自检"""
+    results = {}
+
+    # 1. Python 版本
+    results["python"] = f"{platform.python_version()}"
+
+    # 2. 系统
+    results["os"] = platform.system()
+
+    # 3. GPU
+    results["gpu"] = get_gpu_info()
+
+    # 4. 内存
+    mem = get_memory_info()
+    results["memory"] = f"{mem['percent']}%"
+
+    # 5. 关键模块
+    modules = ["torch", "transformers", "peft"]
+    for mod in modules:
+        try:
+            __import__(mod)
+            results[mod] = "OK"
+        except ImportError:
+            results[mod] = "MISSING"
+
+    return results
+
+
+def print_selftest():
+    """打印自检结果"""
+    results = selftest()
+    print("=== 自检结果 ===")
+    for k, v in results.items():
+        print(f"  {k}: {v}")
