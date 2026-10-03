@@ -5,7 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-from .platform import Platform
+from .system import Platform
 
 UPDATE_CHECK_URL = "https://xiaoling-4o6.pages.dev/update/check.json"
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from .platform import get_user_data_dir
+from .system import get_user_data_dir
 
 
 @dataclass

@@ -1,21 +1,19 @@
 """小凌主引擎 - 整合所有模块"""
 import time
 
-from .long_term_memory import LongTermMemory
-from .growth_manager import GrowthManager
-from .model_replacement import ModelReplacement
+from .memory import LongTermMemory
+from .growth import GrowthEngine
+from .model import ModelReplacement
 from .session import SessionPersistence
 from .multi_agent import MultiAgentSystem
-from .knowledge_graph import KnowledgeGraph
+from .knowledge import KnowledgeGraph
 from .scheduler import CronScheduler
-from .self_evolution import SelfEvolution
-from .tool_manager import ToolManager
-from .skill_manager import SkillManager
+from .persona import EmotionEngine, RelationshipEngine
+from .tools import ToolManager, SkillManager
 from .goal_manager import GoalManager
-from .guard import Guard
+from .guards import Guard, OfflineGuard
 from .updater import UpdateChecker
-from .platform_adapter import PlatformAdapter
-from .offline_guard import OfflineGuard
+from .plugin_manager import PluginManager
 
 
 class XiaoLing:
@@ -31,7 +29,7 @@ class XiaoLing:
         self.memory.data["last_active"] = time.time()
 
         # 成长
-        self.growth = GrowthManager()
+        self.growth = GrowthEngine()
         print(f"  [成长] 已积累{self.growth.total_items}条知识")
 
         # 模型替换
@@ -50,9 +48,10 @@ class XiaoLing:
         # 定时任务
         self.cron = CronScheduler(self)
 
-        # 自我演化
-        self.evo = SelfEvolution(self.memory)
-        print(f"  [自我] 心情{self.evo.state['mood']:+.2f}")
+        # 人格
+        self.emotion = EmotionEngine()
+        self.relationship = RelationshipEngine()
+        print(f"  [人格] 情绪{self.emotion.get_emotion_label()}")
 
         # 工具
         self.tools = ToolManager()
@@ -70,11 +69,12 @@ class XiaoLing:
         # 自动更新
         self.updater = UpdateChecker()
 
-        # 平台
-        self.platforms = PlatformAdapter(self)
-
         # 离线守卫
         self.network = OfflineGuard()
+
+        # 插件系统
+        self.plugins = PluginManager()
+        print(f"  [插件] {len(self.plugins.list_plugins())}个已加载")
 
         # 模型（懒加载）
         self.model = None
@@ -89,9 +89,19 @@ class XiaoLing:
     def chat(self, text):
         """聊天接口"""
         self.session.append_turn(text, "")
+
+        # 插件钩子：聊天前
+        self.plugins.execute_hook("before_chat", {"text": text})
+
+        # 基础回复
         reply = f"你说的是：{text}"
+
+        # 插件钩子：聊天后
+        reply = self.plugins.execute_hook("after_chat", {"reply": reply})
+
         self.session.append_turn(text, reply)
+        self.interaction_count += 1
         return reply, None
 
     def show_status(self):
-        return f"小凌 v0.0.1 | {self.evo.format_state()}"
+        return f"小凌 v0.0.1 | 情绪: {self.emotion.get_emotion_label()}"
