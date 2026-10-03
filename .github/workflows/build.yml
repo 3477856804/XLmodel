@@ -30,8 +30,8 @@ jobs:
             --icon assets/icon.ico \
             --add-data "core${SEP}core" \
             --add-data "renderer${SEP}renderer" \
-            --add-data "角色模型${SEP}角色模型" \
-            --add-data "动作资产${SEP}动作资产" \
+            --add-data "models${SEP}models" \
+            --add-data "animations${SEP}animations" \
             --add-data "assets${SEP}assets" \
             --collect-submodules PySide6.QtWidgets \
             --collect-submodules PySide6.QtGui \
