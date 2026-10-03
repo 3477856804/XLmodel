@@ -32,6 +32,13 @@ SPEC = PROJECT / '打包' / 'xiaoling.spec'
 DIST = PROJECT / 'dist'
 WORK = PROJECT / 'build' / 'pyinstaller'
 
+# Windows CI 控制台默认 cp1252，打印中文会 UnicodeEncodeError —— 强制 UTF-8 输出。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 
 def log(msg=''):
     print(f'[打包] {msg}', flush=True)
