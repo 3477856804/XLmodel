@@ -29,9 +29,9 @@ jobs:
       - run: flutter pub get
       - run: flutter build windows --release
       - name: 打包 zip
-        shell: bash
+        shell: pwsh
         run: |
-          cd build/windows/x64/runner/ && zip -r ../../../../xiaoling-windows-x64.zip Release/
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "xiaoling-windows-x64.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
           name: xiaoling-windows
