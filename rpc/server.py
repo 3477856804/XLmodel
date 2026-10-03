@@ -43,6 +43,9 @@ _engine = None
 _engine_lock = threading.Lock()
 _engine_logged = False
 
+_renderer = None
+_renderer_lock = threading.Lock()
+
 
 def _get_engine(log=print):
     """懒加载 XiaoLing 引擎。任何异常都吞掉并返回 None，由调用方降级。"""
@@ -62,6 +65,25 @@ def _get_engine(log=print):
             log(f'  [gRPC] 引擎初始化失败（降级为规则回复）：{type(e).__name__}: {e}')
             _engine = None
     return _engine
+
+
+def _get_renderer(log=print):
+    """懒加载 3D 渲染器（软件后端，无头可用）。失败返回 None。"""
+    global _renderer
+    if _renderer is not None:
+        return _renderer
+    with _renderer_lock:
+        if _renderer is not None:
+            return _renderer
+        try:
+            from renderer.renderer import AvatarRenderer
+            _renderer = AvatarRenderer(backend='soft', width=200, height=280,
+                                       focus='bust', log=log)
+            log('  [gRPC] 3D 渲染器就绪（软件后端）')
+        except Exception as e:                                          # noqa: BLE001
+            log(f'  [gRPC] 渲染器不可用：{type(e).__name__}: {e}')
+            _renderer = None
+    return _renderer
 
 
 def _quick_reply(text: str) -> str:
@@ -138,9 +160,13 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def SwitchModel(self, request, context):
         try:
             path = request.path
-            # 这里只改配置，真正切换由桌宠渲染进程读配置完成
             from core import config as _cfg
             _cfg.patch({'model': {'path': path}})
+            r = _get_renderer()
+            if r is not None:
+                try: r.switch_model(path)
+                except Exception as e:
+                    return pb.StatusReply(ok=False, message=f'配置已写但切换失败：{e}')
             return pb.StatusReply(ok=True, message=f'已切换到 {os.path.basename(path)}')
         except Exception as e:                                              # noqa: BLE001
             return pb.StatusReply(ok=False, message=str(e))
@@ -178,7 +204,14 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
 
     # ---------------- PlayAction ----------------
     def PlayAction(self, request, context):
-        return pb.StatusReply(ok=True, message=f'播放动作：{os.path.basename(request.path)}')
+        try:
+            r = _get_renderer()
+            if r is None:
+                return pb.StatusReply(ok=False, message='渲染器不可用，无法播放动作')
+            r.play_action(request.path)
+            return pb.StatusReply(ok=True, message=f'正在播放：{os.path.basename(request.path)}')
+        except Exception as e:
+            return pb.StatusReply(ok=False, message=f'播放失败：{e}')
 
     # ---------------- Shutdown ----------------
     def Shutdown(self, request, context):
