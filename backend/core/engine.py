@@ -13,7 +13,7 @@ from .tool_manager import ToolManager
 from .skill_manager import SkillManager
 from .goal_manager import GoalManager
 from .guard import Guard
-from .auto_updater import AutoUpdater
+from .updater import UpdateChecker
 from .platform_adapter import PlatformAdapter
 from .offline_guard import OfflineGuard
 
@@ -68,7 +68,7 @@ class XiaoLing:
         self.guard = Guard()
 
         # 自动更新
-        self.updater = AutoUpdater()
+        self.updater = UpdateChecker()
 
         # 平台
         self.platforms = PlatformAdapter(self)
