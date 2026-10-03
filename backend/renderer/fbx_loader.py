@@ -93,10 +93,10 @@ def load_any_model(path: str | Path, log=print):
 
 
 def list_model_files(model_dir: str | Path) -> list[Path]:
-    """列出目录里所有可加载的模型文件（.vrm + .fbx）。"""
+    """列出目录里所有可加载的模型文件（.vrm + .glb + .fbx）。"""
     d = Path(model_dir)
     out: list[Path] = []
-    for ext in ('*.vrm', '.VRM', '*.fbx', '.FBX'):
+    for ext in ('*.vrm', '*.VRM', '*.glb', '*.gltf', '*.fbx', '*.FBX'):
         out.extend(d.glob(ext))
     # 去重并排序
     seen = set()

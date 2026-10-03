@@ -24,7 +24,7 @@ import os
 import sys
 from pathlib import Path
 
-_DEV_ROOT = Path(__file__).resolve().parent.parent
+_DEV_ROOT = Path(__file__).resolve().parent.parent.parent  # backend/core/paths.py → 项目根
 
 
 def is_frozen() -> bool:
