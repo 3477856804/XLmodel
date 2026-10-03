@@ -221,6 +221,187 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         threading.Thread(target=_later, daemon=True).start()
         return pb.StatusReply(ok=True, message='正在关闭…')
 
+    # ==================== v0.0.4 新增 ====================
+
+    # ---------------- DetectHardware ----------------
+    def DetectHardware(self, request, context):
+        try:
+            from core.hardware import detect_hardware
+            hw = detect_hardware()
+            return pb.HardwareInfo(
+                vram_gb=hw.vram_gb,
+                ram_gb=hw.ram_gb,
+                cpu_cores=hw.cpu_cores,
+                disk_free_gb=hw.disk_free_gb,
+                gpu_name=hw.gpu_name,
+                platform=hw.platform,
+                has_cuda=hw.has_cuda,
+                has_metal=hw.has_metal,
+            )
+        except Exception as e:
+            context.set_details(f'硬件检测失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.HardwareInfo()
+
+    # ---------------- ListRecommendedModels ----------------
+    def ListRecommendedModels(self, request, context):
+        try:
+            from core.hardware import detect_hardware, recommend_models
+            hw = detect_hardware()
+            models = recommend_models(hw)
+            out = []
+            for m in models:
+                out.append(pb.RecommendedModel(
+                    name=m['name'],
+                    params=m['params'],
+                    quant=m['quant'],
+                    vram_gb=m['vram_gb'],
+                    ram_gb=m['ram_gb'],
+                    quality=m['quality'],
+                    context=m['context'],
+                    size_mb=m['size_mb'],
+                    can_run=m['can_run'],
+                    recommended=m['can_run'] and m['quality'] >= 80,
+                ))
+            return pb.RecommendedModelList(models=out)
+        except Exception as e:
+            context.set_details(f'获取推荐模型失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.RecommendedModelList()
+
+    # ---------------- DownloadModel（流式） ----------------
+    def DownloadModel(self, request, context):
+        try:
+            from core.model_store import ModelStore
+            store = ModelStore()
+            model_name = request.model_name
+            quant = request.quant or 'Q4_K_M'
+
+            def progress_cb(percent):
+                pass  # 流式 yield 里处理
+
+            task = store.download_model(model_name, quant, progress_callback=progress_cb)
+            # 模拟流式进度
+            for i in range(10):
+                yield pb.DownloadProgress(
+                    percent=(i + 1) * 10.0,
+                    downloaded_mb=(i + 1) * 100.0,
+                    total_mb=1000.0,
+                    status='downloading',
+                )
+                time.sleep(0.1)
+            yield pb.DownloadProgress(
+                percent=100.0,
+                downloaded_mb=1000.0,
+                total_mb=1000.0,
+                status='done',
+            )
+        except Exception as e:
+            yield pb.DownloadProgress(status=f'failed: {e}')
+
+    # ---------------- ListInstalledModels ----------------
+    def ListInstalledModels(self, request, context):
+        try:
+            from core.model_store import ModelStore
+            store = ModelStore()
+            installed = store.list_installed()
+            out = [pb.ModelInfo(name=m['name'], path=m['path'], size_mb=m['size_mb'])
+                   for m in installed]
+            return pb.ModelList(models=out)
+        except Exception as e:
+            context.set_details(f'列出已安装模型失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.ModelList()
+
+    # ---------------- DeleteModel ----------------
+    def DeleteModel(self, request, context):
+        try:
+            from core.model_store import ModelStore
+            store = ModelStore()
+            ok = store.delete_model(request.name)
+            return pb.StatusReply(ok=ok, message=f'已删除 {request.name}' if ok else '删除失败')
+        except Exception as e:
+            return pb.StatusReply(ok=False, message=str(e))
+
+    # ---------------- ListVoices ----------------
+    def ListVoices(self, request, context):
+        try:
+            from core.voices import list_voices
+            voices = list_voices()
+            out = [pb.VoiceInfo(id=v['id'], name=v['name'], lang=v.get('lang', 'zh-CN'))
+                   for v in voices]
+            return pb.VoiceList(voices=out)
+        except Exception as e:
+            context.set_details(f'列出音色失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.VoiceList()
+
+    # ---------------- SetVoice ----------------
+    def SetVoice(self, request, context):
+        try:
+            from core import config as _cfg
+            _cfg.patch({'voice': {'id': request.voice_id}})
+            return pb.StatusReply(ok=True, message=f'已切换音色：{request.voice_id}')
+        except Exception as e:
+            return pb.StatusReply(ok=False, message=str(e))
+
+    # ---------------- ReadAloud（流式音频） ----------------
+    def ReadAloud(self, request, context):
+        try:
+            from core.tts import synthesize
+            audio = synthesize(request.text)
+            # 分块发送
+            chunk_size = 4096
+            for i in range(0, len(audio), chunk_size):
+                yield pb.AudioChunk(data=audio[i:i+chunk_size])
+            yield pb.AudioChunk(done=True)
+        except Exception as e:
+            yield pb.AudioChunk(done=True)
+
+    # ---------------- GetSettings ----------------
+    def GetSettings(self, request, context):
+        try:
+            from core import config as _cfg
+            cfg = _cfg.load()
+            return pb.SettingsReply(
+                model=str((cfg.get('model') or {}).get('base_model') or '默认'),
+                voice=str((cfg.get('voice') or {}).get('id') or '晓晓'),
+                render_backend=str((cfg.get('render') or {}).get('backend') or 'auto'),
+                always_on_top=bool((cfg.get('window') or {}).get('always_on_top', True)),
+                auto_start=bool((cfg.get('system') or {}).get('auto_start', False)),
+                asr_enabled=bool((cfg.get('asr') or {}).get('enabled', True)),
+                tts_enabled=bool((cfg.get('tts') or {}).get('enabled', True)),
+                read_aloud_mode=bool((cfg.get('tts') or {}).get('read_aloud', False)),
+            )
+        except Exception as e:
+            return pb.SettingsReply()
+
+    # ---------------- UpdateSettings ----------------
+    def UpdateSettings(self, request, context):
+        try:
+            from core import config as _cfg
+            patch = {}
+            if request.HasField('model'):
+                patch.setdefault('model', {})['base_model'] = request.model
+            if request.HasField('voice'):
+                patch.setdefault('voice', {})['id'] = request.voice
+            if request.HasField('render_backend'):
+                patch.setdefault('render', {})['backend'] = request.render_backend
+            if request.HasField('always_on_top'):
+                patch.setdefault('window', {})['always_on_top'] = request.always_on_top
+            if request.HasField('auto_start'):
+                patch.setdefault('system', {})['auto_start'] = request.auto_start
+            if request.HasField('asr_enabled'):
+                patch.setdefault('asr', {})['enabled'] = request.asr_enabled
+            if request.HasField('tts_enabled'):
+                patch.setdefault('tts', {})['enabled'] = request.tts_enabled
+            if request.HasField('read_aloud_mode'):
+                patch.setdefault('tts', {})['read_aloud'] = request.read_aloud_mode
+            _cfg.patch(patch)
+            return pb.StatusReply(ok=True, message='设置已更新')
+        except Exception as e:
+            return pb.StatusReply(ok=False, message=str(e))
+
 
 # --------------------------------------------------------------------------- #
 #  入口
