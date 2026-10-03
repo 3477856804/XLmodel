@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")/../.."
 python3 -m pip install -r requirements.txt pyinstaller
-python3 打包/build.py --clean
+python3 packaging/build.py --clean
 # 未做公证时，首次打开需右键 → 打开，或：
 #   xattr -dr com.apple.quarantine dist/小凌.app
 hdiutil create -volname "小凌 XIAOLING" -srcfolder "dist/小凌.app" -ov -format UDZO dist/xiaoling-0.0.2.dmg || true

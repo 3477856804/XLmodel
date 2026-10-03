@@ -185,7 +185,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     # 左侧：品牌区
     brand = QtWidgets.QHBoxLayout()
     brand.setSpacing(10)
-    logo_dot = QtWidgets.QLabel('🌸')
+    logo_dot = QtWidgets.QLabel('')
     logo_dot.setStyleSheet(f'font-size:24px;')
     logo_dot.setFixedWidth(32)
     brand.addWidget(logo_dot)
@@ -833,7 +833,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
     ''')
     _llm_index_of = {}
     for _i, _p in enumerate(_LLM_PRESETS):
-        _label = f"🧠 {_p['label']} · {_p['size']}"
+        _label = f" {_p['label']} · {_p['size']}"
         llm_combo.addItem(_label)
         _llm_index_of[_p['key']] = _i
     # 选中当前档位
@@ -864,7 +864,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
                         ok = _fusion_mod.ensure_base_model()
                     else:
                         ok = False
-                    msg = '新基底下载完成 ✓' if ok else '下载未完成（可稍后说"蒸馏"重试）'
+                    msg = '新基底下载完成 ' if ok else '下载未完成（可稍后说"蒸馏"重试）'
                     color = '#3b8a5a' if ok else '#9a8a90'
                 except Exception as _e:                                # noqa: BLE001
                     msg = f'下载中断：{_e}'
@@ -1307,7 +1307,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
             dev_txt = _dev_desc()
         except Exception:                                                 # noqa: BLE001
             dev_txt = '算力检测不可用'
-        dev_lbl = QtWidgets.QLabel('⚙ ' + dev_txt)
+        dev_lbl = QtWidgets.QLabel(' ' + dev_txt)
         dev_lbl.setWordWrap(True)
         dev_lbl.setStyleSheet(f'color:{TEXT_DARK};font-size:12px;')
         v.addWidget(dev_lbl)
@@ -1645,7 +1645,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
         v.setContentsMargins(28, 24, 28, 22)
         v.setAlignment(QtCore.Qt.AlignCenter)
         v.setSpacing(8)
-        emoji = QtWidgets.QLabel('🌸')
+        emoji = QtWidgets.QLabel('')
         emoji.setStyleSheet('font-size:42px;')
         emoji.setAlignment(QtCore.Qt.AlignCenter)
         v.addWidget(emoji)
@@ -1665,11 +1665,11 @@ def build_dashboard(renderer=None, engine=None, log=print):
         iv.setContentsMargins(16, 14, 16, 14)
         iv.setSpacing(4)
         info_lines = [
-            '🌐 全平台（Win / macOS / Linux / Android）',
-            '🧠 自研 LLM：2B / 1B 基底模型 · LoRA 持续成长',
-            '🎭 7 个 VRM 角色 · 46 个动作 · MToon 卡通渲染',
-            '💾 纯 Python 3D 渲染（GLSL/OpenGL/numpy 三级降级）',
-            '✨ 全UI启动器 + 工作台 · 傻瓜式一键启动',
+            ' 全平台（Win / macOS / Linux / Android）',
+            ' 自研 LLM：2B / 1B 基底模型 · LoRA 持续成长',
+            ' 7 个 VRM 角色 · 46 个动作 · MToon 卡通渲染',
+            ' 纯 Python 3D 渲染（GLSL/OpenGL/numpy 三级降级）',
+            ' 全UI启动器 + 工作台 · 傻瓜式一键启动',
         ]
         for line in info_lines:
             lbl = QtWidgets.QLabel(line)
@@ -1698,7 +1698,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
         v = QtWidgets.QVBoxLayout(dlg)
         v.setContentsMargins(28, 24, 28, 22)
         v.setSpacing(10)
-        title = QtWidgets.QLabel('🌸 一分钟上手小凌')
+        title = QtWidgets.QLabel(' 一分钟上手小凌')
         title.setStyleSheet(f'color:{ACCENT};font-size:18px;font-weight:800;')
         v.addWidget(title)
         body = QtWidgets.QTextEdit()
@@ -1710,7 +1710,7 @@ def build_dashboard(renderer=None, engine=None, log=print):
             '<style>li{margin:6px 0;}b{color:#d4385c;}</style>'
             '<ul>'
             '<li><b>首次启动</b>：会自动弹出全UI启动器，选择想自研的基底模型后一键下载。</li>'
-            '<li><b>切换 LLM 档位</b>：顶部 <code>🧠 自研 N B 模型</code> 下拉框可换基底，后台自动下载。</li>'
+            '<li><b>切换 LLM 档位</b>：顶部 <code> 自研 N B 模型</code> 下拉框可换基底，后台自动下载。</li>'
             '<li><b>切换 VRM 角色</b>：旁边 <code>角色模型</code> 下拉框选 7 个角色，<b>导入模型</b> 加新角色。</li>'
             '<li><b>对话</b>：底部输入框敲回车；<b>双击她</b>打开桌宠输入。</li>'
             '<li><b>成长</b>：右下角 <b>+</b> 按钮 → 启用 <code>蒸馏训练</code> 插件 → <b>开始蒸馏训练</b>。</li>'

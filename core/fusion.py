@@ -74,7 +74,7 @@ def _make_avatar(engine):
     cfg = (_STATE.get('cfg') or config_mod.load()).get('avatar', {})
     if not cfg.get('enabled', True):
         return None
-    model = BASE_DIR / '角色模型' / cfg.get('model', '小凌.vrm')
+    model = BASE_DIR / 'models' / cfg.get('model', '小凌.vrm')
     host = AvatarHost(engine=engine, model=model if model.exists() else None,
                       scale=cfg.get('scale', 1.0), focus=cfg.get('focus', 'bust'),
                       log=_log)
@@ -313,7 +313,7 @@ def _cmd_next_model(app, _arg):
 def _cmd_dress(app, arg):
     """用形象流水线重新生成小凌（换基底模型 = 换装）。"""
     arg = (arg or '').strip()
-    models = sorted((BASE_DIR / '角色模型').glob('*.vrm'))
+    models = sorted((BASE_DIR / 'models').glob('*.vrm'))
     base = None
     if arg:
         for m in models:
@@ -321,12 +321,12 @@ def _cmd_dress(app, arg):
                 base = m
                 break
     if base is None:
-        base = BASE_DIR / '角色模型' / 'Rabbit_Peridot.vrm'
+        base = BASE_DIR / 'models' / 'Rabbit_Peridot.vrm'
     if not base.exists():
         return f'找不到基底模型：{base}'
     face = BASE_DIR / '素材' / 'xiaoling.png'
-    out = BASE_DIR / '角色模型' / '小凌.vrm'
-    script = BASE_DIR / '工具' / 'xiaoling_avatar.py'
+    out = BASE_DIR / 'models' / '小凌.vrm'
+    script = BASE_DIR / 'tools' / 'xiaoling_avatar.py'
     cmd = [sys.executable, str(script), 'build', '--base', str(base), '--face', str(face),
            '--out', str(out), '--preview', str(BASE_DIR / 'preview')]
     try:

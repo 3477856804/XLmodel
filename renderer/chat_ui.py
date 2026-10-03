@@ -123,7 +123,7 @@ def open_chat_window(engine=None, log=print) -> bool:
     root.setSpacing(10)
 
     # 顶栏：标题 + 状态
-    head = QtWidgets.QLabel('💗 小凌')
+    head = QtWidgets.QLabel(' 小凌')
     head.setStyleSheet(title_qss())
     root.addWidget(head)
 
@@ -138,7 +138,7 @@ def open_chat_window(engine=None, log=print) -> bool:
     view.setStyleSheet(
         'QTextEdit{background:#ffffff;border:1px solid '
         f'{PALETTE["card_border"]};border-radius:16px;'
-        f'font-size:13px;padding:10px;}'
+        f'font-size:13px;padding:10px;}}'
         'QScrollBar:vertical{background:transparent;width:8px;}'
         'QScrollBar::handle:vertical{background:#f4c8d6;border-radius:4px;}'
     )
@@ -163,7 +163,7 @@ def open_chat_window(engine=None, log=print) -> bool:
     btns.setSpacing(8)
     root.addLayout(btns)
 
-    btn_send = QtWidgets.QPushButton('发送 ✈')
+    btn_send = QtWidgets.QPushButton('发送 ')
     btn_send.setStyleSheet(primary_btn_qss())
     btn_send.setCursor(QtCore.Qt.PointingHandCursor)
 

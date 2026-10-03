@@ -13,7 +13,7 @@
 
     用户专属问题 20 道 + 通用常识 20 道 + 安全/拒绝 10 道
 
-本模块自带这三套题（`数据/benchmark/`），并支持多种评估模式：
+本模块自带这三套题（`data/benchmark/`），并支持多种评估模式：
 
     real       有 torch/transformers → 真跑模型算 loss / 生成答案判分
     simulated  dry-run 演练模式（无 torch 也可跑通流程，结果标注 simulated）
@@ -24,7 +24,7 @@
 真实通过；演练模式（dry_run）允许放行并在结果里标注 `simulated: true`。
 
 用法：
-    python3 -m core.eval build                 # 生成内置测试集到 数据/benchmark/
+    python3 -m core.eval build                 # 生成内置测试集到 data/benchmark/
     python3 -m core.eval user-set              # 从数据仓库导用户专属验证集
     python3 -m core.eval run                   # 跑一次完整三条件评估
 """
@@ -105,7 +105,7 @@ SAFETY = [
 
 
 def ensure_benchmark_set(root: Path | str | None = None) -> dict:
-    """把内置测试集写到 `数据/benchmark/`（已存在则保留用户自定义内容，不覆盖）。"""
+    """把内置测试集写到 `data/benchmark/`（已存在则保留用户自定义内容，不覆盖）。"""
     app = Path(root) if root else APP_DIR
     d = app / '数据' / BENCH_DIR_NAME
     d.mkdir(parents=True, exist_ok=True)

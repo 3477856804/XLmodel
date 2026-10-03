@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """小凌 XIAOLING · 统一 PyInstaller 打包配置（全平台）
 
-用法（一般不用直接调它，用 打包/build.py）：
-    pyinstaller 打包/xiaoling.spec --noconfirm --distpath dist --workpath build/pyi
+用法（一般不用直接调它，用 packaging/build.py）：
+    pyinstaller packaging/xiaoling.spec --noconfirm --distpath dist --workpath build/pyi
 
 环境变量开关：
     XIAOLING_ONEFILE=1     打成单文件（适合 --lite；含 VRM/大依赖时不推荐）
@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-PROJECT = Path(SPECPATH).parent                      # 项目根（打包/ 的上一级）
+PROJECT = Path(SPECPATH).parent                      # 项目根（packaging/ 的上一级）
 ONEFILE = os.environ.get('XIAOLING_ONEFILE') == '1'
 LITE = os.environ.get('XIAOLING_LITE') == '1'
 ICON = os.environ.get('XIAOLING_ICON', '')
@@ -21,9 +21,9 @@ ICON = os.environ.get('XIAOLING_ICON', '')
 # ---------------------------------------------------------------- 打包资源
 datas = [(str(PROJECT / d), d) for d in
          ('core', 'renderer', 'assets', 'sounds', '技能', '数据', '脚本',
-          '工具', 'docs', '打包') if (PROJECT / d).exists()]
-model_dir = PROJECT / '角色模型'
-action_dir = PROJECT / '动作资产'
+          'tools', 'docs', '打包') if (PROJECT / d).exists()]
+model_dir = PROJECT / 'models'
+action_dir = PROJECT / 'animations'
 if LITE:                                             # 精简版只带小凌本体 + 少量动作
     keep_models = ['小凌.vrm']
     keep_actions = ['待机站立.vrma', '待机，原地晃动.vrma', '打招呼.vrma', '比耶.vrma',
@@ -35,10 +35,10 @@ else:
 # 把筛选后的模型/动作加入打包资源（只读资源，跟随程序）
 for _n in keep_models:
     if (model_dir / _n).exists():
-        datas.append((str(model_dir / _n), '角色模型'))
+        datas.append((str(model_dir / _n), 'models'))
 for _n in keep_actions:
     if (action_dir / _n).exists():
-        datas.append((str(action_dir / _n), '动作资产'))
+        datas.append((str(action_dir / _n), 'animations'))
 
 # ---------------------------------------------------------------- 隐藏导入
 hidden = [
@@ -95,7 +95,7 @@ if ONEFILE:
 else:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **exe_kwargs)
     # contents_directory='.' → 依赖与资源平铺在程序目录（PyInstaller 6 默认放进 _internal/，
-    # 会让 xl.py 的 BASE_DIR=可执行文件目录 找不到 技能/数据/角色模型）
+    # 会让 xl.py 的 BASE_DIR=可执行文件目录 找不到 skills/data/models）
     coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='xiaoling',
                    contents_directory='.')
 

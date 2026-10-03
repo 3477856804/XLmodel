@@ -4,7 +4,7 @@
 
 打包后的关键区别：
 
-    · **只读资源**（角色模型 / 动作资产 / assets / skills / data / tools / docs / renderer）
+    · **只读资源**（models / animations / assets / skills / data / tools / docs / renderer）
       跟着程序走：onedir 模式在可执行文件目录，onefile 模式在临时解包目录 `sys._MEIPASS`。
     · **可写数据**（.star_core：基底模型、LoRA 适配器、成长日志、记忆、配置、语音缓存）
       必须在可执行文件所在目录（用户可写），**绝不能放在 onefile 的临时目录**（退出即丢）。
@@ -86,7 +86,7 @@ def ensure_seed_dirs() -> dict:
     """打包后首次运行时准备可写目录，并把只读资源里的种子数据拷过来。
 
     · APP_DIR/.star_core/{XLmodel,adapter,growth,rag,tts,recordings,screenshots,images}
-    · APP_DIR/数据/  ← 若为空，从资源里复制 corpus.txt 等种子文件
+    · APP_DIR/data/  ← 若为空，从资源里复制 corpus.txt 等种子文件
     """
     out = {'created': [], 'seeded': []}
     for d in ('XLmodel', 'adapter', 'growth', 'rag', 'tts', 'recordings', 'screenshots',

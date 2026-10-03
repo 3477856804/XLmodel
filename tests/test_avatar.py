@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""小凌形象流水线回归测试：校验 角色模型/小凌.vrm 的改造结果。
+"""小凌形象流水线回归测试：校验 models/小凌.vrm 的改造结果。
 
 不依赖 torch / GPU；只做结构性与像素级断言。
-    python3 测试/test_avatar.py            # 检查已有产物
-    python3 测试/test_avatar.py --rebuild  # 重新跑一遍流水线再检查
+    python3 tests/test_avatar.py            # 检查已有产物
+    python3 tests/test_avatar.py --rebuild  # 重新跑一遍流水线再检查
 """
 import sys
 from pathlib import Path
@@ -12,12 +12,12 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / '工具'))
+sys.path.insert(0, str(ROOT / 'tools'))
 from vrm_lib import VRM  # noqa: E402
 
-BASE = ROOT / '角色模型' / 'Rabbit_Peridot.vrm'
+BASE = ROOT / 'models' / 'Rabbit_Peridot.vrm'
 FACE = ROOT / '素材' / 'xiaoling.png'
-OUT = ROOT / '角色模型' / '小凌.vrm'
+OUT = ROOT / 'models' / '小凌.vrm'
 
 
 def rebuild():

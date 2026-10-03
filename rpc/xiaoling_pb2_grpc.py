@@ -100,14 +100,14 @@ class XiaoLingServicer:
         raise NotImplementedError('Method not implemented!')
 
     def ListModels(self, request, context):
-        """列出可用角色模型
+        """列出可用models
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SwitchModel(self, request, context):
-        """切换角色模型
+        """切换models
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

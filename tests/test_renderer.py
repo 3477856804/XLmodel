@@ -50,7 +50,7 @@ def test_no_javascript():
 def test_model_and_skinning():
     from renderer.model import VRMModel
     from renderer.pose import Pose
-    m = VRMModel(ROOT / '角色模型' / '小凌.vrm')
+    m = VRMModel(ROOT / 'models' / '小凌.vrm')
     assert len(m.humanoid) > 40, '缺少人形骨骼'
     assert m.expressions, '缺少表情（BlendShape）'
     assert m.triangle_count() > 5000
@@ -112,8 +112,8 @@ def test_vrma_and_springs():
     from renderer.model import VRMModel
     from renderer.pose import Pose, SpringBones
     from renderer.vrma import VRMAFile
-    m = VRMModel(ROOT / '角色模型' / '小凌.vrm')
-    files = sorted(glob.glob(str(ROOT / '动作资产' / '*.vrma')))
+    m = VRMModel(ROOT / 'models' / '小凌.vrm')
+    files = sorted(glob.glob(str(ROOT / 'animations' / '*.vrma')))
     assert len(files) >= 10, '动作库缺失'
     ok, empty = 0, []
     for f in files:

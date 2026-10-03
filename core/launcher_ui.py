@@ -106,7 +106,7 @@ def run_launcher(app_state: dict | None = None) -> str | None:
     ''')
 
     # ----- 顶部欢迎区 -----
-    title = QtWidgets.QLabel('你好，我是小凌 👋')
+    title = QtWidgets.QLabel('你好，我是小凌 ')
     title.setStyleSheet(f'color:{PALETTE_TEXT};font-size:28px;font-weight:700;')
     subtitle = QtWidgets.QLabel('首次启动要先选一个基底模型——选完我会自己下载并跑起来。')
     subtitle.setStyleSheet(f'color:{PALETTE_MUTED};font-size:14px;')

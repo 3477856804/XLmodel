@@ -332,7 +332,7 @@ def _download_multipart(url, dest, threads=6, min_part=64 * 1024 * 1024):
 def _is_base_weight(p) -> bool:
     """判定一个文件能否充当**基底权重**（全项目「基底是否就位」判定的唯一口径）。
 
-    ★ 必须排除 ``adapter*``：适配器是 LoRA（十几 MB 量级），基底是数 GB 的完整权重。
+     必须排除 ``adapter*``：适配器是 LoRA（十几 MB 量级），基底是数 GB 的完整权重。
       实际踩过的坑：setup_kali.sh 的兜底搜索把 .star_core/adapter_model.safetensors
       当成基底权重复制进了 .star_core/XLmodel/，于是程序误判"基底已就位"、
       跳过真正权重的下载，日志显示「成长中：适配器 17.6MB（基底 17.6MB 的 100%）」。

@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """小凌 XIAOLING · 一键打包器（Windows / macOS / Linux）
 
-    python3 打包/build.py                    # 当前平台，标准版（含全部资源 + Qt + GL）
-    python3 打包/build.py --lite             # 精简版（无 torch/Qt/全量模型，软件渲染）
-    python3 打包/build.py --lite --onefile   # 单文件精简版
-    python3 打包/build.py --zip              # 额外产出可分发的压缩包
-    python3 打包/build.py --deb --appimage   # Linux 额外产出 .deb / AppImage
-    python3 打包/build.py --dmg              # macOS 额外产出 .dmg
-    python3 打包/build.py --check            # 只做环境体检
+    python3 packaging/build.py                    # 当前平台，标准版（含全部资源 + Qt + GL）
+    python3 packaging/build.py --lite             # 精简版（无 torch/Qt/全量模型，软件渲染）
+    python3 packaging/build.py --lite --onefile   # 单文件精简版
+    python3 packaging/build.py --zip              # 额外产出可分发的压缩包
+    python3 packaging/build.py --deb --appimage   # Linux 额外产出 .deb / AppImage
+    python3 packaging/build.py --dmg              # macOS 额外产出 .dmg
+    python3 packaging/build.py --check            # 只做环境体检
 
 产物：dist/xiaoling[.exe | /小凌.app] + dist/manifest.json（sha256 / 体积 / 说明）
 注意：PyInstaller **不支持交叉编译**——Windows 包必须在 Windows 上打，macOS 包必须在 macOS 上打；
@@ -88,8 +88,8 @@ def check_env(lite: bool) -> dict:
         except Exception:                                        # noqa: BLE001
             info[f'dep_{mod}'] = 'missing'
             (info['issues'] if need else info['warn']).append(f'缺少 {mod}（{why}）')
-    if not (PROJECT / '角色模型' / '小凌.vrm').exists():
-        info['issues'].append('缺少 角色模型/小凌.vrm（先用 工具/xiaoling_avatar.py 生成）')
+    if not (PROJECT / 'models' / '小凌.vrm').exists():
+        info['issues'].append('缺少 models/小凌.vrm（先用 工具/xiaoling_avatar.py 生成）')
     return info
 
 
@@ -188,7 +188,7 @@ def make_deb(app: Path) -> Path | None:
         'Description: 小凌 XIAOLING - 3D digital companion (pure Python)\n',
         encoding='utf-8')
     (root / 'usr/share/applications').mkdir(parents=True, exist_ok=True)
-    desktop = PROJECT / '打包/linux/xiaoling.desktop'
+    desktop = PROJECT / 'packaging/linux/xiaoling.desktop'
     if desktop.exists():
         shutil.copy(desktop, root / 'usr/share/applications/xiaoling.desktop')
     (root / 'usr/bin').mkdir(parents=True, exist_ok=True)
@@ -210,7 +210,7 @@ def make_appimage(app: Path) -> Path | None:
     shutil.rmtree(root, ignore_errors=True)
     _copy_app(app, root / 'usr/bin')
     for f in ('AppRun', 'xiaoling.desktop', 'xiaoling.png'):
-        src = PROJECT / '打包/linux' / f
+        src = PROJECT / 'packaging/linux' / f
         if src.exists():
             shutil.copy(src, root / f)
     (root / 'AppRun').chmod(0o755)

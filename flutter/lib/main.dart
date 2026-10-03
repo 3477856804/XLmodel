@@ -164,7 +164,7 @@ class _ChatPageState extends State<ChatPage> {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Row(
         children: [
-          const Text('🌸', style: TextStyle(fontSize: 26)),
+          const Text('', style: TextStyle(fontSize: 26)),
           const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,

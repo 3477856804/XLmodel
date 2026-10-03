@@ -126,7 +126,7 @@ class PetWindow:
                 return False
         self.qt = (QtCore, QtGui, QtWidgets)
 
-        # ★★ QApplication 必须在**任何 QWidget 之前**创建 ★★
+        #  QApplication 必须在**任何 QWidget 之前**创建 
         # 下面 _try_gl_widget / _make_image_widget 会立刻实例化 QWidget 子类；
         # 此时若没有 QApplication，Qt 会直接致命退出：
         #     QWidget: Must construct a QApplication before a QWidget  → SIGILL
@@ -153,7 +153,7 @@ class PetWindow:
             self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
         self.widget.show()
         self._running = True
-        # ★ 让 Ctrl+C 真正能退出。
+        #  让 Ctrl+C 真正能退出。
         # Qt 的事件循环**不处理 Python 信号**：进程收到 SIGINT 时，Python 层的
         # KeyboardInterrupt 只能等解释器有空隙才会抛出，而 Qt 主循环几乎不给这个空隙，
         # 于是表现为"在桌宠窗口里按 Ctrl+C 毫无反应，只能 kill 进程"（实测）。

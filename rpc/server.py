@@ -126,7 +126,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         try:
             from renderer.fbx_loader import list_model_files
             from core.paths import resource
-            d = resource('角色模型')
+            d = resource('models')
             out = [pb.ModelInfo(name=p.stem, path=str(p)) for p in list_model_files(d)]
             return pb.ModelList(models=out)
         except Exception as e:                                              # noqa: BLE001
@@ -163,7 +163,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         try:
             import glob as _glob
             from core.paths import resource
-            d = resource('动作资产')
+            d = resource('animations')
             out = []
             for p in sorted(_glob.glob(os.path.join(str(d), '*.vrma'))):
                 name = os.path.basename(p)

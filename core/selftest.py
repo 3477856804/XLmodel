@@ -80,13 +80,13 @@ def _check_avatar():
 
 
 def _check_vrm():
-    models = sorted((BASE_DIR / '角色模型').glob('*.vrm'))
+    models = sorted((BASE_DIR / 'models').glob('*.vrm'))
     xl = [m for m in models if m.name.startswith('小凌')]
     return {'count': len(models), 'has_xiaoling': bool(xl),
             'xiaoling': xl[0].name if xl else None,
             'xiaoling_mb': round(xl[0].stat().st_size / 1e6, 1) if xl else 0,
             'models': [m.name for m in models],
-            'animations': len(list((BASE_DIR / '动作资产').glob('*.vrma')))}
+            'animations': len(list((BASE_DIR / 'animations').glob('*.vrma')))}
 
 
 def _check_growth():

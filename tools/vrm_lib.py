@@ -2,7 +2,7 @@
 """vrm_lib —— VRM(glTF) 读写 / 纹理重绘 / 白裙生成 / 换脸 / 白丝 工具箱
 
 纯 Python + numpy + Pillow 实现，不依赖 Blender / Unity / three.js。
-用于把小玥的 VRM 角色模型改造成"小凌"形象：
+用于把小玥的 VRM models改造成"小凌"形象：
 
     · 服装纯白化（保留褶皱明暗）
     · 腿部程序化绘制白色长袜（白丝）
@@ -225,7 +225,7 @@ class VRM:
     def uv_posmap(self, mat_names, size, flip_v=True):
         """把材质三角面栅格化到纹理空间，返回 (posmap[H,W,3], hit[H,W], nrmmap[H,W,3])。
 
-        posmap[y, x] = 该纹理像素对应的角色模型空间坐标（绑定姿势）。
+        posmap[y, x] = 该纹理像素对应的models空间坐标（绑定姿势）。
         """
         W, H = size
         posmap = np.zeros((H, W, 3), np.float32)

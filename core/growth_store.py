@@ -17,7 +17,7 @@
 
     · SQLite         结构化字段、反馈、质量分、训练轮次   ← 本模块
     · 向量去重        user_input 的 embedding（本地哈希向量，零依赖）
-    · 文件系统        原始对话日志，按月归档 `数据/records/YYYY-MM.jsonl`
+    · 文件系统        原始对话日志，按月归档 `data/records/YYYY-MM.jsonl`
 
 数据使用规则（文档 3.3 节）：
 
@@ -36,7 +36,7 @@
     python3 -m core.growth_store list --limit 20
     python3 -m core.growth_store feedback <id> like
     python3 -m core.growth_store dedupe
-    python3 -m core.growth_store export 数据/export.jsonl
+    python3 -m core.growth_store export data/export.jsonl
     python3 -m core.growth_store purge --scope trained
 """
 from __future__ import annotations

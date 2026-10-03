@@ -4,9 +4,9 @@
 
 用法：
     python3 工具/xiaoling_avatar.py build \
-        --base 角色模型/Rabbit_Peridot.vrm \
-        --face 素材/xiaoling.png \
-        --out 角色模型/小凌.vrm --preview preview/
+        --base models/Rabbit_Peridot.vrm \
+        --face material/xiaoling.png \
+        --out models/小凌.vrm --preview preview/
 
 改造内容：
     1. 服装纯白化（白裙）：保留褶皱明暗，去掉原配色
@@ -1009,7 +1009,7 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     b = sub.add_parser('build', help='执行完整改造')
     b.add_argument('--base', required=True)
-    b.add_argument('--face', required=True, help='小凌立绘（如 素材/xiaoling.png）')
+    b.add_argument('--face', required=True, help='小凌立绘（如 material/xiaoling.png）')
     b.add_argument('--out', required=True)
     b.add_argument('--preview', default=None)
     b.add_argument('--palette-out', default=None)

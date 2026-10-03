@@ -487,7 +487,7 @@ def run_wizard(parent=None, log=print) -> bool:
     outer.setContentsMargins(22, 20, 22, 18)
     outer.setSpacing(10)
 
-    head = QtWidgets.QLabel('🌸 ' + t('wizard.title'))
+    head = QtWidgets.QLabel(' ' + t('wizard.title'))
     head.setStyleSheet(title_qss())
     outer.addWidget(head)
     sub = QtWidgets.QLabel(t('wizard.subtitle'))
@@ -565,15 +565,15 @@ def run_wizard(parent=None, log=print) -> bool:
         r = state['rep']
         dep_list.clear()
         for d in r['deps'] + r['ml']:
-            mark = '✅' if d['ok'] else '❌'
+            mark = '' if d['ok'] else ''
             item = QtWidgets.QListWidgetItem(
                 f"{mark} {d['pkg']:<14}{d['version'] or '':<12}{d['desc']}")
             dep_list.addItem(item)
         mc, mm = missing_core(r), missing_ml(r)
         if not mc and not mm:
-            dep_status.setText('✅ ' + t('deps.all_ok'))
+            dep_status.setText(' ' + t('deps.all_ok'))
         else:
-            dep_status.setText('⚠ ' + t('deps.missing_n', n=len(mc) + len(mm)))
+            dep_status.setText(' ' + t('deps.missing_n', n=len(mc) + len(mm)))
         if not r['venv']['active']:
             dep_status.setText(dep_status.text() + '\n' + t('deps.venv_hint'))
         if os.environ.get('XL_NO_AUTO_DEPS') == '1':
@@ -748,9 +748,9 @@ def run_wizard(parent=None, log=print) -> bool:
     def _fill_model():
         m = state['rep'].get('model') or {}
         if m.get('ok'):
-            mdl_weights.setText('✅ ' + t('model.weights_ok', human=_human(m.get('bytes'))))
+            mdl_weights.setText(' ' + t('model.weights_ok', human=_human(m.get('bytes'))))
         else:
-            mdl_weights.setText('⚠ ' + t('model.weights_missing'))
+            mdl_weights.setText(' ' + t('model.weights_missing'))
         btn_dl_mdl.setEnabled(not m.get('ok') and getattr(sys, 'frozen', False) is False)
 
     def _save_model():
@@ -938,7 +938,7 @@ def run_wizard(parent=None, log=print) -> bool:
         if not (rep.get('gpu') or {}).get('found'):
             dv.addWidget(_muted('ℹ ' + t('gpu.wsl_hint')))
 
-    # ⚠️ 关闭向导不能终止整个进程：向导往往是此刻唯一的窗口，而 Qt 默认
+    #  关闭向导不能终止整个进程：向导往往是此刻唯一的窗口，而 Qt 默认
     # quitOnLastWindowClosed=True —— 关掉最后一个窗口会让 QApplication 直接退出，
     # 后面的桌宠就没机会启动（这正是日志里"点了暂时跳过，程序自己退了"的原因）。
     # 只在向导这段时间内关掉它，返回前恢复，避免影响工作台/桌宠的原有语义。

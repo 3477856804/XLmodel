@@ -826,7 +826,7 @@ backup_data() {
     for f in xl_memory.json requirements.txt xl.py pet.py; do
         [ -f "$f" ] && cp "$f" "$BACKUP_DIR/" 2>/dev/null && saved=$((saved+1))
     done
-    # 语料目录实际叫 数据/（旧脚本写的是 data/，等于没备份）
+    # 语料目录实际叫 data/（旧脚本写的是 data/，等于没备份）
     for d in 数据 data; do
         [ -d "$d" ] && cp -r "$d" "$BACKUP_DIR/" 2>/dev/null && saved=$((saved+1))
     done
@@ -936,7 +936,7 @@ install_sysdeps() {
     # 缺 libxcb-* 里任意一个，PySide6 就会报
     # "Could not load the Qt platform plugin xcb" —— 桌宠根本起不来；
     # 缺 libosmesa6 则无 GPU 时没有离屏软件 GL 兜底。
-    # 清单与 打包/linux/install_deps.sh、renderer/renderer.py 的提示保持一致。
+    # 清单与 packaging/linux/install_deps.sh、renderer/renderer.py 的提示保持一致。
     local pkgs=(
         espeak-ng libespeak1 libespeak-ng1 libportaudio2 python3-tk ffmpeg rsync unzip alsa-utils
         libgl1 libglx-mesa0 libgl1-mesa-dri libosmesa6 libegl1 mesa-utils

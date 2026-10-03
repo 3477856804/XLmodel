@@ -4,8 +4,8 @@
 
 把「模型 + 骨骼 + 动作 + 表情 + 口型 + 弹簧骨 + 相机」组织成每帧可调用的 `frame()`：
 
-    r = AvatarRenderer('角色模型/小凌.vrm', backend='auto')
-    r.play_action('动作资产/dance_舞蹈5.vrma')
+    r = AvatarRenderer('models/小凌.vrm', backend='auto')
+    r.play_action('animations/dance_舞蹈5.vrma')
     r.say('你好呀～', emotion='happy')
     img = r.frame(dt=1/30)        # numpy RGB (H,W,3) uint8，可直接给窗口/保存 PNG
 
@@ -52,8 +52,8 @@ class AvatarRenderer:
     def __init__(self, model_path=None, backend='auto', width=420, height=680,
                  focus='bust', actions_dir=None, model_dir=None, log=print):
         self.log = log or (lambda *a, **k: None)
-        self.model_dir = Path(model_dir) if model_dir else resource('角色模型')
-        self.actions_dir = Path(actions_dir) if actions_dir else resource('动作资产')
+        self.model_dir = Path(model_dir) if model_dir else resource('models')
+        self.actions_dir = Path(actions_dir) if actions_dir else resource('animations')
         self.model_path = Path(model_path) if model_path else self._default_model()
         self.width, self.height = width, height
         self.focus = focus

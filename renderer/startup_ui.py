@@ -86,7 +86,7 @@ def choose_startup_mode(log=print):
     v.setContentsMargins(26, 22, 26, 20)
     v.setSpacing(10)
 
-    head = QtWidgets.QLabel('🌸 选择启动方式')
+    head = QtWidgets.QLabel(' 选择启动方式')
     head.setStyleSheet(title_qss())
     v.addWidget(head)
     sub = QtWidgets.QLabel('桌宠不好用（无 GPU / 软件渲染 / 远程）时，可以直接选「对话窗口」。')
@@ -102,7 +102,7 @@ def choose_startup_mode(log=print):
 
     _saved = default
 
-    ICONS = {'pet': '🐣', 'chat': '💬', 'cli': '⌨️'}
+    ICONS = {'pet': '', 'chat': '', 'cli': '⌨'}
 
     for key, title, desc in CHOICES:
         box = QtWidgets.QFrame()
@@ -110,7 +110,7 @@ def choose_startup_mode(log=print):
         bv = QtWidgets.QVBoxLayout(box)
         bv.setContentsMargins(16, 12, 16, 12)
         bv.setSpacing(4)
-        rb = QtWidgets.QRadioButton(f'  {ICONS.get(key, "💗")}  {title}')
+        rb = QtWidgets.QRadioButton(f'  {ICONS.get(key, "")}  {title}')
         rb.setStyleSheet(
             f'font-size:14px;font-weight:600;color:{PALETTE["text_title"]};'
             'QRadioButton::indicator{width:16px;height:16px;}')
@@ -134,7 +134,7 @@ def choose_startup_mode(log=print):
     row.setSpacing(8)
     btn_later = QtWidgets.QPushButton('每次都问')
     btn_later.setStyleSheet(ghost_btn_qss())
-    btn_ok = QtWidgets.QPushButton('开始 ✨')
+    btn_ok = QtWidgets.QPushButton('开始 ')
     btn_ok.setStyleSheet(primary_btn_qss())
     row.addStretch(1)
     row.addWidget(btn_later)

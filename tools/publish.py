@@ -44,7 +44,7 @@ SYNC_EXCLUDE_DIRS = {'.git', '__pycache__', '.buildozer', '.gradle', 'dist', 'bu
                      'android/native/app/src/main/python', 'android/native/app/src/main/assets'}
 SYNC_EXCLUDE_FILES = {'xiaoling-0.0.2-android-arm64.apk'}
 # 明确排除：第三方 VRM 模型（授权多为"禁止再分发"）
-SYNC_EXCLUDE_GLOBS = ('角色模型/*.vrm', '*.vrm', '*.apk')
+SYNC_EXCLUDE_GLOBS = ('models/*.vrm', '*.vrm', '*.apk')
 
 
 def log(msg=''):
@@ -116,7 +116,7 @@ def gitee_sync(message: str, workdir: Path | None = None, push: bool = True):
             copied += 1
     log(f'  复制/更新 {copied} 个文件')
     # 删除仓库里已经不存在于项目的文件（.star_core、.git 除外）
-    keep_top = {'.star_core', '.git', '角色模型'}
+    keep_top = {'.star_core', '.git', 'models'}
     for p in sorted(workdir.rglob('*'), reverse=True):
         rel = p.relative_to(workdir)
         if set(rel.parts) & keep_top or set(rel.parts) & SYNC_EXCLUDE_DIRS:

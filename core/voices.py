@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""core.voices —— 角色模型与专属音色绑定
+"""core.voices —— models与专属音色绑定
 ================================================
 
 每个 VRM 角色绑一套 Edge-TTS 中文音色，切换模型时自动换音色：

@@ -100,7 +100,7 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
 > 没有 PySide6 或无图形环境时**自动回退**到控制台选择，永远不会卡在选择上。
 
 - **工作台顶部下拉框** `🧠 自研 N B 模型`：切换基底 LLM 档位，切换后自动后台下载新权重；
-- **旁边** `角色模型` 下拉框：切 VRM 形象（共 7 个），**导入模型** 加新角色；
+- **旁边** `models` 下拉框：切 VRM 形象（共 7 个），**导入模型** 加新角色；
 - **顶部 `?`**：一分钟上手小凌的帮助卡片；
 - **关于**：项目信息卡片。
 
@@ -115,7 +115,7 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
 * **「?」帮助对话框**：一分钟上手指南（首次启动 / 切 LLM / 切角色 / 对话 / 成长 / 指令 / 下载 7 条要点）。
 * **`core/fusion.py`**：`bootstrap` 在 GUI 模式下优先调 UI 启动器；CLI 模式仍走原控制台流程，零回归。
 * **`xl.py::_select_model_on_start`**：有 UI 时优先弹启动器，回退命令行；保证既有 `--no-pet` 行为不变。
-* **新增 `测试/test_launcher_ui.py`**：5 个用例覆盖档位列表、label 查询、配置写入、可用性检测、dashboard 联动。
+* **新增 `tests/test_launcher_ui.py`**：5 个用例覆盖档位列表、label 查询、配置写入、可用性检测、dashboard 联动。
 
 ---
 
@@ -132,7 +132,7 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
     失败自动回退 CPU 贴图；GL 不可用时给出可执行的安装提示（如 `sudo apt install libosmesa6`）。
 * **工作台更流畅**：软件渲染默认降低内部分辨率（`XIAOLING_DASH_RES`，默认 0.55，显示平滑放大），
   帧率自适应节流；修复下拉框切换角色不生效的 bug、重复 addLayout 警告。
-* **模型选择/导入界面**：工作台新增「导入模型」按钮（选 .vrm 自动拷入 `角色模型/` 并切换）；
+* **模型选择/导入界面**：工作台新增「导入模型」按钮（选 .vrm 自动拷入 `models/` 并切换）；
   新增「基底模型?」说明弹窗（大脑权重放在 `.star_core/XLmodel/`，与 VRM 形象模型的区别讲清楚）。
 
 ---
@@ -163,11 +163,11 @@ python -m core.growth simulate # 干跑一次完整晋升流程（不动真模�
 画面走 numpy 软件光栅渲染，长按出菜单、左滑转视角、双击打招呼。
 
 - 手机端**没有 torch**（Android 无官方 wheel），所以成长闭环训练请走 Termux：
-  `pkg install python python-torch && bash 打包/termux/install.sh`，
+  `pkg install python python-torch && bash packaging/termux/install.sh`，
   训练出的 `adapter/` 可直接拷回手机或电脑复用。
-- APK 打包脚手架位于 `打包/`（Windows: `打包/windows/xiaoling.iss`，
-  Linux: `打包/linux/`，macOS: `打包/macos/make_dmg.sh`，Android/Termux: `打包/termux/`）。
-  **仓库不附带已构建的安装包**，请按 `打包/README.md` 在本地环境实际构建后再分发。
+- APK 打包脚手架位于 `packaging/`（Windows: `packaging/windows/xiaoling.iss`，
+  Linux: `packaging/linux/`，macOS: `packaging/macos/make_dmg.sh`，Android/Termux: `packaging/termux/`）。
+  **仓库不附带已构建的安装包**，请按 `packaging/README.md` 在本地环境实际构建后再分发。
 - 聊天：设置里填 DeepSeek（或任意 OpenAI 兼容）Key → 真聊天；不填则规则引擎 + 本地记忆。
 
 ---
@@ -221,15 +221,15 @@ XLmodel/
 │   ├── gl.py soft.py      # OpenGL(GPU, GLSL) 后端 / numpy 软件光栅兜底
 │   ├── lipsync.py renderer.py window.py settings.py
 │   └── app.py dashboard.py # 引擎宿主 / 3D 工作台
-├── 角色模型/              # 7 个 VRM（含 小凌.vrm）
-├── 动作资产/              # 46 个 VRMA 动作
-├── 素材/                  # 形象素材（xiaoling.png 等）
+├── models/              # 7 个 VRM（含 小凌.vrm）
+├── animations/              # 46 个 VRMA 动作
+├── material/                  # 形象素材（xiaoling.png 等）
 ├── sounds/tool/           # 8 个工具音效（由 工具/make_sounds.py 程序化生成）
 ├── assets/                # 图标等打包资源
 ├── 工具/                  # 形象流水线 / 发布 / 音效（vrm_lib / xiaoling_avatar / publish / make_sounds）
-├── 测试/                  # 回归测试：成长 v2 / 成长 / 融合 / 渲染 / 形象 / 启动器
+├── tests/                  # 回归测试：成长 v2 / 成长 / 融合 / 渲染 / 形象 / 启动器
 ├── docs/                  # 分析报告 · 语言选型 · 接口契约 · 功能映射 · 成长管线规范
-├── 技能/ 数据/ 脚本/ 打包/ .star_core/ .github/
+├── skills/ data/ scripts/ packaging/ .star_core/ .github/
 └── README.md
 ```
 ---
@@ -250,15 +250,15 @@ XLmodel/
 
 ## 授权提示（务必阅读）
 
-`角色模型/` 中的 VRM 基底模型授权为 **`Redistribution_Prohibited`**（多数商业使用为 `Disallow`）。
-因此 **改造产物 `角色模型/小凌.vrm` 仅供本地自用，请勿再分发或商用**。
+`models/` 中的 VRM 基底模型授权为 **`Redistribution_Prohibited`**（多数商业使用为 `Disallow`）。
+因此 **改造产物 `models/小凌.vrm` 仅供本地自用，请勿再分发或商用**。
 流水线 `工具/xiaoling_avatar.py` 保持可重放：只要你持有合法授权的 VRM，一条命令即可生成属于自己的小凌形象：
 
 ```bash
 python3 工具/xiaoling_avatar.py build \
-    --base 角色模型/你的授权模型.vrm \
+    --base models/你的授权模型.vrm \
     --face assets/xiaoling.png \
-    --out 角色模型/小凌.vrm --preview preview
+    --out models/小凌.vrm --preview preview
 ```
 
 ---
