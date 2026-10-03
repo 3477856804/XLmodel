@@ -82,10 +82,10 @@ jobs:
         with:
           name: XiaoLing-${{ matrix.os }}
           path: dist/*
-      - name: 上传到 Release v2.0.5
+      - name: 上传到 Release v0.0.3
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.0.5
+          tag_name: v0.0.3
           files: |
             dist/XiaoLing-*.exe
             dist/XiaoLing-*.tar.gz
