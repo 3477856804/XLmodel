@@ -26,7 +26,7 @@ if _version_not_supported:
 
 
 class XiaoLingStub:
-    """小凌 v0.0.3：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -57,11 +57,6 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.SwitchModelRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
                 _registered_method=True)
-        self.ExecuteCommand = channel.unary_unary(
-                '/xiaoling.XiaoLing/ExecuteCommand',
-                request_serializer=xiaoling__pb2.CommandRequest.SerializeToString,
-                response_deserializer=xiaoling__pb2.CommandReply.FromString,
-                _registered_method=True)
         self.ListActions = channel.unary_unary(
                 '/xiaoling.XiaoLing/ListActions',
                 request_serializer=xiaoling__pb2.ListRequest.SerializeToString,
@@ -72,70 +67,194 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.PlayActionRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
                 _registered_method=True)
+        self.ExecuteCommand = channel.unary_unary(
+                '/xiaoling.XiaoLing/ExecuteCommand',
+                request_serializer=xiaoling__pb2.CommandRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.CommandReply.FromString,
+                _registered_method=True)
         self.Shutdown = channel.unary_unary(
                 '/xiaoling.XiaoLing/Shutdown',
                 request_serializer=xiaoling__pb2.ShutdownRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
                 _registered_method=True)
+        self.DetectHardware = channel.unary_unary(
+                '/xiaoling.XiaoLing/DetectHardware',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.HardwareInfo.FromString,
+                _registered_method=True)
+        self.ListRecommendedModels = channel.unary_unary(
+                '/xiaoling.XiaoLing/ListRecommendedModels',
+                request_serializer=xiaoling__pb2.HardwareRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.RecommendedModelList.FromString,
+                _registered_method=True)
+        self.DownloadModel = channel.unary_stream(
+                '/xiaoling.XiaoLing/DownloadModel',
+                request_serializer=xiaoling__pb2.DownloadRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.DownloadProgress.FromString,
+                _registered_method=True)
+        self.ListInstalledModels = channel.unary_unary(
+                '/xiaoling.XiaoLing/ListInstalledModels',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.ModelList.FromString,
+                _registered_method=True)
+        self.DeleteModel = channel.unary_unary(
+                '/xiaoling.XiaoLing/DeleteModel',
+                request_serializer=xiaoling__pb2.ModelNameRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
+        self.ListVoices = channel.unary_unary(
+                '/xiaoling.XiaoLing/ListVoices',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.VoiceList.FromString,
+                _registered_method=True)
+        self.SetVoice = channel.unary_unary(
+                '/xiaoling.XiaoLing/SetVoice',
+                request_serializer=xiaoling__pb2.VoiceRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
+        self.ReadAloud = channel.unary_stream(
+                '/xiaoling.XiaoLing/ReadAloud',
+                request_serializer=xiaoling__pb2.ReadRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.AudioChunk.FromString,
+                _registered_method=True)
+        self.GetSettings = channel.unary_unary(
+                '/xiaoling.XiaoLing/GetSettings',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.SettingsReply.FromString,
+                _registered_method=True)
+        self.UpdateSettings = channel.unary_unary(
+                '/xiaoling.XiaoLing/UpdateSettings',
+                request_serializer=xiaoling__pb2.SettingsRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
 
 
 class XiaoLingServicer:
-    """小凌 v0.0.3：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
 
     def Chat(self, request, context):
-        """对话（流式返回，模拟打字机效果）
+        """===== 对话 =====
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetStatus(self, request, context):
-        """获取当前状态（成长阶段 / 模型档位 / 渲染后端）
+        """===== 状态 =====
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListModels(self, request, context):
-        """列出可用models
+        """===== 模型管理 =====
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SwitchModel(self, request, context):
-        """切换models
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ExecuteCommand(self, request, context):
-        """执行终端指令（/帮助、/成长报告 等）
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListActions(self, request, context):
-        """列出可用动作
+        """===== 动作 =====
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def PlayAction(self, request, context):
-        """播放动作
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExecuteCommand(self, request, context):
+        """===== 指令 =====
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def Shutdown(self, request, context):
-        """关闭后端
+        """===== 关闭 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DetectHardware(self, request, context):
+        """===== v0.0.4 新增 =====
+        硬件检测
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListRecommendedModels(self, request, context):
+        """智能模型推荐
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DownloadModel(self, request, context):
+        """模型下载（流式进度）
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListInstalledModels(self, request, context):
+        """列出已安装模型
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteModel(self, request, context):
+        """删除模型
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListVoices(self, request, context):
+        """音色列表
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetVoice(self, request, context):
+        """切换音色
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReadAloud(self, request, context):
+        """语音朗读（流式音频）
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSettings(self, request, context):
+        """读取设置
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateSettings(self, request, context):
+        """更新设置
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -164,11 +283,6 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     request_deserializer=xiaoling__pb2.SwitchModelRequest.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
             ),
-            'ExecuteCommand': grpc.unary_unary_rpc_method_handler(
-                    servicer.ExecuteCommand,
-                    request_deserializer=xiaoling__pb2.CommandRequest.FromString,
-                    response_serializer=xiaoling__pb2.CommandReply.SerializeToString,
-            ),
             'ListActions': grpc.unary_unary_rpc_method_handler(
                     servicer.ListActions,
                     request_deserializer=xiaoling__pb2.ListRequest.FromString,
@@ -179,9 +293,64 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     request_deserializer=xiaoling__pb2.PlayActionRequest.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
             ),
+            'ExecuteCommand': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteCommand,
+                    request_deserializer=xiaoling__pb2.CommandRequest.FromString,
+                    response_serializer=xiaoling__pb2.CommandReply.SerializeToString,
+            ),
             'Shutdown': grpc.unary_unary_rpc_method_handler(
                     servicer.Shutdown,
                     request_deserializer=xiaoling__pb2.ShutdownRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'DetectHardware': grpc.unary_unary_rpc_method_handler(
+                    servicer.DetectHardware,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.HardwareInfo.SerializeToString,
+            ),
+            'ListRecommendedModels': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListRecommendedModels,
+                    request_deserializer=xiaoling__pb2.HardwareRequest.FromString,
+                    response_serializer=xiaoling__pb2.RecommendedModelList.SerializeToString,
+            ),
+            'DownloadModel': grpc.unary_stream_rpc_method_handler(
+                    servicer.DownloadModel,
+                    request_deserializer=xiaoling__pb2.DownloadRequest.FromString,
+                    response_serializer=xiaoling__pb2.DownloadProgress.SerializeToString,
+            ),
+            'ListInstalledModels': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListInstalledModels,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.ModelList.SerializeToString,
+            ),
+            'DeleteModel': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteModel,
+                    request_deserializer=xiaoling__pb2.ModelNameRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'ListVoices': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListVoices,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.VoiceList.SerializeToString,
+            ),
+            'SetVoice': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetVoice,
+                    request_deserializer=xiaoling__pb2.VoiceRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'ReadAloud': grpc.unary_stream_rpc_method_handler(
+                    servicer.ReadAloud,
+                    request_deserializer=xiaoling__pb2.ReadRequest.FromString,
+                    response_serializer=xiaoling__pb2.AudioChunk.SerializeToString,
+            ),
+            'GetSettings': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSettings,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.SettingsReply.SerializeToString,
+            ),
+            'UpdateSettings': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateSettings,
+                    request_deserializer=xiaoling__pb2.SettingsRequest.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
             ),
     }
@@ -193,7 +362,7 @@ def add_XiaoLingServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class XiaoLing:
-    """小凌 v0.0.3：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -307,33 +476,6 @@ class XiaoLing:
             _registered_method=True)
 
     @staticmethod
-    def ExecuteCommand(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/xiaoling.XiaoLing/ExecuteCommand',
-            xiaoling__pb2.CommandRequest.SerializeToString,
-            xiaoling__pb2.CommandReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def ListActions(request,
             target,
             options=(),
@@ -388,6 +530,33 @@ class XiaoLing:
             _registered_method=True)
 
     @staticmethod
+    def ExecuteCommand(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ExecuteCommand',
+            xiaoling__pb2.CommandRequest.SerializeToString,
+            xiaoling__pb2.CommandReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def Shutdown(request,
             target,
             options=(),
@@ -403,6 +572,276 @@ class XiaoLing:
             target,
             '/xiaoling.XiaoLing/Shutdown',
             xiaoling__pb2.ShutdownRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DetectHardware(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/DetectHardware',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.HardwareInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListRecommendedModels(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ListRecommendedModels',
+            xiaoling__pb2.HardwareRequest.SerializeToString,
+            xiaoling__pb2.RecommendedModelList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DownloadModel(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/xiaoling.XiaoLing/DownloadModel',
+            xiaoling__pb2.DownloadRequest.SerializeToString,
+            xiaoling__pb2.DownloadProgress.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListInstalledModels(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ListInstalledModels',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.ModelList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteModel(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/DeleteModel',
+            xiaoling__pb2.ModelNameRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListVoices(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ListVoices',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.VoiceList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetVoice(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/SetVoice',
+            xiaoling__pb2.VoiceRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReadAloud(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ReadAloud',
+            xiaoling__pb2.ReadRequest.SerializeToString,
+            xiaoling__pb2.AudioChunk.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSettings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/GetSettings',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.SettingsReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateSettings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/UpdateSettings',
+            xiaoling__pb2.SettingsRequest.SerializeToString,
             xiaoling__pb2.StatusReply.FromString,
             options,
             channel_credentials,

@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package xiaoling;
+
+// 小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+// Flutter 客户端通过 localhost:50051 与 Python 后端通信。
+
+service XiaoLing {
+  // ===== 对话 =====
+  rpc Chat (ChatRequest) returns (stream ChatChunk);
+
+  // ===== 状态 =====
+  rpc GetStatus (StatusRequest) returns (StatusReply);
+
+  // ===== 模型管理 =====
+  rpc ListModels (ListRequest) returns (ModelList);
+  rpc SwitchModel (SwitchModelRequest) returns (StatusReply);
+
+  // ===== 动作 =====
+  rpc ListActions (ListRequest) returns (ActionList);
+  rpc PlayAction (PlayActionRequest) returns (StatusReply);
+
+  // ===== 指令 =====
+  rpc ExecuteCommand (CommandRequest) returns (CommandReply);
+
+  // ===== 关闭 =====
+  rpc Shutdown (ShutdownRequest) returns (StatusReply);
+
+  // ===== v0.0.4 新增 =====
+  // 硬件检测
+  rpc DetectHardware (Empty) returns (HardwareInfo);
+
+  // 智能模型推荐
+  rpc ListRecommendedModels (HardwareRequest) returns (RecommendedModelList);
+
+  // 模型下载（流式进度）
+  rpc DownloadModel (DownloadRequest) returns (stream DownloadProgress);
+
+  // 列出已安装模型
+  rpc ListInstalledModels (Empty) returns (ModelList);
+
+  // 删除模型
+  rpc DeleteModel (ModelNameRequest) returns (StatusReply);
+
+  // 音色列表
+  rpc ListVoices (Empty) returns (VoiceList);
+
+  // 切换音色
+  rpc SetVoice (VoiceRequest) returns (StatusReply);
+
+  // 语音朗读（流式音频）
+  rpc ReadAloud (ReadRequest) returns (stream AudioChunk);
+
+  // 读取设置
+  rpc GetSettings (Empty) returns (SettingsReply);
+
+  // 更新设置
+  rpc UpdateSettings (SettingsRequest) returns (StatusReply);
+}
+
+// ===== 基础消息 =====
+message Empty {}
+
+message ChatRequest {
+  string text = 1;
+}
+
+message ChatChunk {
+  string delta = 1;
+  bool   done  = 2;
+  string error = 3;
+}
+
+message StatusRequest {}
+
+message StatusReply {
+  bool   ok       = 1;
+  string message  = 2;
+  string stage    = 3;
+  string model    = 4;
+  string backend  = 5;
+  double progress = 6;
+  string version  = 7;
+}
+
+message ListRequest {}
+
+message ModelInfo {
+  string name = 1;
+  string path = 2;
+  double size_mb = 3;
+}
+
+message ModelList {
+  repeated ModelInfo models = 1;
+}
+
+message SwitchModelRequest {
+  string path = 1;
+}
+
+message CommandRequest {
+  string command = 1;
+}
+
+message CommandReply {
+  string output = 1;
+}
+
+message ActionInfo {
+  string name  = 1;
+  string path  = 2;
+  bool   dance = 3;
+  bool   idle  = 4;
+}
+
+message ActionList {
+  repeated ActionInfo actions = 1;
+}
+
+message PlayActionRequest {
+  string path = 1;
+}
+
+message ShutdownRequest {}
+
+// ===== 硬件检测 =====
+message HardwareInfo {
+  double vram_gb = 1;
+  double ram_gb = 2;
+  int32 cpu_cores = 3;
+  double disk_free_gb = 4;
+  string gpu_name = 5;
+  string platform = 6;
+  bool has_cuda = 7;
+  bool has_metal = 8;
+}
+
+message HardwareRequest {
+  // 可传入自定义硬件信息，留空则自动检测
+}
+
+// ===== 模型商店 =====
+message RecommendedModel {
+  string name = 1;
+  string params = 2;
+  string quant = 3;
+  double vram_gb = 4;
+  double ram_gb = 5;
+  int32 quality = 6;
+  string context = 7;
+  double size_mb = 8;
+  bool can_run = 9;
+  bool recommended = 10;
+}
+
+message RecommendedModelList {
+  repeated RecommendedModel models = 1;
+}
+
+message DownloadRequest {
+  string model_name = 1;
+  string quant = 2;
+}
+
+message DownloadProgress {
+  double percent = 1;
+  double downloaded_mb = 2;
+  double total_mb = 3;
+  string status = 4;  // downloading / done / failed
+}
+
+message ModelNameRequest {
+  string name = 1;
+}
+
+// ===== 音色 =====
+message VoiceInfo {
+  string id = 1;
+  string name = 2;
+  string lang = 3;
+}
+
+message VoiceList {
+  repeated VoiceInfo voices = 1;
+}
+
+message VoiceRequest {
+  string voice_id = 1;
+}
+
+message ReadRequest {
+  string text = 1;
+}
+
+message AudioChunk {
+  bytes data = 1;
+  bool done = 2;
+}
+
+// ===== 设置 =====
+message SettingsReply {
+  string model = 1;
+  string voice = 2;
+  string render_backend = 3;
+  bool always_on_top = 4;
+  bool auto_start = 5;
+  bool asr_enabled = 6;
+  bool tts_enabled = 7;
+  bool read_aloud_mode = 8;
+}
+
+message SettingsRequest {
+  optional string model = 1;
+  optional string voice = 2;
+  optional string render_backend = 3;
+  optional bool always_on_top = 4;
+  optional bool auto_start = 5;
+  optional bool asr_enabled = 6;
+  optional bool tts_enabled = 7;
+  optional bool read_aloud_mode = 8;
+}
