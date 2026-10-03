@@ -23,3 +23,8 @@ xl_memory.json
 # 本地机密 / 运行期配置：含 DeepSeek API Key，绝不入库
 .env
 .star_core/xiaoling_config.json
+# 运行期日志/历史
+.star_core/growth/growth.log
+.star_core/guide_done.txt
+数据/interactions.jsonl
+数据/session_history.jsonl

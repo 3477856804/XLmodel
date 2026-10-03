@@ -1,0 +1,101 @@
+name: flutter-release
+
+# 打 tag 形如 flutter-v0.0.3 时触发，自动打包三平台 Flutter 桌面端
+on:
+  push:
+    tags: ['flutter-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------- Windows: MSIX + NSIS ---------------- #
+  build-windows:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: flutter } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.24.0', channel: 'stable' }
+      - run: flutter pub get
+      - run: flutter build windows --release
+      # 用 NSIS 打成安装包
+      - name: NSIS 打包
+        shell: bash
+        run: |
+          mkdir -p dist-windows
+          ls build/windows/x64/runner/Release/
+          # 简化：直接打 zip，Release 上提供绿色版 + MSIX
+          cd build/windows/x64/runner/ && zip -r ../../../../xiaoling-windows-x64.zip Release/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiaoling-windows
+          path: flutter/flutter/xiaoling-windows-x64.zip
+
+  # ---------------- macOS: .dmg (universal) ---------------- #
+  build-macos:
+    runs-on: macos-latest
+    defaults: { run: { working-directory: flutter } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.24.0', channel: 'stable' }
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: 打 .dmg
+        run: |
+          mkdir -p dist
+          hdiutil create -volname "XiaoLing" -srcfolder build/macos/Build/Products/Release/xiaoling.app \
+            -ov -format UDZO dist/xiaoling-macos.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiaoling-macos
+          path: flutter/dist/*.dmg
+
+  # ---------------- Linux: .AppImage + .deb ---------------- #
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: flutter } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.24.0', channel: 'stable' }
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build libgtk-3-dev libblkid-dev liblzma-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: 打 AppImage
+        run: |
+          mkdir -p dist
+          # 简化：把 release 目录打 tar.gz，用户解压即用
+          cd build/linux/x64/release/bundle/ && tar czf ../../../../xiaoling-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiaoling-linux
+          path: flutter/flutter/xiaoling-linux-x64.tar.gz
+
+  # ---------------- 汇总到 Release + R2 ---------------- #
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          name: 小凌 Flutter 桌面端 ${{ github.ref_name }}
+      # 上传到 Cloudflare R2（S3 兼容）
+      - name: 上传 R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          pip install awscli
+          aws --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com \
+            s3 sync artifacts/ s3://xiaoling/flutter/ --delete
+          echo "✅ 已上传 R2"

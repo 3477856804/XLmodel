@@ -1,0 +1,42 @@
+name: xiaoling
+description: 小凌 —— 住在你电脑里的女孩（Flutter UI）
+publish_to: 'none'
+version: 0.0.3+3
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  grpc: ^4.0.1
+  protobuf: ^3.1.0
+  fixnum: ^1.1.0
+  # v0.0.3 自动更新：
+  #   macOS: Sparkle（sparkle_bridge）
+  #   Windows: win32_updater（MSIX/NSIS 自更新）
+  #   Linux: AppImageUpdate（外部 AppImageUpdate 工具）
+  sparkle_bridge: ^0.5.0
+  win32_updater: ^1.2.0
+  path_provider: ^2.1.0
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # Windows MSIX 打包
+  msix: ^3.16.0
+
+flutter:
+  uses-material-design: true
+
+# MSIX 配置（Windows 商店/旁加载）
+msix_config:
+  display_name: 小凌
+  publisher_name: XiaoLing
+  publisher_display_name: XiaoLing
+  identity_name: 3477856804.XiaoLing
+  msix_version: 0.0.3.0
+  logo_path: ../assets/xiaoling.png
+  capabilities: internetClient, privateNetworkClientServer
