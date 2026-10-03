@@ -86,6 +86,26 @@ def open_chat_window(engine=None, log=print) -> bool:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     app.setApplicationName('小凌')
 
+    # v0.0.3：套粉色少女风主题
+    try:
+        from renderer.theme import (PALETTE, apply_pink_theme, card_qss,
+                                    primary_btn_qss, secondary_btn_qss,
+                                    ghost_btn_qss, input_qss, title_qss,
+                                    subtitle_qss, bubble_html)
+        apply_pink_theme(app)
+    except Exception:                                             # noqa: BLE001
+        PALETTE = {'accent': '#d4385c', 'text_title': '#3a2a30', 'text_muted': '#9a8a90'}
+        def card_qss(): return ''
+        def primary_btn_qss(): return ''
+        def secondary_btn_qss(): return ''
+        def ghost_btn_qss(): return ''
+        def input_qss(): return ''
+        def title_qss(): return ''
+        def subtitle_qss(): return ''
+        def bubble_html(who, text, who_color='accent'):
+            safe = (str(text) or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            return f'<div><b>{who}：</b>{safe}</div>'
+
     class _Bridge(QtCore.QObject):
         """工作线程 → UI 的回投通道（Signal 跨线程自动排队）。"""
         reply = QtCore.Signal(str)
@@ -95,69 +115,75 @@ def open_chat_window(engine=None, log=print) -> bool:
 
     win = QtWidgets.QWidget()
     win.setWindowTitle('小凌 · 对话')
-    win.resize(900, 620)                       # 与启动器（960x640）尺寸接近
-    win.setStyleSheet('background:#faf6f7;')
+    win.resize(920, 660)
+    win.setStyleSheet(f'background:{PALETTE["bg_plain"]};')
 
     root = QtWidgets.QVBoxLayout(win)
-    root.setContentsMargins(18, 16, 18, 14)
-    root.setSpacing(8)
+    root.setContentsMargins(22, 18, 22, 16)
+    root.setSpacing(10)
 
-    head = QtWidgets.QLabel('小凌')
-    head.setStyleSheet('font-size:18px;font-weight:700;color:#3a2a30;')
+    # 顶栏：标题 + 状态
+    head = QtWidgets.QLabel('💗 小凌')
+    head.setStyleSheet(title_qss())
     root.addWidget(head)
 
     stat = QtWidgets.QLabel(_status_text(engine) or '（状态读取中）')
     stat.setWordWrap(True)
-    stat.setStyleSheet('font-size:11px;color:#9a8a90;')
+    stat.setStyleSheet(subtitle_qss())
     root.addWidget(stat)
 
+    # 对话区：白色卡片
     view = QtWidgets.QTextEdit()
     view.setReadOnly(True)
-    view.setStyleSheet('background:#ffffff;border:1px solid #ecdde2;'
-                       'border-radius:10px;font-size:13px;padding:6px;')
+    view.setStyleSheet(
+        'QTextEdit{background:#ffffff;border:1px solid '
+        f'{PALETTE["card_border"]};border-radius:16px;'
+        f'font-size:13px;padding:10px;}'
+        'QScrollBar:vertical{background:transparent;width:8px;}'
+        'QScrollBar::handle:vertical{background:#f4c8d6;border-radius:4px;}'
+    )
     root.addWidget(view, 1)
 
     tip = QtWidgets.QLabel('输入文字即可对话；以 / 开头的会被当作终端指令执行'
-                           '（如 /帮助、/成长报告、/暂停成长）')
+                            '（如 /帮助、/成长报告、/暂停成长）')
     tip.setWordWrap(True)
-    tip.setStyleSheet('font-size:11px;color:#9a8a90;')
+    tip.setStyleSheet(subtitle_qss())
     root.addWidget(tip)
 
     edit = QtWidgets.QLineEdit()
-    edit.setPlaceholderText('说点什么，或输入 /帮助 看指令…')
-    edit.setStyleSheet('background:#ffffff;border:1px solid #ecdde2;'
-                       'border-radius:10px;padding:8px;font-size:13px;')
+    edit.setPlaceholderText('说点什么呀～ 输入 /帮助 看全部指令…')
+    edit.setStyleSheet(input_qss() + 'QLineEdit{padding:10px 14px;}')
     root.addWidget(edit)
 
     busy_lbl = QtWidgets.QLabel('')
-    busy_lbl.setStyleSheet('font-size:11px;color:#9a8a90;')
+    busy_lbl.setStyleSheet(subtitle_qss() + 'padding-left:4px;')
     root.addWidget(busy_lbl)
 
     btns = QtWidgets.QHBoxLayout()
+    btns.setSpacing(8)
     root.addLayout(btns)
 
-    def _btn(text, color='#d4385c'):
-        b = QtWidgets.QPushButton(text)
-        b.setFixedHeight(30)
-        b.setStyleSheet(f'background:{color};color:white;border:none;'
-                        f'border-radius:15px;font-weight:600;padding:0 12px;')
-        return b
+    btn_send = QtWidgets.QPushButton('发送 ✈')
+    btn_send.setStyleSheet(primary_btn_qss())
+    btn_send.setCursor(QtCore.Qt.PointingHandCursor)
 
-    btn_send = _btn('发送')
-    btn_clear = _btn('清空', '#9a8a90')
-    btn_growth = _btn('成长状态', '#5a7a8a')
-    btn_help = _btn('帮助', '#5a7a8a')
-    btn_exit = _btn('退出', '#9a8a90')
+    btn_clear = QtWidgets.QPushButton('清空')
+    btn_clear.setStyleSheet(secondary_btn_qss())
+    btn_growth = QtWidgets.QPushButton('成长')
+    btn_growth.setStyleSheet(secondary_btn_qss())
+    btn_help = QtWidgets.QPushButton('帮助')
+    btn_help.setStyleSheet(secondary_btn_qss())
+    btn_exit = QtWidgets.QPushButton('退出')
+    btn_exit.setStyleSheet(ghost_btn_qss())
+
     btns.addWidget(btn_send)
     for b in (btn_clear, btn_growth, btn_help):
         btns.addWidget(b)
     btns.addStretch(1)
     btns.addWidget(btn_exit)
 
-    def _append(who, text, color):
-        safe = (str(text) or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        safe = safe.replace('\n', '<br>')
-        view.append(f'<div style="color:{color}"><b>{who}：</b>{safe}</div>')
+    def _append(who, text, kind='accent'):
+        view.append(bubble_html(who, text, kind))
         sb = view.verticalScrollBar()
         sb.setValue(sb.maximum())
 
@@ -178,9 +204,9 @@ def open_chat_window(engine=None, log=print) -> bool:
         if not text or _state['busy']:
             return
         if engine is None:
-            _append('小凌', '引擎还没就绪，暂时无法对话（可以改用命令行版 xl）。', '#9a8a90')
+            _append('小凌', '引擎还没就绪，暂时无法对话（可以改用命令行版 xl）。', 'accent')
             return
-        _append('你', text, '#3a2a30')
+        _append('你', text, 'me')
         _busy(True)
 
         def _worker():
@@ -200,12 +226,12 @@ def open_chat_window(engine=None, log=print) -> bool:
 
     def _on_reply(text: str):
         _busy(False)
-        _append('小凌', text, '#d4385c')
+        _append('小凌', text, 'accent')
         stat.setText(_status_text(engine) or stat.text())
 
     def _on_failed(msg: str):
         _busy(False)
-        _append('小凌', f'出错了：{msg}', '#9a8a90')
+        _append('小凌', f'出错了：{msg}', 'accent')
 
     bridge.reply.connect(_on_reply)
     bridge.failed.connect(_on_failed)
@@ -222,7 +248,7 @@ def open_chat_window(engine=None, log=print) -> bool:
     btn_help.clicked.connect(lambda: _submit('/帮助'))
     btn_exit.clicked.connect(win.close)
 
-    _append('小凌', '我在呢～想聊什么都可以。输入 /帮助 可以看全部指令。', '#d4385c')
+    _append('小凌', '我在呢～想聊什么都可以。输入 /帮助 可以看全部指令。', 'accent')
 
     # 让 Ctrl+C 也能退出（Qt 事件循环不处理 Python 信号）
     try:

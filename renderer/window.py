@@ -23,34 +23,35 @@ import numpy as np
 WINDOW_STYLE = """
 QWidget#pet { background: transparent; }
 QLabel#bubble {
-    background: rgba(255,255,255,0.94);
-    color: #2c3345;
-    border: 1px solid rgba(180,205,240,0.75);
-    border-radius: 14px;
+    background: rgba(255,255,255,0.96);
+    color: #4a3a40;
+    border: 1px solid rgba(255,182,205,0.8);
+    border-radius: 16px;
     padding: 10px 14px;
     font-size: 14px;
     line-height: 160%;
 }
 QLineEdit#chat {
-    background: rgba(255,255,255,0.96);
-    border: 1px solid rgba(180,205,240,0.8);
-    border-radius: 12px;
-    padding: 6px 10px;
+    background: rgba(255,255,255,0.97);
+    border: 1.5px solid rgba(255,182,205,0.9);
+    border-radius: 14px;
+    padding: 7px 12px;
     font-size: 14px;
-    color: #2c3345;
+    color: #4a3a40;
 }
 QPushButton#send {
-    background: #5b9dfb; color: white; border: none; border-radius: 10px; padding: 6px 14px;
+    background: #e85a8a; color: white; border: none; border-radius: 14px; padding: 7px 16px; font-weight: 600;
 }
-QMenu { background: rgba(255,255,255,0.97); border-radius: 10px; padding: 6px; }
-QMenu::item { padding: 7px 22px; border-radius: 7px; }
-QMenu::item:selected { background: rgba(91,157,251,0.16); }
+QPushButton#send:hover { background: #ff7aa2; }
+QMenu { background: rgba(255,255,255,0.98); border-radius: 12px; padding: 6px; }
+QMenu::item { padding: 8px 24px; border-radius: 8px; }
+QMenu::item:selected { background: rgba(232,90,138,0.14); color: #e85a8a; }
 """
 
 # 气泡样式模板：字号由 _bubble_font_size() 按文本长度决定（P2-6 自适应）
 BUBBLE_QLABEL_STYLE = (
-    'background: rgba(255,255,255,0.94); color:#2c3345;'
-    'border:1px solid rgba(180,205,240,0.75); border-radius:14px;'
+    'background: rgba(255,255,255,0.96); color:#4a3a40;'
+    'border:1.5px solid rgba(255,182,205,0.85); border-radius:16px;'
     'padding:10px 14px; font-size:{size}px;')
 
 

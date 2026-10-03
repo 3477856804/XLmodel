@@ -62,23 +62,38 @@ def choose_startup_mode(log=print):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     app.setApplicationName('小凌')
 
+    # v0.0.3：粉色少女风主题
+    try:
+        from renderer.theme import (PALETTE, apply_pink_theme, card_qss,
+                                    primary_btn_qss, ghost_btn_qss,
+                                    title_qss, subtitle_qss)
+        apply_pink_theme(app)
+    except Exception:                                             # noqa: BLE001
+        PALETTE = {'bg_plain': '#faf6f7', 'text_title': '#3a2a30',
+                   'text_muted': '#9a8a90', 'accent': '#d4385c'}
+        def card_qss(): return ''
+        def primary_btn_qss(): return ''
+        def ghost_btn_qss(): return ''
+        def title_qss(): return ''
+        def subtitle_qss(): return ''
+
     dlg = QtWidgets.QDialog()
     dlg.setWindowTitle('小凌 · 选择启动方式')
-    dlg.resize(560, 470)
-    dlg.setStyleSheet('background:#faf6f7;')
+    dlg.resize(600, 520)
+    dlg.setStyleSheet(f'background:{PALETTE["bg_plain"]};')
 
     v = QtWidgets.QVBoxLayout(dlg)
-    v.setContentsMargins(22, 20, 22, 18)
+    v.setContentsMargins(26, 22, 26, 20)
     v.setSpacing(10)
 
-    head = QtWidgets.QLabel('选择启动方式')
-    head.setStyleSheet('font-size:17px;font-weight:700;color:#3a2a30;')
+    head = QtWidgets.QLabel('🌸 选择启动方式')
+    head.setStyleSheet(title_qss())
     v.addWidget(head)
     sub = QtWidgets.QLabel('桌宠不好用（无 GPU / 软件渲染 / 远程）时，可以直接选「对话窗口」。')
     sub.setWordWrap(True)
-    sub.setStyleSheet('font-size:12px;color:#9a8a90;')
+    sub.setStyleSheet(subtitle_qss())
     v.addWidget(sub)
-    v.addSpacing(4)
+    v.addSpacing(6)
 
     group = QtWidgets.QButtonGroup(dlg)
     default = current_mode()
@@ -87,42 +102,40 @@ def choose_startup_mode(log=print):
 
     _saved = default
 
+    ICONS = {'pet': '🐣', 'chat': '💬', 'cli': '⌨️'}
+
     for key, title, desc in CHOICES:
         box = QtWidgets.QFrame()
-        box.setStyleSheet('QFrame{background:#ffffff;border:1px solid #ecdde2;'
-                          'border-radius:10px;}')
+        box.setStyleSheet(card_qss() + 'QFrame{padding:4px;}')
         bv = QtWidgets.QVBoxLayout(box)
-        bv.setContentsMargins(12, 10, 12, 10)
-        bv.setSpacing(3)
-        rb = QtWidgets.QRadioButton(title)
-        rb.setStyleSheet('font-size:13px;font-weight:600;color:#3a2a30;')
+        bv.setContentsMargins(16, 12, 16, 12)
+        bv.setSpacing(4)
+        rb = QtWidgets.QRadioButton(f'  {ICONS.get(key, "💗")}  {title}')
+        rb.setStyleSheet(
+            f'font-size:14px;font-weight:600;color:{PALETTE["text_title"]};'
+            'QRadioButton::indicator{width:16px;height:16px;}')
         rb.setChecked(key == _saved)
         rb.setProperty('choice_key', key)
         group.addButton(rb)
         bv.addWidget(rb)
         d = QtWidgets.QLabel(desc)
         d.setWordWrap(True)
-        d.setStyleSheet('font-size:11px;color:#9a8a90;margin-left:20px;')
+        d.setStyleSheet(f'font-size:11px;color:{PALETTE["text_muted"]};margin-left:24px;')
         bv.addWidget(d)
         v.addWidget(box)
 
     remember = QtWidgets.QCheckBox('记住我的选择（下次不再询问）')
     remember.setChecked(True)
-    remember.setStyleSheet('font-size:12px;color:#9a8a90;')
+    remember.setStyleSheet(f'font-size:12px;color:{PALETTE["text_muted"]};')
     v.addWidget(remember)
     v.addStretch(1)
 
     row = QtWidgets.QHBoxLayout()
-
-    def _btn(text, color):
-        b = QtWidgets.QPushButton(text)
-        b.setFixedHeight(32)
-        b.setStyleSheet(f'background:{color};color:white;border:none;'
-                        f'border-radius:16px;font-weight:600;padding:0 16px;')
-        return b
-
-    btn_later = _btn('每次都问', '#9a8a90')      # 保留 ask
-    btn_ok = _btn('开始', '#d4385c')
+    row.setSpacing(8)
+    btn_later = QtWidgets.QPushButton('每次都问')
+    btn_later.setStyleSheet(ghost_btn_qss())
+    btn_ok = QtWidgets.QPushButton('开始 ✨')
+    btn_ok.setStyleSheet(primary_btn_qss())
     row.addStretch(1)
     row.addWidget(btn_later)
     row.addWidget(btn_ok)

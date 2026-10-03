@@ -462,38 +462,66 @@ def run_wizard(parent=None, log=print) -> bool:
             self.done.emit(ok, '完成' if ok else '未完成')
 
     # ---------------------------------------------------------------- 主对话框
+    # v0.0.3：粉色少女风主题
+    try:
+        from renderer.theme import (PALETTE as _P, apply_pink_theme,
+                                    primary_btn_qss, secondary_btn_qss,
+                                    ghost_btn_qss, title_qss, subtitle_qss)
+        _app = QtWidgets.QApplication.instance()
+        if _app is not None:
+            apply_pink_theme(_app)
+    except Exception:                                             # noqa: BLE001
+        _P = {'bg_plain': '#faf6f7', 'text_title': '#3a2a30',
+              'text_muted': '#9a8a90', 'card_border': '#ecdde2', 'accent': '#d4385c'}
+        def primary_btn_qss(): return ''
+        def secondary_btn_qss(): return ''
+        def ghost_btn_qss(): return ''
+        def title_qss(): return ''
+        def subtitle_qss(): return ''
+
     dlg = QtWidgets.QDialog(parent)
     dlg.setWindowTitle(t('wizard.title'))
     dlg.resize(720, 620)
-    dlg.setStyleSheet('QDialog{background:#faf6f7;}')
+    dlg.setStyleSheet(f'QDialog{{background:{_P["bg_plain"]};}}')
     outer = QtWidgets.QVBoxLayout(dlg)
-    outer.setContentsMargins(20, 18, 20, 16)
+    outer.setContentsMargins(22, 20, 22, 18)
     outer.setSpacing(10)
 
-    head = QtWidgets.QLabel(t('wizard.title'))
-    head.setStyleSheet('font-size:17px;font-weight:700;color:#3a2a30;')
+    head = QtWidgets.QLabel('🌸 ' + t('wizard.title'))
+    head.setStyleSheet(title_qss())
     outer.addWidget(head)
     sub = QtWidgets.QLabel(t('wizard.subtitle'))
     sub.setWordWrap(True)
-    sub.setStyleSheet('font-size:12px;color:#9a8a90;')
+    sub.setStyleSheet(subtitle_qss())
     outer.addWidget(sub)
 
     tabs = QtWidgets.QTabWidget()
+    tabs.setStyleSheet(
+        f'QTabBar::tab{{background:transparent;color:{_P["text_title"]};'
+        f'padding:8px 14px;border:none;font-size:13px;}}'
+        f'QTabBar::tab:selected{{color:{_P["accent"]};font-weight:600;'
+        f'border-bottom:2px solid {_P["accent"]};}}'
+        f'QTabWidget::pane{{border:1px solid {_P["card_border"]};'
+        f'border-radius:12px;background:#ffffff;}}'
+    )
     outer.addWidget(tabs, 1)
 
     state = {'rep': rep, 'worker': None}
 
-    def _btn(text, color='#d4385c'):
+    def _btn(text, color='primary'):
         b = QtWidgets.QPushButton(text)
-        b.setFixedHeight(32)
-        b.setStyleSheet(f'background:{color};color:white;border:none;'
-                        f'border-radius:16px;font-weight:600;padding:0 14px;')
+        b.setStyleSheet({
+            'primary':   primary_btn_qss(),
+            'secondary': secondary_btn_qss(),
+            'ghost':     ghost_btn_qss(),
+        }.get(color, primary_btn_qss()))
+        b.setCursor(QtCore.Qt.PointingHandCursor)
         return b
 
     def _muted(text=''):
         lb = QtWidgets.QLabel(text)
         lb.setWordWrap(True)
-        lb.setStyleSheet('font-size:12px;color:#3a2a30;')
+        lb.setStyleSheet(f'font-size:12px;color:{_P["text_title"]};')
         return lb
 
     # ------------------------------------------------------------- 依赖页
@@ -503,8 +531,8 @@ def run_wizard(parent=None, log=print) -> bool:
     dep_status = _muted()
     dv.addWidget(dep_status)
     dep_list = QtWidgets.QListWidget()
-    dep_list.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;'
-                           'font-size:12px;')
+    dep_list.setStyleSheet(f'background:#fff;border:1px solid {_P["card_border"]};'
+                           'border-radius:12px;font-size:12px;padding:4px;')
     dv.addWidget(dep_list, 1)
     mirror_chk = QtWidgets.QCheckBox(t('deps.mirror'))
     try:
@@ -512,21 +540,21 @@ def run_wizard(parent=None, log=print) -> bool:
         mirror_chk.setChecked((_cfg0.load().get('wizard') or {}).get('mirror', 'tuna') != 'official')
     except Exception:                                                 # noqa: BLE001
         mirror_chk.setChecked(True)
-    mirror_chk.setStyleSheet('font-size:12px;color:#3a2a30;')
+    mirror_chk.setStyleSheet(f'font-size:12px;color:{_P["text_title"]};')
     dv.addWidget(mirror_chk)
     torch_hint = _muted()
     dv.addWidget(torch_hint)
     dep_log = QtWidgets.QPlainTextEdit()
     dep_log.setReadOnly(True)
     dep_log.setMaximumBlockCount(2000)
-    dep_log.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;'
-                          'font-size:11px;font-family:monospace;')
+    dep_log.setStyleSheet(f'background:#fff;border:1px solid {_P["card_border"]};'
+                          'border-radius:12px;font-size:11px;font-family:monospace;padding:6px;')
     dep_log.setVisible(False)
     dv.addWidget(dep_log, 1)
     dep_row = QtWidgets.QHBoxLayout()
     btn_install = _btn(t('deps.install'))
-    btn_torch = _btn(t('deps.install_torch'), '#5a7a8a')
-    btn_cancel = _btn(t('common.cancel'), '#9a8a90')
+    btn_torch = _btn(t('deps.install_torch'), 'secondary')
+    btn_cancel = _btn(t('common.cancel'), 'ghost')
     btn_cancel.setVisible(False)
     for b in (btn_install, btn_torch, btn_cancel):
         dep_row.addWidget(b)
@@ -623,13 +651,13 @@ def run_wizard(parent=None, log=print) -> bool:
     key_edit = QtWidgets.QLineEdit()
     key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
     key_edit.setPlaceholderText('sk-...')
-    key_edit.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;padding:6px;')
+    key_edit.setStyleSheet(f'background:#fff;border:1px solid {_P["card_border"]};border-radius:12px;padding:8px;')
     av.addWidget(key_edit)
     api_state = _muted()
     av.addWidget(api_state)
     av.addWidget(_muted(t('api.base_url')))
     url_edit = QtWidgets.QLineEdit(rep['api'].get('base_url', ''))
-    url_edit.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;padding:6px;')
+    url_edit.setStyleSheet(f'background:#fff;border:1px solid {_P["card_border"]};border-radius:12px;padding:8px;')
     av.addWidget(url_edit)
     av.addWidget(_muted(t('api.hint')))
     av.addStretch(1)
@@ -684,7 +712,7 @@ def run_wizard(parent=None, log=print) -> bool:
     for key, label in (('自研2B模型', 'MiniCPM5-2B（约 4.8GB，默认）'),
                        ('自研1B模型', 'MiniCPM5-1B（约 2.1GB，轻量）')):
         rb = QtWidgets.QRadioButton(label)
-        rb.setStyleSheet('font-size:12px;color:#3a2a30;')
+        rb.setStyleSheet(f'font-size:12px;color:{_P["text_title"]};')
         rb.setChecked(key == cur_choice or (not cur_choice and key == '自研2B模型'))
         rb.setProperty('choice_key', key)
         mdl_group.addButton(rb)
@@ -698,13 +726,13 @@ def run_wizard(parent=None, log=print) -> bool:
     mdl_log = QtWidgets.QPlainTextEdit()
     mdl_log.setReadOnly(True)
     mdl_log.setMaximumBlockCount(500)
-    mdl_log.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;'
+    mdl_log.setStyleSheet(f'background:#fff;border:1px solid {_P["card_border"]};border-radius:12px;'
                           'font-size:11px;font-family:monospace;')
     mdl_log.setVisible(False)
     mv.addWidget(mdl_log, 1)
     mdl_row = QtWidgets.QHBoxLayout()
     btn_save_mdl = _btn(t('common.save'))
-    btn_dl_mdl = _btn(t('model.download'), '#5a7a8a')
+    btn_dl_mdl = _btn(t('model.download'), 'secondary')
     mdl_row.addWidget(btn_save_mdl)
     mdl_row.addWidget(btn_dl_mdl)
     mdl_row.addStretch(1)
@@ -801,7 +829,7 @@ def run_wizard(parent=None, log=print) -> bool:
             be_combo.setCurrentIndex(idx)
     except Exception:                                                 # noqa: BLE001
         pass
-    be_combo.setStyleSheet('background:#fff;border:1px solid #ecdde2;border-radius:8px;padding:6px;')
+    be_combo.setStyleSheet(f'background:#fff;border:1px solid {_P["card_border"]};border-radius:12px;padding:8px;')
     rv.addWidget(be_combo)
     rnd_state = _muted()
     rv.addWidget(rnd_state)
@@ -811,7 +839,7 @@ def run_wizard(parent=None, log=print) -> bool:
     rv.addStretch(1)
     rnd_row = QtWidgets.QHBoxLayout()
     btn_save_rnd = _btn(t('common.save'))
-    btn_probe = _btn(t('render.probe'), '#5a7a8a')
+    btn_probe = _btn(t('render.probe'), 'secondary')
     rnd_row.addWidget(btn_save_rnd)
     rnd_row.addWidget(btn_probe)
     rnd_row.addStretch(1)
@@ -849,12 +877,12 @@ def run_wizard(parent=None, log=print) -> bool:
 
     # ------------------------------------------------------------- 底部
     never_chk = QtWidgets.QCheckBox(t('common.never_show'))
-    never_chk.setStyleSheet('font-size:12px;color:#9a8a90;')
+    never_chk.setStyleSheet(f'font-size:12px;color:{_P["text_muted"]};')
     outer.addWidget(never_chk)
     bot = QtWidgets.QHBoxLayout()
     btn_report = _btn(t('common.export_report'), '#5a8a6a')
-    btn_recheck = _btn(t('common.recheck'), '#9a8a90')
-    btn_skip = _btn(t('common.skip'), '#9a8a90')
+    btn_recheck = _btn(t('common.recheck'), 'ghost')
+    btn_skip = _btn(t('common.skip'), 'ghost')
     btn_close = _btn(t('common.close'))
     for b in (btn_report, btn_recheck):
         bot.addWidget(b)

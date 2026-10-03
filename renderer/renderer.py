@@ -29,6 +29,7 @@ from renderer.lipsync import LipSync
 from renderer.model import VRMModel
 from renderer.pose import Pose, SpringBones
 from renderer.vrma import VRMAFile
+from renderer.fbx_loader import load_any_model, list_model_files, FBXUnavailable
 
 from core.paths import APP_DIR, resource
 
@@ -57,7 +58,13 @@ class AvatarRenderer:
         self.width, self.height = width, height
         self.focus = focus
         self.scale = 1.0
-        self.model = VRMModel(self.model_path)
+        # v0.0.3：支持 .fbx（内部转 glb）；FBX 不可用时回退到第一个 .vrm
+        try:
+            self.model = load_any_model(self.model_path, log=self.log)
+        except FBXUnavailable as e:
+            self.log(f'  [渲染] FBX 不可用，回退到默认 VRM：{e}')
+            self.model_path = self._fallback_vrm()
+            self.model = VRMModel(self.model_path)
         self.pose = Pose(self.model)
         self.springs = SpringBones(self.model)
         self.camera = self._make_camera(focus=focus)
@@ -110,12 +117,23 @@ class AvatarRenderer:
         return True
 
     def _default_model(self) -> Path:
+        # v0.0.3：优先 ty.fbx（用户新模型），其次小凌.vrm，再其次任意 .vrm/.fbx
+        p = self.model_dir / 'ty.fbx'
+        if p.exists():
+            return p
         p = self.model_dir / '小凌.vrm'
         if p.exists():
             return p
+        files = list_model_files(self.model_dir)
+        if files:
+            return files[0]
+        raise FileNotFoundError('没有可用的模型（.vrm / .fbx）')
+
+    def _fallback_vrm(self) -> Path:
+        """FBX 不可用时回退到的 VRM 路径。"""
         for f in sorted(self.model_dir.glob('*.vrm')):
             return f
-        raise FileNotFoundError('没有可用的 VRM 模型')
+        raise FileNotFoundError('没有可用的 .vrm 回退模型')
 
     def scan_actions(self):
         out = []
@@ -127,7 +145,7 @@ class AvatarRenderer:
         return out
 
     def list_models(self):
-        return [{'name': p.stem, 'path': str(p)} for p in sorted(self.model_dir.glob('*.vrm'))]
+        return [{'name': p.stem, 'path': str(p)} for p in list_model_files(self.model_dir)]
 
     def _init_backend(self, backend):
         forced = os.environ.get('XIAOLING_RENDER_BACKEND', '').strip().lower()
@@ -176,7 +194,7 @@ class AvatarRenderer:
 
     # ------------------------------------------------------------------ 模型
     def switch_model(self, path):
-        self.model = VRMModel(path)
+        self.model = load_any_model(path, log=self.log)
         self.model_path = Path(path)
         self.pose = Pose(self.model)
         self.springs = SpringBones(self.model)

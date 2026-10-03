@@ -157,13 +157,20 @@ def build_dashboard(renderer=None, engine=None, log=print):
     win.resize(1280, 800)
     win.setMinimumSize(1100, 700)
 
-    # 浅粉白配色
-    PALETTE_BG = '#faf6f7'
+    # 奶油草莓配色（v0.0.3：粉色少女风精致化）
+    PALETTE_BG = '#fff5f8'
     CARD_BG = '#ffffff'
-    ACCENT = '#d4385c'
-    ACCENT_SOFT = '#f5d5dd'
-    TEXT_DARK = '#3a2a30'
-    TEXT_MUTED = '#9a8a90'
+    ACCENT = '#e85a8a'
+    ACCENT_SOFT = '#ffe0ea'
+    TEXT_DARK = '#4a3a40'
+    TEXT_MUTED = '#b09aa2'
+
+    # 套全局粉色主题
+    try:
+        from renderer.theme import apply_pink_theme
+        apply_pink_theme(app)
+    except Exception:                                             # noqa: BLE001
+        pass
 
     central = QtWidgets.QWidget()
     win.setCentralWidget(central)

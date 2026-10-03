@@ -55,7 +55,7 @@ def test_install_wraps_everything():
     assert g['_start_pet_background'].__name__ == '_start_pet_background'
     assert g['run_distill'].__name__ == 'run_distill_fused'
     assert g['main'].__name__ == 'main_fused'
-    assert g['CONFIG']['version'] == '0.0.2'
+    assert g['CONFIG']['version'] == '0.0.3'
     assert g['CONFIG']['deepseek_api_key'] == 'sk-test'          # 用户显式配置不被覆盖
     print('[OK] 融合层安装 / 配置合并 / 函数包装：通过')
 

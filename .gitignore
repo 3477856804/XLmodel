@@ -16,6 +16,10 @@ dist/
 数据/export.jsonl
 我的小凌模型.zip
 sounds/tool/*.tmp
+# v0.0.3（交接 8.1）：程序一跑就写的运行期状态文件，不该入库
+xl_memory.json
+.star_core/rag/
+.star_core/fbx_cache/
 # 本地机密 / 运行期配置：含 DeepSeek API Key，绝不入库
 .env
 .star_core/xiaoling_config.json

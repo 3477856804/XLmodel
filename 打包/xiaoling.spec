@@ -58,6 +58,8 @@ hidden = [
     # 否则打包版可能直到打开向导 / 对话窗口 / 工作台时才报 ModuleNotFoundError。
     'renderer.wizard', 'renderer.chat_ui', 'renderer.startup_ui',
     'renderer.i18n', 'renderer.dashboard',
+    # v0.0.3 新增：粉色少女风主题 + FBX 模型桥接
+    'renderer.theme', 'renderer.fbx_loader',
 ]
 if not LITE:
     hidden += ['OpenGL', 'OpenGL.GL', 'OpenGL.osmesa', 'OpenGL.raw.osmesa.mesa',

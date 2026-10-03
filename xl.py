@@ -662,7 +662,7 @@ SKILLS_DIR = _resource("技能")
 AUTO_TRAIN_THRESHOLD = 1000
 
 CONFIG = {
-    "version": "0.0.2", "name": "小凌", "user_name": "你",
+    "version": "0.0.3", "name": "小凌", "user_name": "你",
     # v0.0.9：基底模型选择（用户可配置，默认 MiniCPM5-2B）
     # 可选档位：
     #   "自研2B模型"     -> 默认，端侧最强（Q4 约1.56GB，手机/电脑流畅）
