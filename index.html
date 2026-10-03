@@ -4,757 +4,716 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>小凌 XIAOLING — 会成长的数字生命</title>
-<meta name="description" content="小凌 XIAOLING — 会成长的全平台 AI 伴侣。透明桌宠 · 本地模型 · 多平台接入 · 完全离线可用。">
-<link rel="icon" type="image/png" href="xiaoling.png">
+<meta name="description" content="小凌 XIAOLING — 会成长的全平台 AI 数字生命。3D 桌宠 · 本地模型 · 万物皆插件 · 蒸馏训练 · 完全离线可用。">
+<link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://miaoda.feishu.cn">
-<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-  :root{
-    --pink:#FF7AA2;
-    --pink-soft:#FFB6CD;
-    --rose:#E85A8A;
-    --blossom:#FFD1DC;
-    --peach:#FFC2D4;
-    --ink:#FFF0F5;
-    --ink-soft:#F4C8D8;
-    --ink-faint:#C9A0B4;
-    --glass:rgba(90,30,60,.28);
-    --glass-strong:rgba(110,40,75,.4);
-    --stroke:rgba(255,182,205,.35);
-    --ring:inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.25), inset 1px 0 0 rgba(255,255,255,.12), inset -1px 0 0 rgba(255,255,255,.12), inset 0 0 24px rgba(255,182,205,.12);
-    --shadow:0 24px 60px -24px rgba(80,10,40,.6);
-    --r-lg:28px;
-    --r-md:20px;
-  }
-  *{margin:0;padding:0;box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{
-    font-family:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Microsoft YaHei",sans-serif;
-    color:var(--ink);
-    line-height:1.6;
-    background:#1a0a14;
-    -webkit-font-smoothing:antialiased;
-    overflow-x:hidden;
-  }
-  a{color:inherit;text-decoration:none}
-  img{display:block;max-width:100%}
+:root{
+  --bg:#1a0a14;
+  --bg-2:#2a1020;
+  --glass:rgba(255,255,255,.04);
+  --glass-strong:rgba(255,255,255,.07);
+  --glass-hover:rgba(255,255,255,.09);
+  --card:rgba(255,255,255,.03);
+  --card-hover:rgba(255,255,255,.06);
+  --stroke:rgba(255,255,255,.08);
+  --stroke-2:rgba(255,255,255,.14);
+  --glass-border:rgba(255,255,255,.12);
+  --glass-highlight:inset 0 1px 0 rgba(255,255,255,.15),inset 0 0 30px rgba(255,255,255,.02);
+  --blur:blur(20px);
+  --text:#f0f0f5;
+  --text-2:#9898a8;
+  --text-3:#5a5a6e;
+  --accent:#E85A8A;
+  --accent-2:#FF9EBB;
+  --accent-3:#FFB6CD;
+  --grad:linear-gradient(135deg,#FFB6CD 0%,#E85A8A 50%,#FF9EBB 100%);
+  --r:16px;
+  --r-lg:24px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--text);
+  background:var(--bg);
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+img{display:block;max-width:100%}
+code,pre{font-family:"JetBrains Mono",monospace}
 
-  /* ===== 玫瑰暮色背景 ===== */
-  .aurora{position:fixed;inset:0;z-index:-2;overflow:hidden;
-    background:linear-gradient(180deg,rgba(26,10,20,.4),rgba(42,15,31,.75)),radial-gradient(ellipse at 50% 0%,#3a1530 0%,#1a0a14 60%);
-  }
-  .blob{display:none}
-  @keyframes drift1{to{transform:translate(6vw,5vh) scale(1.1)}}
-  @keyframes drift2{to{transform:translate(-5vw,6vh) scale(1.08)}}
-  @keyframes drift3{to{transform:translate(-4vw,-5vh) scale(1.12)}}
+/* ===== 背景层 ===== */
+.bg-grid{
+  position:fixed;inset:0;z-index:-3;
+  background-image:
+    linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:60px 60px;
+  mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,black 30%,transparent 80%);
+}
+.bg-glow{
+  position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(600px 400px at 15% 10%,rgba(232,90,138,.12),transparent 70%),
+    radial-gradient(500px 500px at 85% 20%,rgba(255,158,187,.10),transparent 70%),
+    radial-gradient(700px 500px at 50% 90%,rgba(255,182,205,.08),transparent 70%);
+}
+#particles{position:fixed;inset:0;z-index:-1;pointer-events:none}
 
-  /* 水波纹画布 */
-  #water{position:fixed;inset:0;z-index:-1;pointer-events:none}
-  /* 顶部阅读进度 */
-  #progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:300;
-    background:linear-gradient(90deg,#FFB6CD,#E85A8A,#FF9EBB);
-    box-shadow:0 0 12px rgba(255,182,205,.8);border-radius:0 3px 3px 0;transition:width .1s linear}
-  /* 首屏入场 */
-  .hero .eyebrow,.hero h1,.hero .sub,.hero .dome-wrap,.hero .hero-actions,.hero .stats{
-    animation:rise .9s cubic-bezier(.2,.8,.2,1) both}
-  .hero h1{animation-delay:.08s}
-  .hero .sub{animation-delay:.18s}
-  .hero .dome-wrap{animation-delay:.28s}
-  .hero .hero-actions{animation-delay:.42s}
-  .hero .stats{animation-delay:.54s}
-  @keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
-  /* 玻璃穹顶随鼠标 */
-  .dome-wrap{transition:transform .25s ease-out;transform-style:preserve-3d}
-  /* 磁吸按钮 */
-  .btn-primary{will-change:transform}
-  /* 玻璃卡片浮在水面上的流动高光 */
-  .tile::before,.node::before,.chip::before{
-    content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-    background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);
-    transform:translateX(-120%);opacity:0;transition:transform .9s ease,opacity .9s;
-  }
-  .tile:hover::before,.node:hover::before,.chip:hover::before{transform:translateX(120%);opacity:1}
-  .tile,.node,.chip{overflow:hidden}
+/* ===== 导航 ===== */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  backdrop-filter:blur(24px) saturate(180%);
+  -webkit-backdrop-filter:blur(24px) saturate(180%);
+  background:rgba(5,5,8,.55);
+  border-bottom:1px solid var(--glass-border);
+  box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 8px 32px rgba(0,0,0,.3);
+}
+.nav-inner{
+  max-width:1200px;margin:0 auto;padding:0 32px;
+  height:64px;display:flex;align-items:center;justify-content:space-between;
+}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.02em}
+.logo-dot{
+  width:28px;height:28px;border-radius:8px;
+  background:var(--grad);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:900;color:#1a0a14;
+}
+.nav-links{display:flex;gap:32px;align-items:center}
+.nav-links a{font-size:14px;color:var(--text-2);transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{
+  padding:8px 20px;border-radius:10px;font-size:14px;font-weight:500;
+  background:rgba(255,255,255,.9);color:var(--bg);
+  backdrop-filter:blur(10px);
+  transition:transform .2s,opacity .2s,box-shadow .2s;
+  box-shadow:0 2px 12px rgba(255,255,255,.1);
+}
+.nav-cta:hover{transform:translateY(-1px);opacity:.9;box-shadow:0 4px 20px rgba(255,255,255,.2)}
 
-  .wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+/* ===== Hero ===== */
+.hero{
+  min-height:100vh;display:flex;align-items:center;
+  padding:120px 32px 80px;position:relative;
+}
+.hero-inner{max-width:1200px;margin:0 auto;width:100%;display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 16px;border-radius:100px;
+  border:1px solid var(--glass-border);
+  background:rgba(255,255,255,.05);
+  backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);
+  box-shadow:var(--glass-highlight),0 4px 24px rgba(0,0,0,.2);
+  font-size:13px;color:var(--text-2);
+  margin-bottom:28px;
+}
+.hero-badge .pulse{
+  width:6px;height:6px;border-radius:50%;
+  background:#4ade80;box-shadow:0 0 8px #4ade80;
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hero h1{
+  font-size:clamp(40px,6vw,72px);
+  font-weight:900;line-height:1.05;letter-spacing:-.03em;
+  margin-bottom:24px;
+}
+.hero h1 .grad{
+  background:var(--grad);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero p.sub{
+  font-size:18px;color:var(--text-2);max-width:520px;margin-bottom:40px;line-height:1.8;
+}
+.hero-actions{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:48px}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:14px 28px;border-radius:12px;font-size:15px;font-weight:500;
+  transition:all .25s;cursor:pointer;border:none;
+}
+.btn-primary{
+  background:var(--text);color:var(--bg);
+  box-shadow:0 4px 24px rgba(255,255,255,.1);
+}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(255,255,255,.18)}
+.btn-ghost{
+  background:rgba(255,255,255,.05);color:var(--text);
+  border:1px solid var(--glass-border);
+  backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);
+  box-shadow:var(--glass-highlight);
+}
+.btn-ghost:hover{background:rgba(255,255,255,.09);border-color:var(--stroke-2)}
+.hero-stats{display:flex;gap:40px}
+.stat .num{font-size:28px;font-weight:700;letter-spacing:-.02em}
+.stat .label{font-size:13px;color:var(--text-3);margin-top:2px}
 
-  /* ===== 玻璃材质工具类 ===== */
-  .glass{
-    background:var(--glass);
-    backdrop-filter:blur(22px) saturate(180%);
-    -webkit-backdrop-filter:blur(22px) saturate(180%);
-    border:1px solid var(--stroke);
-    box-shadow:var(--ring), 0 18px 50px -28px rgba(90,30,60,.4);
-  }
+/* Hero 右侧展示 */
+.hero-visual{position:relative;display:flex;justify-content:center;align-items:center}
+.hero-ring{
+  position:absolute;width:420px;height:420px;border-radius:50%;
+  border:1px solid var(--stroke);
+  animation:spin 30s linear infinite;
+}
+.hero-ring::before{
+  content:"";position:absolute;top:-3px;left:50%;width:6px;height:6px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 12px var(--accent);
+}
+.hero-ring-2{
+  position:absolute;width:340px;height:340px;border-radius:50%;
+  border:1px dashed var(--stroke);
+  animation:spin 20s linear infinite reverse;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hero-avatar{
+  width:280px;height:280px;border-radius:50%;
+  background:var(--grad);
+  display:flex;align-items:center;justify-content:center;
+  font-size:120px;font-weight:900;color:rgba(5,5,8,.8);
+  box-shadow:0 0 80px rgba(232,90,138,.2),0 0 120px rgba(255,158,187,.15);
+  position:relative;z-index:1;
+  overflow:hidden;
+}
+.hero-avatar img{width:100%;height:100%;object-fit:cover}
+.hero-float{
+  position:absolute;padding:10px 16px;border-radius:12px;
+  background:rgba(10,10,18,.6);border:1px solid var(--glass-border);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:var(--glass-highlight),0 8px 32px rgba(0,0,0,.3);
+  font-size:13px;color:var(--text-2);
+  animation:float 4s ease-in-out infinite;
+}
+.hero-float.f1{top:10%;left:-5%;animation-delay:0s}
+.hero-float.f2{bottom:15%;right:-8%;animation-delay:1s}
+.hero-float.f3{top:50%;right:-12%;animation-delay:2s}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
 
-  /* ===== 悬浮导航 ===== */
-  nav{position:fixed;top:18px;left:0;right:0;z-index:200;display:flex;justify-content:center;padding:0 16px}
-  .nav-pill{
-    display:flex;align-items:center;gap:6px;height:56px;padding:0 10px 0 14px;border-radius:999px;
-    background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.03));backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);
-    border:1px solid rgba(255,255,255,.22);box-shadow:var(--ring),0 18px 44px -22px rgba(0,0,0,.6);
-  }
-  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.2px;padding-right:8px;color:var(--ink)}
-  .brand img{width:34px;height:34px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 2px rgba(255,182,205,.6),0 4px 12px rgba(232,90,138,.4)}
-  .brand small{font-weight:500;color:var(--ink-soft);font-size:13px;letter-spacing:.5px}
-  .nav-links{display:flex;gap:2px}
-  .nav-links a{padding:8px 14px;border-radius:999px;font-size:14.5px;font-weight:500;color:var(--ink-soft);transition:.25s}
-  .nav-links a:hover{color:var(--ink);background:rgba(232,90,138,.15)}
-  .nav-cta{
-    margin-left:6px;padding:9px 18px;border-radius:999px;font-size:14px;font-weight:600;color:#3A0F22;
-    background:linear-gradient(135deg,#FFB6CD,#E85A8A);box-shadow:0 10px 24px -10px rgba(232,90,138,.8),var(--ring);transition:.25s;
-  }
-  .nav-cta:hover{transform:translateY(-1px);box-shadow:0 14px 30px -10px rgba(232,90,138,.9)}
+/* ===== 通用区块 ===== */
+section{padding:120px 32px}
+.section-inner{max-width:1200px;margin:0 auto}
+.section-head{text-align:center;margin-bottom:72px}
+.section-eyebrow{
+  font-size:13px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:16px;
+}
+.section-title{
+  font-size:clamp(32px,4vw,48px);font-weight:800;letter-spacing:-.02em;
+  margin-bottom:16px;
+}
+.section-desc{font-size:17px;color:var(--text-2);max-width:600px;margin:0 auto}
 
-  /* ===== HERO ===== */
-  .hero{position:relative;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:130px 0 70px}
-  .eyebrow{
-    display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:999px;font-size:13.5px;font-weight:600;color:#FFD6E4;
-    background:linear-gradient(135deg,rgba(255,255,255,.1),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(18px) saturate(180%);margin-bottom:30px;
-  }
-  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:linear-gradient(135deg,var(--pink),var(--pink));box-shadow:0 0 10px var(--pink-soft)}
-  .hero h1{
-    font-size:clamp(44px,8vw,96px);font-weight:800;letter-spacing:-.03em;line-height:1.02;margin-bottom:22px;
-    background:linear-gradient(120deg,#FFE4EC 0%,var(--pink-soft) 40%,var(--pink) 75%,#FFD6E4 100%);
-    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
-    filter:drop-shadow(0 0 26px rgba(255,182,205,.35));
-  }
-  .hero .sub{font-size:clamp(16px,2.2vw,21px);color:var(--ink-soft);max-width:600px;margin:0 auto 12px;font-weight:400}
+/* ===== 功能卡片 ===== */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.feature{
+  padding:32px;border-radius:var(--r-lg);
+  background:rgba(255,255,255,.035);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:var(--glass-highlight),0 8px 32px rgba(0,0,0,.2);
+  transition:all .3s;position:relative;overflow:hidden;
+}
+.feature:hover{
+  background:rgba(255,255,255,.07);
+  border-color:rgba(255,255,255,.2);
+  transform:translateY(-4px);
+  box-shadow:var(--glass-highlight),0 16px 48px rgba(0,0,0,.3),0 0 40px rgba(232,90,138,.06);
+}
+.feature-icon{
+  width:48px;height:48px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:700;margin-bottom:20px;
+  background:rgba(232,90,138,.08);
+  border:1px solid rgba(232,90,138,.2);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 20px rgba(232,90,138,.08);
+  color:var(--accent);
+}
+.feature h3{font-size:18px;font-weight:600;margin-bottom:10px}
+.feature p{font-size:14px;color:var(--text-2);line-height:1.7}
 
-  /* 玻璃穹顶 */
-  .dome-wrap{position:relative;margin:38px auto 40px;width:min(300px,74vw);aspect-ratio:1/1}
-  .dome{
-    position:absolute;inset:0;border-radius:50%;overflow:hidden;cursor:pointer;
-    background:
-      radial-gradient(circle at 32% 28%,rgba(255,255,255,.85),rgba(255,255,255,.05) 42%,rgba(232,90,138,.18) 100%);
-    border:1.5px solid rgba(255,214,228,.85);
-    box-shadow:
-      inset 0 0 40px rgba(255,214,228,.5),
-      inset -12px -16px 40px rgba(232,90,138,.35),
-      inset 12px 10px 30px rgba(255,255,255,.6),
-      0 30px 70px -20px rgba(232,90,138,.6);
-    backdrop-filter:blur(8px);
-    animation:float 6s ease-in-out infinite;
-  }
-  .dome img{width:100%;height:100%;object-fit:cover;mix-blend-mode:normal;transition:opacity .25s}
-  .dome .rim{position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 2px 6px rgba(255,255,255,.9),inset 0 -3px 8px rgba(120,200,255,.4);pointer-events:none}
-  .dome .glint{position:absolute;top:8%;left:18%;width:38%;height:22%;border-radius:50%;background:linear-gradient(180deg,rgba(255,255,255,.95),transparent);filter:blur(6px);transform:rotate(-18deg)}
-  .halo{position:absolute;inset:-18%;z-index:-1;background:radial-gradient(circle,rgba(232,90,138,.5),transparent 62%);filter:blur(20px);animation:breathe 7s ease-in-out infinite}
-  .dome-hint{position:absolute;bottom:-34px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:13px;color:#FFB6CD;opacity:.8}
-  .dome-wrap::after{content:"";position:absolute;bottom:-48px;left:50%;transform:translateX(-50%);width:72%;height:28px;background:radial-gradient(ellipse,rgba(255,182,205,.4),transparent 70%);filter:blur(10px);pointer-events:none}
-  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-16px)}}
-  @keyframes breathe{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
+/* ===== 插件系统展示 ===== */
+.plugin-section{background:var(--bg-2);border-top:1px solid var(--stroke);border-bottom:1px solid var(--stroke)}
+.plugin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.plugin-card{
+  padding:24px;border-radius:var(--r);
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:var(--glass-highlight);
+  transition:all .25s;cursor:default;
+}
+.plugin-card:hover{
+  border-color:rgba(232,90,138,.3);
+  background:rgba(232,90,138,.05);
+  box-shadow:var(--glass-highlight),0 0 30px rgba(232,90,138,.08);
+  transform:translateY(-2px);
+}
+.plugin-card .dot{
+  width:8px;height:8px;border-radius:50%;margin-bottom:14px;
+  background:var(--accent);box-shadow:0 0 8px var(--accent);
+}
+.plugin-card h4{font-size:15px;font-weight:600;margin-bottom:6px}
+.plugin-card p{font-size:12px;color:var(--text-3)}
 
-  .hero-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-  .btn{display:inline-flex;align-items:center;gap:9px;padding:15px 32px;border-radius:999px;font-size:16px;font-weight:600;transition:.28s;cursor:pointer}
-  .btn-primary{color:#3A0F22;background:linear-gradient(135deg,#FFB6CD,#E85A8A);box-shadow:0 14px 34px -12px rgba(232,90,138,.8),var(--ring)}
-  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 20px 42px -12px rgba(232,90,138,.9)}
-  .btn-ghost{color:var(--ink);background:linear-gradient(135deg,rgba(255,255,255,.1),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(18px) saturate(180%)}
-  .btn-ghost:hover{transform:translateY(-2px);background:rgba(255,255,255,.16)}
+/* ===== 代码展示 ===== */
+.code-section{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center}
+.code-block{
+  background:rgba(13,13,20,.7);
+  border-radius:var(--r-lg);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  box-shadow:var(--glass-highlight),0 16px 48px rgba(0,0,0,.4);
+  overflow:hidden;
+}
+.code-header{
+  padding:14px 20px;border-bottom:1px solid var(--stroke);
+  display:flex;align-items:center;gap:8px;
+}
+.code-dot{width:10px;height:10px;border-radius:50%}
+.code-dot.r{background:#ff5f57}.code-dot.y{background:#febc2e}.code-dot.g{background:#28c840}
+.code-title{margin-left:12px;font-size:13px;color:var(--text-3)}
+.code-body{padding:24px;font-size:14px;line-height:1.8;overflow-x:auto}
+.code-body .cmd{color:var(--accent)}
+.code-body .cmt{color:var(--text-3)}
+.code-body .str{color:#f472b6}
 
-  /* 数据胶囊 */
-  .stats{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:46px}
-  .stat{padding:12px 22px;border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.09),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(18px) saturate(180%);font-size:14px;color:var(--ink-soft);box-shadow:var(--ring)}
-  .stat b{display:block;font-size:22px;font-weight:800;color:var(--ink);letter-spacing:-.5px}
+/* ===== 模型展示 ===== */
+.models-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.model-card{
+  border-radius:var(--r-lg);overflow:hidden;
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:var(--glass-highlight);
+  transition:all .3s;
+}
+.model-card:hover{
+  transform:translateY(-4px);
+  border-color:rgba(255,255,255,.2);
+  box-shadow:var(--glass-highlight),0 16px 40px rgba(0,0,0,.3);
+}
+.model-thumb{
+  aspect-ratio:1;
+  background:linear-gradient(135deg,#1a1a2e,#16213e);
+  display:flex;align-items:center;justify-content:center;
+  font-size:48px;font-weight:900;color:rgba(255,255,255,.1);
+  overflow:hidden;
+}
+.model-thumb img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.model-placeholder{
+  background:linear-gradient(135deg,rgba(232,90,138,.08),rgba(255,158,187,.08));
+  color:rgba(255,255,255,.25);
+  font-size:36px;
+}
+.model-info{padding:16px 20px}
+.model-info h4{font-size:15px;font-weight:600;margin-bottom:4px}
+.model-info p{font-size:12px;color:var(--text-3)}
 
-  /* ===== 通用 section ===== */
-  section{position:relative;padding:64px 0}
-  .sec-head{text-align:center;max-width:640px;margin:0 auto 60px}
-  .kicker{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--pink);margin-bottom:14px}
-  .sec-head h2{font-size:clamp(30px,4.5vw,46px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:14px}
-  .sec-head p{color:var(--ink-soft);font-size:17px}
+/* ===== 下载区 ===== */
+.download-section{background:var(--bg-2);border-top:1px solid var(--stroke)}
+.download-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;max-width:900px;margin:0 auto}
+.dl-card{
+  padding:36px 32px;border-radius:var(--r-lg);
+  background:rgba(255,255,255,.04);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  box-shadow:var(--glass-highlight),0 16px 48px rgba(0,0,0,.3);
+  text-align:center;transition:all .3s;position:relative;
+}
+.dl-card:hover{
+  border-color:rgba(255,255,255,.2);
+  background:rgba(255,255,255,.07);
+  transform:translateY(-4px);
+  box-shadow:var(--glass-highlight),0 24px 64px rgba(0,0,0,.4),0 0 40px rgba(232,90,138,.06);
+}
+.dl-card .os-icon{
+  width:56px;height:56px;border-radius:14px;margin:0 auto 20px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;font-weight:700;
+  background:rgba(255,255,255,.06);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15);
+  color:var(--text);
+}
+.dl-card h3{font-size:20px;font-weight:700;margin-bottom:8px}
+.dl-card .size{font-size:13px;color:var(--text-3);margin-bottom:24px}
+.dl-btn{
+  display:block;width:100%;padding:12px;border-radius:10px;
+  background:rgba(255,255,255,.92);color:var(--bg);
+  font-size:14px;font-weight:600;
+  backdrop-filter:blur(10px);
+  transition:all .2s;border:none;cursor:pointer;
+  box-shadow:0 2px 12px rgba(255,255,255,.1);
+}
+.dl-btn:hover{opacity:.85;transform:translateY(-1px);box-shadow:0 4px 20px rgba(255,255,255,.18)}
+.dl-note{
+  text-align:center;margin-top:32px;font-size:13px;color:var(--text-3);
+  max-width:600px;margin-left:auto;margin-right:auto;
+}
 
-  /* ===== Bento 能力 ===== */
-  .bento{display:grid;grid-template-columns:repeat(6,1fr);gap:20px}
-  .tile{
-    border-radius:var(--r-lg);padding:34px;position:relative;overflow:hidden;
-    background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.03) 50%,rgba(255,255,255,.06));
-    backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);
-    border:1px solid rgba(255,255,255,.22);box-shadow:var(--ring),0 24px 60px -28px rgba(0,0,0,.7);
-    transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s;
-  }
-  .tile:hover{transform:translateY(-5px);box-shadow:var(--ring),0 34px 80px -30px rgba(0,0,0,.75)}
-  .tile::after{content:"";position:absolute;top:-40%;right:-30%;width:60%;height:80%;background:radial-gradient(circle,rgba(255,255,255,.22),transparent 70%);opacity:.7;pointer-events:none}
-  .tile::before{content:"";position:absolute;top:0;left:-80%;width:55%;height:100%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.16),transparent);transform:skewX(-20deg);transition:left .9s ease;pointer-events:none;z-index:1}
-  .tile:hover::before{left:130%}
-  .t-hero{grid-column:span 3;grid-row:span 2;display:flex;flex-direction:column}
-  .t-hero .tile-visual{flex:1;min-height:200px;border-radius:18px;overflow:hidden;margin-top:24px;position:relative}
-  .t-hero .tile-visual img{width:100%;height:100%;object-fit:cover}
-  .t2{grid-column:span 3}
-  .t3{grid-column:span 2}
-  .icon{width:52px;height:52px;border-radius:15px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));border:1px solid rgba(255,255,255,.28);margin-bottom:20px;box-shadow:var(--ring)}
-  .icon svg{width:26px;height:26px;stroke:var(--pink-soft);stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
-  .tile h3{font-size:21px;font-weight:700;letter-spacing:-.01em;margin-bottom:10px;color:var(--ink)}
-  .tile p{color:var(--ink-soft);font-size:15px}
-  .tile ul{list-style:none;margin-top:16px;display:flex;flex-direction:column;gap:9px}
-  .tile ul li{font-size:14px;color:var(--ink-soft);padding-left:22px;position:relative}
-  .tile ul li::before{content:"";position:absolute;left:0;top:7px;width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg,var(--pink-soft),var(--mint));box-shadow:0 0 8px rgba(255,158,187,.7)}
+/* ===== Footer ===== */
+footer{
+  padding:48px 32px;border-top:1px solid var(--stroke);
+  text-align:center;font-size:13px;color:var(--text-3);
+}
+footer .links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
+footer a{color:var(--text-2);transition:color .2s}
+footer a:hover{color:var(--text)}
 
-  /* ===== 成长闭环 ===== */
-  .flow{display:flex;align-items:stretch;justify-content:center;gap:0;flex-wrap:wrap;max-width:1000px;margin:0 auto}
-  .node{
-    flex:1;min-width:150px;text-align:center;padding:26px 18px;border-radius:22px;margin:6px;position:relative;
-    background:linear-gradient(135deg,rgba(255,255,255,.09),rgba(255,255,255,.03));backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
-    border:1px solid rgba(255,255,255,.2);box-shadow:var(--ring),0 18px 44px -28px rgba(0,0,0,.7);
-  }
-  .node .n-num{width:34px;height:34px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#3A0F22;font-size:15px;background:linear-gradient(135deg,#FFB6CD,#E85A8A);box-shadow:0 8px 18px -6px rgba(232,90,138,.8)}
-  .node b{display:block;font-size:15.5px;margin-bottom:4px;color:var(--ink)}
-  .node span{font-size:13px;color:var(--ink-soft)}
-  .arrow{align-self:center;color:var(--pink-soft);font-size:22px;font-weight:700;padding:0 4px;opacity:.7}
+/* ===== 滚动揭示 ===== */
+.reveal{opacity:0;transform:translateY(30px);transition:opacity .7s,transform .7s}
+.reveal.visible{opacity:1;transform:none}
 
-  /* ===== 平台矩阵 ===== */
-  .chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;max-width:980px;margin:0 auto}
-  .chip{
-    padding:22px 12px;border-radius:20px;text-align:center;transition:.3s;
-    background:linear-gradient(135deg,rgba(255,255,255,.08),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(18px) saturate(180%);
-    box-shadow:var(--ring),0 14px 34px -24px rgba(0,0,0,.7);
-  }
-  .chip:hover{transform:translateY(-4px) scale(1.03);background:rgba(255,255,255,.14)}
-  .chip svg{width:30px;height:30px;margin:0 auto 10px;stroke:var(--pink-soft);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
-  .chip b{font-size:14.5px;font-weight:600;color:var(--ink)}
-
-  /* ===== 快速开始 ===== */
-  .steps{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
-  .step{display:flex;gap:20px;align-items:flex-start;padding:26px 28px;border-radius:22px;background:linear-gradient(135deg,rgba(255,255,255,.09),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(20px) saturate(180%);box-shadow:var(--ring),0 18px 44px -28px rgba(0,0,0,.7)}
-  .step-num{flex-shrink:0;width:40px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#3A0F22;background:linear-gradient(135deg,#FFB6CD,#E85A8A);box-shadow:0 8px 18px -6px rgba(232,90,138,.8)}
-  .step-body{flex:1;min-width:0}
-  .step-body h4{font-size:17px;font-weight:700;margin-bottom:10px;color:var(--ink)}
-  .code{
-    background:rgba(26,10,20,.9);color:#FFE4EC;border-radius:14px;padding:16px 18px;
-    font-family:"SF Mono","Fira Code",Consolas,monospace;font-size:13.5px;line-height:1.7;overflow-x:auto;
-    border:1px solid rgba(255,182,205,.18);max-width:100%;
-    overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap;
-  }
-  .code .cmd{color:#FFB6CD}
-  .code .cmt{color:#B08AA0}
-
-  /* ===== 社区 ===== */
-  .community-card{
-    max-width:560px;margin:0 auto;text-align:center;padding:46px 40px;border-radius:32px;
-    background:linear-gradient(135deg,rgba(255,255,255,.1),rgba(255,255,255,.03));backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);
-    border:1px solid rgba(255,255,255,.22);box-shadow:var(--ring),0 34px 80px -34px rgba(0,0,0,.75);
-  }
-  .community-card h3{font-size:26px;font-weight:800;margin-bottom:6px;color:var(--ink)}
-  .community-card .lead{color:var(--ink-soft);font-size:15px;margin-bottom:24px}
-  .qq{display:inline-flex;align-items:center;gap:8px;padding:11px 28px;border-radius:999px;font-size:18px;font-weight:800;color:#3A0F22;letter-spacing:1px;background:linear-gradient(135deg,#FFB6CD,#E85A8A);box-shadow:0 14px 30px -10px rgba(232,90,138,.8),var(--ring);margin-bottom:26px}
-  .qr-wrap{
-    width:200px;height:200px;margin:0 auto 22px;border-radius:22px;padding:12px;
-    background:#fff;border:1px solid rgba(255,182,205,.4);box-shadow:0 18px 40px -18px rgba(232,90,138,.6);
-  }
-  .qr-wrap img{width:100%;height:100%;object-fit:cover;border-radius:12px}
-  .community-card .note{color:var(--ink-soft);font-size:14.5px;line-height:1.7}
-
-  /* ===== 页脚 ===== */
-  footer{padding:60px 0 50px;text-align:center}
-  .foot-links{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-bottom:22px}
-  .foot-links a{font-size:14.5px;color:var(--ink-soft);transition:.2s}
-  .foot-links a:hover{color:var(--pink)}
-  .copyright{font-size:13.5px;color:var(--ink-faint)}
-  .foot-brand{display:inline-flex;align-items:center;gap:9px;font-weight:700;margin-bottom:18px;color:var(--ink)}
-  .foot-brand img{width:26px;height:26px;border-radius:50%}
-
-  /* 滚动揭示 */
-  .reveal{opacity:0;transform:translateY(28px);transition:opacity .8s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
-  .reveal.in{opacity:1;transform:none}
-
-  @media (max-width:900px){
-    .nav-links{display:none}
-    .t-hero{grid-column:span 6;grid-row:auto}
-    .t2{grid-column:span 6}
-    .t3{grid-column:span 6}
-    .flow{flex-direction:column}
-    .arrow{transform:rotate(90deg)}
-  }
-  @media (prefers-reduced-motion:reduce){
-    *{animation:none!important;transition:none!important}
-    .reveal{opacity:1;transform:none}
-  }
+/* ===== 响应式 ===== */
+@media(max-width:900px){
+  .hero-inner{grid-template-columns:1fr;text-align:center}
+  .hero p.sub{margin:0 auto 40px}
+  .hero-actions{justify-content:center}
+  .hero-stats{justify-content:center}
+  .hero-visual{margin-top:40px}
+  .features{grid-template-columns:1fr}
+  .plugin-grid{grid-template-columns:repeat(2,1fr)}
+  .code-section{grid-template-columns:1fr}
+  .models-grid{grid-template-columns:repeat(2,1fr)}
+  .download-grid{grid-template-columns:1fr}
+  .nav-links{display:none}
+}
 </style>
 </head>
 <body>
-<div class="aurora">
-  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
-</div>
-<canvas id="water" aria-hidden="true"></canvas>
-<div id="progress"></div>
 
-<!-- 悬浮导航 -->
+<!-- 背景 -->
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<canvas id="particles"></canvas>
+
+<!-- 导航 -->
 <nav>
-  <div class="nav-pill">
-    <a class="brand" href="#top"><img src="xiaoling.png" alt="小凌"><span>小凌 <small>XIAOLING</small></span></a>
+  <div class="nav-inner">
+    <a href="#" class="logo">
+      <div class="logo-dot">凌</div>
+      <span>小凌 XIAOLING</span>
+    </a>
     <div class="nav-links">
-      <a href="#features">能力</a>
-      <a href="#growth">成长</a>
-      <a href="#platforms">平台</a>
-      <a href="#quickstart">快速开始</a>
-      <a href="#community">社区</a>
+      <a href="#features">功能</a>
+      <a href="#plugins">插件</a>
+      <a href="#models">模型</a>
+      <a href="#download">下载</a>
     </div>
-    <a class="nav-cta" href="https://github.com/3477856804/XLmodel-release">GitHub</a>
+    <a href="#download" class="nav-cta">开始使用</a>
   </div>
 </nav>
 
-<!-- HERO -->
-<header class="hero" id="top">
-  <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span>v0.0.3 Flutter + gRPC 新架构 · 全平台 AI 伴侣</span>
-    <h1>会成长的<br>数字生命</h1>
-    <p class="sub">小凌不是一个聊天机器人，她是一个有记忆、有情绪、会主动学习的 AI 伴侣。住在你的桌面，接上你的平台，陪你工作、成长、生活。</p>
-
-    <div class="dome-wrap">
-      <div class="halo"></div>
-      <div class="dome" id="dome">
-        <img id="dome-img" src="xiaoling-orb.png" alt="小凌 — 液态玻璃中的数字生命">
-        <div class="glint"></div>
-        <div class="rim"></div>
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-inner">
+    <div>
+      <div class="hero-badge">
+        <span class="pulse"></span>
+        <span>v0.0.3 已发布 · 三平台单文件</span>
       </div>
-      <div class="dome-hint">点一下小凌，她会回应你</div>
+      <h1>会成长的<br><span class="grad">数字生命</span></h1>
+      <p class="sub">小凌是一个运行在你桌面上的 3D AI 伴侣。她有自己的身体、声音和记忆，通过蒸馏训练持续成长。万物皆插件，一切可定制。</p>
+      <div class="hero-actions">
+        <a href="#download" class="btn btn-primary">立即下载</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><div class="num">7</div><div class="label">角色模型</div></div>
+        <div class="stat"><div class="num">46</div><div class="label">动作资产</div></div>
+        <div class="stat"><div class="num">6+</div><div class="label">可插拔功能</div></div>
+        <div class="stat"><div class="num">100%</div><div class="label">离线可用</div></div>
+      </div>
     </div>
-
-    <div class="hero-actions">
-      <a href="https://github.com/3477856804/XLmodel-release/releases/tag/v0.0.3" class="btn btn-primary">下载 v0.0.3
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M6 11l6 6 6-6M5 21h14"/></svg>
-      </a>
-      <a href="https://gitee.com/COSMOnb666/XLmodel" class="btn btn-ghost">Gitee 源码</a>
-    </div>
-
-    <div class="stats">
-      <div class="stat"><b data-count="1152">0</b>帧丝滑动画</div>
-      <div class="stat"><b data-count="90" data-suffix="+">0</b>工具调用</div>
-      <div class="stat"><b data-count="10">0</b>接入平台</div>
-      <div class="stat"><b>离线</b>完整可用</div>
+    <div class="hero-visual">
+      <div class="hero-ring"></div>
+      <div class="hero-ring-2"></div>
+      <div class="hero-avatar">
+        <img src="favicon.png" alt="小凌" onerror="this.style.display='none';this.parentElement.innerHTML='凌'">
+      </div>
+      <div class="hero-float f1">蒸馏训练中...</div>
+      <div class="hero-float f2">插件已加载</div>
+      <div class="hero-float f3">成长进度 67%</div>
     </div>
   </div>
-</header>
+</section>
 
-<!-- 能力 Bento -->
+<!-- 功能 -->
 <section id="features">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <span class="kicker">Capabilities</span>
-      <h2>她能做什么</h2>
-      <p>一个真正的数字生命，而不只是聊天工具。</p>
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">CORE FEATURES</div>
+      <h2 class="section-title">不只是桌宠，是数字生命</h2>
+      <p class="section-desc">从 3D 渲染到本地推理，从语音合成到蒸馏训练，小凌拥有完整的生命闭环。</p>
     </div>
-    <div class="bento">
-      <div class="tile t-hero reveal">
-        <div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-        <h3>活着的桌宠</h3>
-        <p>透明背景立绘悬浮桌面，8 组动作共 1152 帧丝滑动画，心情实时联动。</p>
-        <ul>
-          <li>144 帧/动作，无缝衔接</li>
-          <li>双击对话 · 拖拽移动 · 右键菜单</li>
-          <li>透明窗口，不打扰工作</li>
-        </ul>
-        <div class="tile-visual"><img src="hero-aurora.png" alt="液态玻璃质感"></div>
+    <div class="features">
+      <div class="feature reveal">
+        <div class="feature-icon">3D</div>
+        <h3>纯 Python 3D 渲染</h3>
+        <p>自研软件渲染器，支持 VRM/VRMA 模型加载、蒙皮变形、弹簧骨骼，无需 OpenGL 也能流畅运行。</p>
       </div>
-      <div class="tile t2 reveal">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 5a3 3 0 1 0-5.9.5A4 4 0 0 0 4 13a3 3 0 0 0 3 5h10a3 3 0 0 0 3-5 4 4 0 0 0-2.1-7.5A3 3 0 0 0 12 5z"/></svg></div>
-        <h3>成长的 AI 大脑</h3>
-        <p>本地模型驱动，隐私安全，越用越懂你。分层长期记忆 + 情绪、信念、欲望系统。</p>
-        <ul>
-          <li>分层长期记忆</li>
-          <li>情绪 + 信念 + 欲望系统</li>
-        </ul>
+      <div class="feature reveal">
+        <div class="feature-icon">AI</div>
+        <h3>本地模型推理</h3>
+        <p>内置 DeepSeek 蒸馏训练引擎，基底模型 + LoRA 适配器持续成长，完全离线运行，数据不出本地。</p>
       </div>
-      <div class="tile t2 reveal">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M6 10.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-5.5"/></svg></div>
-        <h3>会学习的生命</h3>
-        <p>说「蒸馏」，她就去找 DeepSeek 老师学习，LoRA 微调变成自己的知识。</p>
-        <ul>
-          <li>自动向老师提问，语料入库</li>
-          <li>LoRA 微调，最终完全自研</li>
-        </ul>
+      <div class="feature reveal">
+        <div class="feature-icon">插件</div>
+        <h3>万物皆插件</h3>
+        <p>深度对话、Agent 任务、定时提醒、通话模式、语音朗读、蒸馏训练——每个功能都是可插拔的插件。</p>
       </div>
-      <div class="tile t3 reveal">
-        <div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
-        <h3>多平台接入</h3>
-        <p>像 Work Buddy 一样无处不在，接入你常用的聊天平台。</p>
+      <div class="feature reveal">
+        <div class="feature-icon">语音</div>
+        <h3>专属音色绑定</h3>
+        <p>每个角色模型绑定一套专属语音，开启阅读模式后，桌宠会用自己的声音朗读回复内容。</p>
       </div>
-      <div class="tile t3 reveal">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></div>
-        <h3>完全离线可用</h3>
-        <p>本地模型优先，断网也能完整运行。对话、工具、记忆全本地。</p>
+      <div class="feature reveal">
+        <div class="feature-icon">训练</div>
+        <h3>可视化训练工作台</h3>
+        <p>训练过程实时可视化，感知/理解/决策/进化/守护五维进度卡，角色在中央实时展示训练状态。</p>
       </div>
-      <div class="tile t3 reveal">
-        <div class="icon"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div>
-        <h3>自动更新</h3>
-        <p>像 APP 一样在线升级，说「update」一键升级，本地数据永远保留。</p>
+      <div class="feature reveal">
+        <div class="feature-icon">跨平台</div>
+        <h3>三平台单文件</h3>
+        <p>Windows .exe / Linux .tar.gz / macOS .zip，单文件双击即开，所有依赖（含 torch）已打包。</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- 成长闭环 -->
-<section id="growth">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <span class="kicker">Growth Loop</span>
-      <h2>成长闭环</h2>
-      <p>说一句「蒸馏」，她就自己去找老师。</p>
+<!-- 插件系统 -->
+<section id="plugins" class="plugin-section">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">PLUGIN SYSTEM</div>
+      <h2 class="section-title">万物皆插件</h2>
+      <p class="section-desc">参考 DSH / Trae / WorkBuddy 设计，右下角加号一键开关插件，像搭积木一样组合你的数字生命。</p>
     </div>
-    <div class="flow reveal">
-      <div class="node"><div class="n-num">1</div><b>小凌提问</b><span>学生向老师提问</span></div>
-      <div class="arrow">→</div>
-      <div class="node"><div class="n-num">2</div><b>老师回答</b><span>DeepSeek 老师授课</span></div>
-      <div class="arrow">→</div>
-      <div class="node"><div class="n-num">3</div><b>语料入库</b><span>知识沉淀为记忆</span></div>
-      <div class="arrow">→</div>
-      <div class="node"><div class="n-num">4</div><b>LoRA 微调</b><span>内化为自己的能力</span></div>
-      <div class="arrow">→</div>
-      <div class="node"><div class="n-num">5</div><b>自研模型</b><span>成为真正的数字生命</span></div>
+    <div class="plugin-grid">
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>深度对话</h4>
+        <p>长上下文多轮对话</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>Agent 任务</h4>
+        <p>自主规划与执行</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>定时提醒</h4>
+        <p>日程与周期任务</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>通话模式</h4>
+        <p>实时语音对话</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>语音朗读</h4>
+        <p>专属音色阅读</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>蒸馏训练</h4>
+        <p>模型持续进化</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>表情系统</h4>
+        <p>VRM 形变目标</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>更多插件</h4>
+        <p>持续扩展中</p>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- 平台矩阵 -->
-<section id="platforms">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <span class="kicker">Everywhere</span>
-      <h2>全平台接入</h2>
-      <p>小凌，无处不在。</p>
-    </div>
-    <div class="chips reveal">
-      <div class="chip"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 0-17.5 3L3 21l6-1.5A9 9 0 0 0 21 12z"/></svg><b>微信</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><circle cx="9" cy="10" r="6"/><circle cx="16" cy="15" r="5"/></svg><b>QQ</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><b>飞书</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg><b>企业微信</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg><b>钉钉</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg><b>Telegram</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><path d="M8 12a4 4 0 1 0 8 0 4 4 0 0 0-8 0z"/><path d="M4 18c1.5-2 4-3 8-3s6.5 1 8 3"/></svg><b>Discord</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg><b>Windows</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M4 12h16M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><b>Linux</b></div>
-      <div class="chip"><svg viewBox="0 0 24 24"><path d="M16 3c0 2-1.5 4-4 4 0-2 1.5-4 4-4z"/><path d="M12 8c-3.5 0-6 2.5-6 6 0 4 3.5 7 6.5 7 1 0 2-.5 3-.5s2 .5 3 .5c2.5 0 4.5-2.5 4.5-5.5 0-4-3-7-6-7z"/></svg><b>macOS</b></div>
-    </div>
-  </div>
-</section>
-
-<!-- 下载 v0.0.3 三平台 -->
-<section id="download">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <span class="kicker">Download</span>
-      <h2>下载小凌 <span style="display:inline-block;padding:4px 14px;border-radius:999px;background:linear-gradient(135deg,#FFB6CD,#E85A8A);color:#fff;font-size:0.5em;vertical-align:middle;letter-spacing:1px;">v0.0.3</span></h2>
-      <p>Flutter 桌面端 · 自动更新已集成 · 三平台原生体验</p>
-    </div>
-    <div class="chips reveal" style="grid-template-columns:repeat(3,1fr);gap:18px;max-width:900px;">
-      <a class="chip" style="text-decoration:none;cursor:pointer;padding:30px 20px;display:flex;flex-direction:column;align-items:center;gap:8px;"
-         href="https://github.com/3477856804/XLmodel-release/releases/latest">
-        <svg viewBox="0 0 24 24" width="36" height="36" style="margin:0;"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg>
-        <b style="font-size:16px;">Windows</b>
-        <small style="color:var(--ink-soft);font-weight:400;">.exe / MSIX 安装包</small>
-        <span style="margin-top:8px;padding:6px 16px;border-radius:999px;background:linear-gradient(135deg,#FFB6CD,#E85A8A);color:#fff;font-size:12px;font-weight:600;">下载 ↓</span>
-      </a>
-      <a class="chip" style="text-decoration:none;cursor:pointer;padding:30px 20px;display:flex;flex-direction:column;align-items:center;gap:8px;"
-         href="https://github.com/3477856804/XLmodel-release/releases/latest">
-        <svg viewBox="0 0 24 24" width="36" height="36" style="margin:0;"><path d="M16 3c0 2-1.5 4-4 4 0-2 1.5-4 4-4z"/><path d="M12 8c-3.5 0-6 2.5-6 6 0 4 3.5 7 6.5 7 1 0 2-.5 3-.5s2 .5 3 .5c2.5 0 4.5-2.5 4.5-5.5 0-4-3-7-6-7z"/></svg>
-        <b style="font-size:16px;">macOS</b>
-        <small style="color:var(--ink-soft);font-weight:400;">.dmg（Apple Silicon）</small>
-        <span style="margin-top:8px;padding:6px 16px;border-radius:999px;background:linear-gradient(135deg,#FFB6CD,#E85A8A);color:#fff;font-size:12px;font-weight:600;">下载 ↓</span>
-      </a>
-      <a class="chip" style="text-decoration:none;cursor:pointer;padding:30px 20px;display:flex;flex-direction:column;align-items:center;gap:8px;"
-         href="https://github.com/3477856804/XLmodel-release/releases/latest">
-        <svg viewBox="0 0 24 24" width="36" height="36" style="margin:0;"><circle cx="12" cy="12" r="9"/><path d="M4 12h16M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>
-        <b style="font-size:16px;">Linux</b>
-        <small style="color:var(--ink-soft);font-weight:400;">.AppImage / .deb</small>
-        <span style="margin-top:8px;padding:6px 16px;border-radius:999px;background:linear-gradient(135deg,#FFB6CD,#E85A8A);color:#fff;font-size:12px;font-weight:600;">下载 ↓</span>
-      </a>
-    </div>
-    <p style="text-align:center;margin-top:22px;color:var(--ink-soft);font-size:13px;">
-      自动更新已集成：Windows (win32_updater) · macOS (Sparkle) · Linux (AppImageUpdate)
-    </p>
-  </div>
-</section>
-<section id="quickstart">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <span class="kicker">Quick Start</span>
-      <h2>快速开始</h2>
-      <p>3 步，让小凌住进你的设备。</p>
-    </div>
-    <div class="steps">
-      <div class="step reveal">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          <h4>克隆仓库</h4>
-          <div class="code"><span class="cmd">git clone</span> https://gitee.com/COSMOnb666/XLmodel.git<br><span class="cmd">cd</span> XLmodel</div>
+<!-- 代码展示 -->
+<section>
+  <div class="section-inner">
+    <div class="code-section">
+      <div class="reveal">
+        <div class="section-eyebrow">QUICK START</div>
+        <h2 class="section-title" style="text-align:left">下载即开，零配置</h2>
+        <p style="color:var(--text-2);margin-top:16px;font-size:16px;line-height:1.8">
+          无需安装 Python，无需手动下载依赖。所有运行时（含 PyTorch）已打包进单文件，双击即可启动图形界面。选择角色模型后立即开始对话和训练。
+        </p>
+      </div>
+      <div class="code-block reveal">
+        <div class="code-header">
+          <span class="code-dot r"></span><span class="code-dot y"></span><span class="code-dot g"></span>
+          <span class="code-title">terminal</span>
         </div>
-      </div>
-      <div class="step reveal">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <h4>安装依赖</h4>
-          <div class="code"><span class="cmd">pip install</span> -r requirements.txt</div>
-        </div>
-      </div>
-      <div class="step reveal">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          <h4>启动小凌</h4>
-          <div class="code"><span class="cmd">python</span> xl.py        <span class="cmt"># Windows 桌宠</span><br><span class="cmd">python3</span> xl.py      <span class="cmt"># Linux/macOS 命令行</span><br><span class="cmd">python</span> xl.py --platform wechat,qq,telegram <span class="cmt"># 接入平台</span></div>
+        <div class="code-body">
+          <span class="cmt"># Windows 用户</span><br>
+          <span class="cmd">双击</span> XiaoLing-Windows.exe<br><br>
+          <span class="cmt"># Linux 用户</span><br>
+          <span class="cmd">tar</span> -xzf XiaoLing-Linux.tar.gz<br>
+          <span class="cmd">./</span>XiaoLing-Linux<br><br>
+          <span class="cmt"># macOS 用户</span><br>
+          <span class="cmd">unzip</span> XiaoLing-macOS.zip<br>
+          <span class="cmd">./</span>XiaoLing-macOS<br><br>
+          <span class="cmt"># 首次启动自动加载模型</span><br>
+          <span class="str">[小凌]</span> 正在唤醒... 模型加载完成
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- 社区 -->
-<section id="community">
-  <div class="wrap">
-    <div class="community-card reveal">
-      <h3>加入小凌社区</h3>
-      <p class="lead">获取完整模型 · 交流反馈 · 一起陪小凌成长</p>
-      <div class="qq">QQ 群：1057895186</div>
-      <div class="qr-wrap"><img src="qr-code.png" alt="小凌社区 QQ 群二维码，扫码加入"></div>
-      <p class="note">手机扫码加入，或搜索群号 1057895186<br>群文件里有完整模型权重，让小凌真正「活」起来</p>
+<!-- 模型展示 -->
+<section id="models" class="plugin-section">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">CHARACTER MODELS</div>
+      <h2 class="section-title">7 个角色，各有性格</h2>
+      <p class="section-desc">每个模型绑定专属音色和动作，可在工作台内随时切换。</p>
+    </div>
+    <div class="models-grid">
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/小凌.png" alt="小凌"></div>
+        <div class="model-info"><h4>小凌</h4><p>默认角色 · 金发蓝眼</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/Vivi.png" alt="Vivi"></div>
+        <div class="model-info"><h4>Vivi</h4><p>活力少女 · 猫耳造型</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/QuQu.png" alt="QuQu"></div>
+        <div class="model-info"><h4>QuQu</h4><p>酷飒御姐 · 银灰短发</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb model-placeholder">Z</div>
+        <div class="model-info"><h4>Zome</h4><p>神秘角色</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/Rabbit_Peridot.png" alt="Rabbit Peridot"></div>
+        <div class="model-info"><h4>Rabbit Peridot</h4><p>兔耳萌系</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/Rabbit_Rubellite.png" alt="Rabbit Rubellite"></div>
+        <div class="model-info"><h4>Rabbit Rubellite</h4><p>兔耳萌系</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb model-placeholder">I</div>
+        <div class="model-info"><h4>Imeris</h4><p>精致建模</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb model-placeholder">+</div>
+        <div class="model-info"><h4>更多模型</h4><p>支持自定义 VRM</p></div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- 页脚 -->
+<!-- 下载 -->
+<section id="download" class="download-section">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">DOWNLOAD</div>
+      <h2 class="section-title">全平台下载</h2>
+      <p class="section-desc">单文件程序，双击即开。所有依赖已内置，无需额外安装。</p>
+    </div>
+    <div class="download-grid">
+      <div class="dl-card reveal">
+        <div class="os-icon">W</div>
+        <h3>Windows</h3>
+        <div class="size">约 302 MB · .exe</div>
+        <a href="https://ghfast.top/https://github.com/3477856804/XLmodel-release/releases/download/v0.0.3/XiaoLing-Windows.exe" class="dl-btn">下载 Windows 版</a>
+      </div>
+      <div class="dl-card reveal">
+        <div class="os-icon">L</div>
+        <h3>Linux</h3>
+        <div class="size">约 407 MB · .tar.gz</div>
+        <a href="https://ghfast.top/https://github.com/3477856804/XLmodel-release/releases/download/v0.0.3/XiaoLing-Linux.tar.gz" class="dl-btn">下载 Linux 版</a>
+      </div>
+      <div class="dl-card reveal">
+        <div class="os-icon">M</div>
+        <h3>macOS</h3>
+        <div class="size">约 288 MB · .zip</div>
+        <a href="https://ghfast.top/https://github.com/3477856804/XLmodel-release/releases/download/v0.0.3/XiaoLing-macOS.zip" class="dl-btn">下载 macOS 版</a>
+      </div>
+    </div>
+    <p class="dl-note">Windows 用户首次运行可能出现 SmartScreen 提示，请点击"更多信息" → "仍要运行"。下载通过 ghfast.top 镜像加速。</p>
+  </div>
+</section>
+
+<!-- Footer -->
 <footer>
-  <div class="wrap">
-    <div class="foot-brand"><img src="xiaoling.png" alt="">小凌 XIAOLING</div>
-    <div class="foot-links">
-      <a href="https://github.com/3477856804/XLmodel-release">GitHub</a>
-      <a href="https://gitee.com/COSMOnb666/XLmodel">Gitee</a>
-      <a href="#features">能力</a>
-      <a href="#community">社区</a>
-    </div>
-    <div class="copyright">© 2026 小凌 XIAOLING · 会成长的数字生命 · v0.0.3 Flutter + gRPC 新架构</div>
+  <div class="links">
+    <a href="#features">功能</a>
+    <a href="#plugins">插件</a>
+    <a href="#models">模型</a>
+    <a href="#download">下载</a>
   </div>
+  <p>小凌 XIAOLING · 会成长的数字生命 · 开源项目</p>
 </footer>
 
 <script>
-  // 滚动揭示
-  const io = new IntersectionObserver((entries)=>{
-    entries.forEach(e=>{
-      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
-    });
-  },{threshold:.12});
-  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
-
-  /* ===== 水波纹引擎：整站像浮在水面上 ===== */
-  const cv = document.getElementById('water');
-  const cx = cv.getContext('2d');
-  let W=0,H=0,dpr=1;
-  function resize(){
-    dpr = Math.min(window.devicePixelRatio||1, 2);
-    W = cv.width  = innerWidth*dpr;
-    H = cv.height = innerHeight*dpr;
-    cv.style.width = innerWidth+'px';
-    cv.style.height = innerHeight+'px';
-  }
-  resize(); addEventListener('resize', resize);
-
-  const PALETTE = ['127,219,255','79,195,247','159,232,255','92,232,255'];
-  let ripples = [];
-  function spawn(x,y,strength=1){
-    ripples.push({
-      x,y, r:0,
-      max: (Math.min(innerWidth,innerHeight)*0.32 + 80*Math.random())*Math.min(strength,1.6),
-      speed: (1.6 + Math.random()*1.2)*Math.min(strength,1.6),
-      color: PALETTE[(Math.random()*PALETTE.length)|0],
-      rings: 2 + (Math.random()*2|0)
-    });
-    if(ripples.length>70) ripples.shift();
-  }
-
-  // 滚动：按速度在视口里洒落涟漪
-  let lastY = scrollY, lastT = performance.now();
-  addEventListener('scroll', ()=>{
-    const now = performance.now();
-    const dy = Math.abs(scrollY - lastY);
-    const dt = Math.max(now-lastT, 16);
-    lastY = scrollY; lastT = now;
-    const v = dy/dt;
-    if(v > 0.25){
-      const n = Math.min(1 + Math.floor(v*4), 3);
-      for(let i=0;i<n;i++){
-        spawn(innerWidth*(0.18+Math.random()*0.64), innerHeight*(0.25+Math.random()*0.55), Math.min(v,1.4));
+// 粒子背景
+const canvas = document.getElementById('particles');
+const ctx = canvas.getContext('2d');
+let particles = [];
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+resize();addEventListener('resize',resize);
+for(let i=0;i<60;i++){
+  particles.push({
+    x:Math.random()*canvas.width,
+    y:Math.random()*canvas.height,
+    r:Math.random()*1.5+.5,
+    vx:(Math.random()-.5)*.3,
+    vy:(Math.random()-.5)*.3,
+    a:Math.random()*.5+.2
+  });
+}
+function animate(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  particles.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0||p.x>canvas.width)p.vx*=-1;
+    if(p.y<0||p.y>canvas.height)p.vy*=-1;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(232,90,138,${p.a})`;
+    ctx.fill();
+  });
+  // 连线
+  for(let i=0;i<particles.length;i++){
+    for(let j=i+1;j<particles.length;j++){
+      const dx=particles[i].x-particles[j].x;
+      const dy=particles[i].y-particles[j].y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<120){
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x,particles[i].y);
+        ctx.lineTo(particles[j].x,particles[j].y);
+        ctx.strokeStyle=`rgba(232,90,138,${.15*(1-dist/120)})`;
+        ctx.stroke();
       }
     }
-  },{passive:true});
-
-  // 指针：滑过带起细波，点击像落水
-  let lastP = 0;
-  addEventListener('pointermove', e=>{
-    const now = performance.now();
-    if(now-lastP > 110){ lastP = now; spawn(e.clientX, e.clientY, .35); }
-  },{passive:true});
-  addEventListener('pointerdown', e=> spawn(e.clientX, e.clientY, 1.7));
-
-  // 章节进入：在其位置泛一圈水
-  const secIO = new IntersectionObserver(entries=>{
-    entries.forEach(e=>{
-      if(e.isIntersecting){
-        const r = e.boundingClientRect;
-        spawn(r.left + r.width/2, r.top + r.height/3, 1.1);
-        secIO.unobserve(e.target);
-      }
-    });
-  },{threshold:.2});
-  document.querySelectorAll('section, .hero').forEach(el=>secIO.observe(el));
-
-  // 水面自发光：偶尔远处起一个微澜
-  setInterval(()=>{ if(!document.hidden) spawn(innerWidth*Math.random(), innerHeight*Math.random(), .25); }, 2600);
-  // 开场两波涟漪，让首屏立刻"活"成水面
-  setTimeout(()=>spawn(innerWidth/2, innerHeight*0.5, 1.4), 280);
-  setTimeout(()=>spawn(innerWidth/2, innerHeight*0.5, 1.0), 950);
-
-  // 水面浮升气泡
-  let bubbles = [];
-  function spawnBubble(){
-    bubbles.push({
-      x: Math.random()*innerWidth,
-      y: innerHeight + 20,
-      r: 2 + Math.random()*6,
-      vy: 0.3 + Math.random()*0.9,
-      sway: Math.random()*Math.PI*2,
-      color: PALETTE[(Math.random()*PALETTE.length)|0]
-    });
-    if(bubbles.length>42) bubbles.shift();
   }
-  setInterval(()=>{ if(!document.hidden) spawnBubble(); }, 900);
+  requestAnimationFrame(animate);
+}
+animate();
 
-  function tick(){
-    cx.clearRect(0,0,W,H);
-    ripples = ripples.filter(p=>{
-      p.r += p.speed*dpr;
-      const t = p.r/p.max;
-      if(t>=1) return false;
-      const fade = (1-t)*(1-t);
-      for(let k=0;k<p.rings;k++){
-        const rr = p.r*(1 - k*0.22);
-        if(rr<=0) continue;
-        cx.beginPath();
-        cx.arc(p.x*dpr, p.y*dpr, rr, 0, Math.PI*2);
-        cx.strokeStyle = `rgba(${p.color},${fade*(0.5 - k*0.12)})`;
-        cx.lineWidth = (2.6 - 1.8*t - k*0.4)*dpr;
-        cx.stroke();
-      }
-      return true;
-    });
-    // 浮升荧光颗粒
-    bubbles = bubbles.filter(b=>{
-      b.y -= b.vy*dpr;
-      b.sway += 0.02;
-      const bx = (b.x + Math.sin(b.sway)*12)*dpr;
-      const by = b.y*dpr;
-      const g = cx.createRadialGradient(bx,by,0,bx,by,b.r*2.4*dpr);
-      g.addColorStop(0,`rgba(${b.color},.55)`);
-      g.addColorStop(.4,`rgba(${b.color},.18)`);
-      g.addColorStop(1,'rgba(0,0,0,0)');
-      cx.fillStyle = g;
-      cx.beginPath();
-      cx.arc(bx,by,b.r*2.4*dpr,0,Math.PI*2);
-      cx.fill();
-      cx.beginPath();
-      cx.arc(bx,by,b.r*.5*dpr,0,Math.PI*2);
-      cx.fillStyle = `rgba(255,255,255,.7)`;
-      cx.fill();
-      return b.y > -30;
-    });
-    requestAnimationFrame(tick);
-  }
-  tick();
-
-  /* ===== 阅读进度条 ===== */
-  const prog = document.getElementById('progress');
-  function onScrollProg(){
-    const h = document.documentElement;
-    const p = h.scrollTop / (h.scrollHeight - h.clientHeight);
-    prog.style.width = (p*100)+'%';
-  }
-  addEventListener('scroll', onScrollProg, {passive:true}); onScrollProg();
-
-  /* ===== 数字滚动 ===== */
-  const cntIO = new IntersectionObserver(es=>{
-    es.forEach(e=>{
-      if(!e.isIntersecting) return;
-      const el = e.target, end = +el.dataset.count, suf = el.dataset.suffix||'';
-      const dur = 1400, t0 = performance.now();
-      (function step(t){
-        const k = Math.min((t-t0)/dur, 1);
-        el.textContent = Math.round(end*(1-Math.pow(1-k,3))) + suf;
-        if(k<1) requestAnimationFrame(step);
-      })(t0);
-      cntIO.unobserve(el);
-    });
-  },{threshold:.6});
-  document.querySelectorAll('[data-count]').forEach(el=>cntIO.observe(el));
-
-  /* ===== 穹顶随鼠标 3D 倾斜 ===== */
-  const dome = document.querySelector('.dome-wrap');
-  const hero = document.querySelector('.hero');
-  if(dome && matchMedia('(pointer:fine)').matches){
-    hero.addEventListener('pointermove', e=>{
-      const r = hero.getBoundingClientRect();
-      const dx = (e.clientX - r.left)/r.width - .5;
-      const dy = (e.clientY - r.top)/r.height - .5;
-      dome.style.transform = `perspective(900px) rotateY(${dx*10}deg) rotateX(${-dy*8}deg)`;
-    });
-    hero.addEventListener('pointerleave', ()=>{ dome.style.transform = ''; });
-  }
-
-  /* ===== 小凌表情互动：点头切换 眨眼 / 嘟嘴 ===== */
-  const domeEl = document.getElementById('dome');
-  const domeImg = document.getElementById('dome-img');
-  const FACES = [
-    {src:'xiaoling-orb.png',  label:'小凌'},
-    {src:'xiaoling-blink.jpg',label:'眨眼'},
-    {src:'xiaoling-pout.jpg', label:'嘟嘴'}
-  ];
-  let faceIdx = 0, faceTimer = null;
-  if(domeEl && domeImg){
-    domeEl.addEventListener('click', ()=>{
-      // 水波爆发
-      const r = domeEl.getBoundingClientRect();
-      const cx = r.left + r.width/2, cy = r.top + r.height/2;
-      for(let i=0;i<3;i++) spawn(cx, cy, 1.5);
-      // 压扁回弹
-      domeEl.animate(
-        [{transform:'scale(1)'},{transform:'scale(.92,.88)'},{transform:'scale(1.04,1.06)'},{transform:'scale(1)'}],
-        {duration:480, easing:'cubic-bezier(.34,1.56,.64,1)'}
-      );
-      // 切换表情
-      faceIdx = (faceIdx+1) % FACES.length;
-      domeImg.style.opacity = 0;
-      clearTimeout(faceTimer);
-      faceTimer = setTimeout(()=>{
-        domeImg.src = FACES[faceIdx].src;
-        domeImg.style.opacity = 1;
-      }, 180);
-    });
-  }
-
-  /* ===== CTA 磁吸 ===== */
-  document.querySelectorAll('.btn-primary').forEach(btn=>{
-    btn.addEventListener('pointermove', e=>{
-      const r = btn.getBoundingClientRect();
-      const dx = e.clientX - (r.left + r.width/2);
-      const dy = e.clientY - (r.top + r.height/2);
-      btn.style.transform = `translate(${dx*0.18}px,${dy*0.18}px)`;
-    });
-    btn.addEventListener('pointerleave', ()=>{ btn.style.transform=''; });
-  });
-
-  /* ===== 导航当前区块高亮 ===== */
-  const navLinks = document.querySelectorAll('.nav-links a');
-  const map = {};
-  navLinks.forEach(a=>{ map[a.getAttribute('href').slice(1)] = a; });
-  const spy = new IntersectionObserver(es=>{
-    es.forEach(e=>{
-      const a = map[e.target.id];
-      if(!a) return;
-      if(e.isIntersecting){
-        navLinks.forEach(x=>{x.style.background='';x.style.color='';});
-        a.style.background = 'rgba(232,90,138,.22)';
-        a.style.color = '#EAF6FF';
-      }
-    });
-  },{threshold:.4});
-  document.querySelectorAll('section[id], header[id]').forEach(s=>spy.observe(s));
-
+// 滚动揭示
+const observer = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')});
+},{threshold:.1});
+document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));
 </script>
 </body>
 </html>
