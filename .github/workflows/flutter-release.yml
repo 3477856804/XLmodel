@@ -74,7 +74,7 @@ jobs:
       - run: flutter build linux --release
       - name: 打包 tar.gz
         run: |
-          cd build/linux/x64/release/bundle/ && tar czf ../../../../xiaoling-linux-x64.tar.gz .
+          cd build/linux/x64/release/bundle/ && tar czf ../../../../../xiaoling-linux-x64.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
           name: xiaoling-linux
