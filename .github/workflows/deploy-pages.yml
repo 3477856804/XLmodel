@@ -10,8 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: |
+          mkdir -p site
+          cp index.html site/
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: cfat_rwpTBlBaI80HBAb2WjtyW9PjOW32OAAS7SVvANzW96efb6f6
           accountId: 7d3b4e416b91633180e454de0988daa0
-          command: pages deploy . --project-name=xiaoling
+          command: pages deploy site --project-name=xiaoling
