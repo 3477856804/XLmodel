@@ -690,8 +690,7 @@ def install(g):
 
     # ---- v0.0.4 新增：人格系统 ----
     try:
-        from core.persona_emotion import EmotionEngine
-        from core.persona_relationship import RelationshipEngine
+        from core.persona import EmotionEngine, RelationshipEngine
         _STATE['emotion'] = EmotionEngine()
         _STATE['relationship'] = RelationshipEngine()
         _log("人格系统已接入：情绪状态机 + 关系亲密度")
@@ -708,7 +707,7 @@ def install(g):
 
     # ---- v0.0.4 新增：短期记忆 ----
     try:
-        from core.memory_short import ShortTermMemory
+        from core.memory import ShortTermMemory
         _STATE['short_memory'] = ShortTermMemory(max_size=20)
         _log("短期记忆已接入")
     except Exception as e:                                            # noqa: BLE001
