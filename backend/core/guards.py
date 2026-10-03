@@ -1,10 +1,40 @@
-"""运行时守卫 - 循环检测"""
+"""守卫系统 - 离线守卫 + 运行时守卫（循环检测）"""
+import socket
 import json
 import time
 
 
+# ===== 离线守卫 =====
+class OfflineGuard:
+    """网络检测 + 离线模式管理"""
+
+    def __init__(self):
+        self.online = None
+        self.last_check = 0
+        self.check_interval = 30
+
+    def is_online(self, force=False):
+        """检测网络是否可用"""
+        now = time.time()
+        if not force and self.online is not None and (now - self.last_check) < self.check_interval:
+            return self.online
+        self.last_check = now
+        try:
+            socket.setdefaulttimeout(2)
+            socket.getaddrinfo("gitee.com", 443, socket.AF_INET, socket.SOCK_STREAM)
+            self.online = True
+        except Exception:
+            self.online = False
+        return self.online
+
+    def status_text(self):
+        on = self.is_online()
+        return "在线" if on else "离线模式——本地模型完整可用"
+
+
+# ===== 运行时守卫 =====
 class Guard:
-    """运行时守卫"""
+    """运行时守卫 - 循环检测"""
 
     SOFT_THRESHOLD = 3
     HARD_THRESHOLD = 5
