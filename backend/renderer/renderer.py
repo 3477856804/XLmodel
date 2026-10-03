@@ -58,7 +58,7 @@ class AvatarRenderer:
         self.width, self.height = width, height
         self.focus = focus
         self.scale = 1.0
-        # v0.0.3：支持 .fbx（内部转 glb）；FBX 不可用时回退到第一个 .vrm
+        # v0.0.1：支持 .fbx（内部转 glb）；FBX 不可用时回退到第一个 .vrm
         try:
             self.model = load_any_model(self.model_path, log=self.log)
         except FBXUnavailable as e:
@@ -117,7 +117,7 @@ class AvatarRenderer:
         return True
 
     def _default_model(self) -> Path:
-        # v0.0.3：优先 ty.fbx（用户新模型），其次小凌.vrm，再其次任意 .vrm/.fbx
+        # v0.0.1：优先 ty.fbx（用户新模型），其次小凌.vrm，再其次任意 .vrm/.fbx
         p = self.model_dir / 'ty.fbx'
         if p.exists():
             return p

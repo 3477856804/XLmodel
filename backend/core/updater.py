@@ -24,7 +24,7 @@ class UpdateInfo:
 class UpdateChecker:
     """自动更新检查器"""
 
-    def __init__(self, current_version: str = "0.0.3"):
+    def __init__(self, current_version: str = "0.0.1"):
         self.current_version = current_version
         self.update_info: Optional[UpdateInfo] = None
 

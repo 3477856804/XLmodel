@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""rpc.server —— 小凌 gRPC 后端服务（v0.0.3 新架构）
+"""rpc.server —— 小凌 gRPC 后端服务（v0.0.1 新架构）
 
 架构：
     Flutter(UI)  ──gRPC/localhost:50051──>  rpc.server  ──>  xl.XiaoLing(AI)
@@ -137,11 +137,11 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 model=str((cfg.get('model') or {}).get('base_model') or '默认'),
                 backend=str((cfg.get('render') or {}).get('backend') or 'auto'),
                 progress=float(st.get('progress_percent', 0.0)),
-                version=str((cfg.get('version') or '0.0.3')),
+                version=str((cfg.get('version') or '0.0.1')),
             )
         except Exception as e:                                              # noqa: BLE001
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}',
-                                  version='0.0.3')
+                                  version='0.0.1')
 
     # ---------------- ListModels ----------------
     def ListModels(self, request, context):
@@ -221,7 +221,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         threading.Thread(target=_later, daemon=True).start()
         return pb.StatusReply(ok=True, message='正在关闭…')
 
-    # ==================== v0.0.4 新增 ====================
+    # ==================== v0.0.1 新增 ====================
 
     # ---------------- DetectHardware ----------------
     def DetectHardware(self, request, context):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""renderer.fbx_loader —— FBX 模型加载桥接（v0.0.3 新增）
+"""renderer.fbx_loader —— FBX 模型加载桥接（v0.0.1 新增）
 
 背景：小凌的渲染管线是自写软件光栅 + VRM/glTF 解析（见 renderer/gltf.py），
 原生只吃 ``.vrm / .glb / .gltf``。用户希望支持 ``.fbx``（例如 ty.fbx）。

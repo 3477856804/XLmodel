@@ -688,7 +688,7 @@ def install(g):
     wrap_main(g)
     g.setdefault('FUSION_BOOTSTRAP', bootstrap)
 
-    # ---- v0.0.4 新增：人格系统 ----
+    # ---- v0.0.1 新增：人格系统 ----
     try:
         from core.persona import EmotionEngine, RelationshipEngine
         _STATE['emotion'] = EmotionEngine()
@@ -697,7 +697,7 @@ def install(g):
     except Exception as e:                                            # noqa: BLE001
         _log(f"人格系统跳过（{e}）")
 
-    # ---- v0.0.4 新增：插件系统 ----
+    # ---- v0.0.1 新增：插件系统 ----
     try:
         from core.plugin_manager import PluginManager
         _STATE['plugins'] = PluginManager()
@@ -705,7 +705,7 @@ def install(g):
     except Exception as e:                                            # noqa: BLE001
         _log(f"插件系统跳过（{e}）")
 
-    # ---- v0.0.4 新增：短期记忆 ----
+    # ---- v0.0.1 新增：短期记忆 ----
     try:
         from core.memory import ShortTermMemory
         _STATE['short_memory'] = ShortTermMemory(max_size=20)
@@ -863,7 +863,7 @@ def wrap_engine_class(g):
             _avatar_say(out)
             return out
 
-        # v0.0.4: 更新情绪和关系
+        # v0.0.1: 更新情绪和关系
         try:
             emotion = _STATE.get('emotion')
             if emotion:
@@ -874,7 +874,7 @@ def wrap_engine_class(g):
         except Exception:                                             # noqa: BLE001
             pass
 
-        # v0.0.4: 短期记忆记录
+        # v0.0.1: 短期记忆记录
         try:
             sm = _STATE.get('short_memory')
             if sm:
@@ -889,7 +889,7 @@ def wrap_engine_class(g):
             except Exception:                                         # noqa: BLE001
                 pass
 
-        # v0.0.4: 注入情绪和关系 prompt
+        # v0.0.1: 注入情绪和关系 prompt
         augmented_input = user_input
         try:
             emotion = _STATE.get('emotion')
@@ -910,7 +910,7 @@ def wrap_engine_class(g):
                 if getattr(self, 'rag', None):
                     self.rag.add(result[:800], meta={'source': 'xiaoling'})
                 _avatar_say(result)
-                # v0.0.4: 短期记忆记录小凌回复
+                # v0.0.1: 短期记忆记录小凌回复
                 sm = _STATE.get('short_memory')
                 if sm:
                     sm.add('assistant', result)

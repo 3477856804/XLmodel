@@ -1,10 +1,10 @@
-# 小凌 XIAOLING · v0.0.4
+# 小凌 XIAOLING · v0.0.1
 
 > **会成长的 3D AI 桌宠 —— Flutter + Python + gRPC 三语言架构**
 
 ---
 
-## v0.0.4 更新了什么
+## v0.0.1 更新了什么
 
 ### 架构升级
 - **三语言分离**：Flutter (Dart) 写 UI + Python 写 AI 后端 + gRPC 写通信
@@ -120,7 +120,7 @@ flutter run
 
 ## 开发计划
 
-详见 [docs/小凌v0.0.4开发计划.md](docs/小凌v0.0.4开发计划.md)
+详见 [docs/小凌v0.0.1开发计划.md](docs/小凌v0.0.1开发计划.md)
 
 ---
 
