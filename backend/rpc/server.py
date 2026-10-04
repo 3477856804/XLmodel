@@ -68,22 +68,8 @@ def _get_engine(log=print):
 
 
 def _get_renderer(log=print):
-    """懒加载 3D 渲染器（软件后端，无头可用）。失败返回 None。"""
-    global _renderer
-    if _renderer is not None:
-        return _renderer
-    with _renderer_lock:
-        if _renderer is not None:
-            return _renderer
-        try:
-            from renderer.renderer import AvatarRenderer
-            _renderer = AvatarRenderer(backend='soft', width=200, height=280,
-                                       focus='bust', log=log)
-            log('  [gRPC] 3D 渲染器就绪（软件后端）')
-        except Exception as e:                                          # noqa: BLE001
-            log(f'  [gRPC] 渲染器不可用：{type(e).__name__}: {e}')
-            _renderer = None
-    return _renderer
+    """3D渲染已移至Flutter端，后端不再渲染。"""
+    return None
 
 
 def _quick_reply(text: str) -> str:
@@ -158,12 +144,16 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListModels ----------------
     def ListModels(self, request, context):
         try:
-            from renderer.fbx_loader import list_model_files
             from core.paths import resource
+            from pathlib import Path
             d = resource('models')
-            out = [pb.ModelInfo(name=p.stem, path=str(p)) for p in list_model_files(d)]
+            out = []
+            if Path(d).exists():
+                for p in sorted(Path(d).iterdir()):
+                    if p.suffix.lower() in ('.vrm', '.fbx', '.glb', '.gltf'):
+                        out.append(pb.ModelInfo(name=p.stem, path=str(p)))
             return pb.ModelList(models=out)
-        except Exception as e:                                              # noqa: BLE001
+        except Exception as e:
             context.set_details(f'列出模型失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.ModelList()
@@ -403,7 +393,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 can_run = ram >= need_gb
                 out.append(pb.RecommendedModel(
                     name=item["name"],
-                    params=item.get("size_mb", 0) and f'{item["size_mb"]//1024}B' or "",
+                    params = f'{int(item["size_mb"]//1024)}B' if item["size_mb"] >= 1024 else f'{item["size_mb"]}MB',
                     size_mb=item["size_mb"],
                     ram_gb=round(need_gb, 1),
                     quality=item["score"],
