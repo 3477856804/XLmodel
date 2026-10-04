@@ -14,7 +14,6 @@ class ModelStorePage extends StatelessWidget {
         elevation: 0,
       ),
       body: Container(
-        decoration: AppTheme.gradientBackground,
         child: Column(
           children: [
             _buildHardwareCard(),
@@ -29,7 +28,7 @@ class ModelStorePage extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.all(20),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -101,7 +100,7 @@ class ModelStorePage extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

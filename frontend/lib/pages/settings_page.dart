@@ -14,7 +14,6 @@ class SettingsPage extends StatelessWidget {
         elevation: 0,
       ),
       body: Container(
-        decoration: AppTheme.gradientBackground,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -61,7 +60,7 @@ class SettingsPage extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Row(
         children: [
           Icon(icon, size: 20, color: AppTheme.primaryPink),

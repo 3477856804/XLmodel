@@ -115,7 +115,7 @@ class _TrainingPageState extends State<TrainingPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -146,7 +146,7 @@ class _TrainingPageState extends State<TrainingPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         children: [
           const Text('五维能力',
@@ -168,7 +168,7 @@ class _TrainingPageState extends State<TrainingPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -137,7 +137,7 @@ class _GrowthPageState extends State<GrowthPage> {
                 ),
                 child: Text(_data!.currentRank,
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
-                        color: AppTheme.black)),
+                        color: AppTheme.ink)),
               ),
               const SizedBox(width: 8),
               Text(_data!.stage,
@@ -169,7 +169,7 @@ class _GrowthPageState extends State<GrowthPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -230,7 +230,7 @@ class _GrowthPageState extends State<GrowthPage> {
   Widget _statCard(IconData icon, String label, String value) {
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,

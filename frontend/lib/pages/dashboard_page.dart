@@ -9,7 +9,6 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: AppTheme.gradientBackground,
         child: SafeArea(
           child: Column(
             children: [
@@ -71,7 +70,7 @@ class DashboardPage extends StatelessWidget {
   Widget _buildIconButton(IconData icon) {
     return Container(
       padding: const EdgeInsets.all(10),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Icon(icon, color: AppTheme.primaryPink, size: 20),
     );
   }
@@ -97,7 +96,7 @@ class DashboardPage extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.glassCard,
+      decoration: AppTheme.glassDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -143,7 +142,7 @@ class DashboardPage extends StatelessWidget {
       child: Container(
         width: 300,
         height: 400,
-        decoration: AppTheme.glassCard,
+        decoration: AppTheme.glassDecoration,
         child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -202,7 +201,7 @@ class DashboardPage extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.all(16),
-            decoration: AppTheme.glassCard,
+            decoration: AppTheme.glassDecoration,
             child: Row(
               children: [
                 Icon(item.icon, color: AppTheme.primaryPink, size: 20),

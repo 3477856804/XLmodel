@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'theme/theme.dart';
 import 'pages/splash_page.dart';
@@ -19,14 +20,12 @@ class XiaoLingApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const SplashPage(),
-      routes: {
-        '/home': (_) => const HomeShell(),
-      },
+      routes: {'/home': (_) => const HomeShell()},
     );
   }
 }
 
-/// 应用主壳：底部导航 + 五个页面
+/// 应用主壳：极光背景 + 五页 + 毛玻璃底部导航
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -48,32 +47,82 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: AppTheme.gradientBackground,
-        child: SafeArea(child: _pages[_index]),
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.85),
-          border: Border(top: BorderSide(color: AppTheme.gold.withOpacity(0.3))),
-          boxShadow: [BoxShadow(color: AppTheme.primaryPink.withOpacity(0.1), blurRadius: 12)],
+      body: AppTheme.auroraBackground(
+        child: SafeArea(
+          bottom: false,
+          child: IndexedStack(index: _index, children: _pages),
         ),
-        child: BottomNavigationBar(
-          currentIndex: _index,
-          onTap: (i) => setState(() => _index = i),
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          selectedItemColor: AppTheme.primaryPink,
-          unselectedItemColor: AppTheme.textLight,
-          selectedFontSize: 11,
-          unselectedFontSize: 11,
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble), label: '聊天'),
-            BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: '工作台'),
-            BottomNavigationBarItem(icon: Icon(Icons.auto_graph_outlined), activeIcon: Icon(Icons.auto_graph), label: '训练'),
-            BottomNavigationBarItem(icon: Icon(Icons.trending_up_outlined), activeIcon: Icon(Icons.trending_up), label: '成长'),
-            BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings), label: '设置'),
+      ),
+      bottomNavigationBar: _glassNavBar(),
+    );
+  }
+
+  Widget _glassNavBar() {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.6),
+            border: Border(
+              top: BorderSide(color: Colors.white.withOpacity(0.5), width: 1),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 68,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _navItem(0, Icons.chat_bubble_outline, Icons.chat_bubble, '聊天'),
+                  _navItem(1, Icons.dashboard_outlined, Icons.dashboard_rounded, '工作台'),
+                  _navItem(2, Icons.bubble_chart_outlined, Icons.bubble_chart_rounded, '训练'),
+                  _navItem(3, Icons.favorite_border, Icons.favorite_rounded, '成长'),
+                  _navItem(4, Icons.settings_outlined, Icons.settings_rounded, '设置'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _navItem(int i, IconData outline, IconData filled, String label) {
+    final selected = _index == i;
+    return GestureDetector(
+      onTap: () => setState(() => _index = i),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.symmetric(
+          horizontal: selected ? 14 : 10,
+          vertical: 8,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.primaryPink.withOpacity(0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              selected ? filled : outline,
+              color: selected ? AppTheme.primaryPink : AppTheme.textLight,
+              size: 22,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                color: selected ? AppTheme.primaryPink : AppTheme.textLight,
+              ),
+            ),
           ],
         ),
       ),
