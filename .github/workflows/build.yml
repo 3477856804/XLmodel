@@ -29,6 +29,10 @@ jobs:
             --name XiaoLing \
             --add-data "backend${SEP}backend" \
             --add-data "resources${SEP}resources" \
+            --collect-submodules google.protobuf \
+            --collect-submodules grpc \
+            --hidden-import requests \
+            --hidden-import aiohttp \
             --exclude-module torch \
             --exclude-module PySide6 \
             --exclude-module PyQt5 \
