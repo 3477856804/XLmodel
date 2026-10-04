@@ -1,23 +1,90 @@
-"""模型系统 - 本地模型加载 + 模型商店 + 模型自我替换"""
+"""模型系统 - 多模型选择 + 按跑分推荐 + 本地加载"""
 import os
-import hashlib
 import threading
 from pathlib import Path
 
-# ===== 模型预设 =====
+# ===== 模型预设（按最小但跑分最高排序） =====
+# score = MMLU平均分, size_mb = 模型大小
+# 推荐策略: score/size 比值越高越推荐
 MODEL_PRESETS = {
     "Qwen2.5-0.5B-Instruct": {
-        "size_hint": "~1GB",
         "repo": "Qwen/Qwen2.5-0.5B-Instruct",
-        "desc": "最小中文模型，CPU可跑",
+        "size_mb": 988,
+        "score": 25.0,
+        "desc": "最小模型，CPU秒跑，适合低配",
+        "langs": "中/英",
+    },
+    "Qwen2.5-1.5B-Instruct": {
+        "repo": "Qwen/Qwen2.5-1.5B-Instruct",
+        "size_mb": 3100,
+        "score": 40.0,
+        "desc": "性价比最高，中文流畅",
+        "langs": "中/英",
+    },
+    "Qwen2.5-3B-Instruct": {
+        "repo": "Qwen/Qwen2.5-3B-Instruct",
+        "size_mb": 6100,
+        "score": 52.0,
+        "desc": "能力强，需4GB内存",
+        "langs": "中/英",
+    },
+    "Llama-3.2-1B-Instruct": {
+        "repo": "meta-llama/Llama-3.2-1B-Instruct",
+        "size_mb": 1300,
+        "score": 39.0,
+        "desc": "英文强，中文一般",
+        "langs": "英/多语",
+    },
+    "Phi-3.5-mini-instruct": {
+        "repo": "microsoft/Phi-3.5-mini-instruct",
+        "size_mb": 2300,
+        "score": 49.0,
+        "desc": "微软小钢炮，推理快",
+        "langs": "英/多语",
     },
 }
 
 
-def get_model_preset():
-    name = "Qwen2.5-0.5B-Instruct"
-    preset = MODEL_PRESETS.get(name)
-    return preset, name
+def list_recommended():
+    """返回按 score/size 比值排序的模型列表（最小但跑分最高优先）"""
+    items = []
+    for name, info in MODEL_PRESETS.items():
+        ratio = info["score"] / (info["size_mb"] / 1024)  # 每GB跑分
+        items.append({
+            "name": name,
+            "repo": info["repo"],
+            "size_mb": info["size_mb"],
+            "score": info["score"],
+            "desc": info["desc"],
+            "langs": info["langs"],
+            "ratio": round(ratio, 2),
+        })
+    items.sort(key=lambda x: x["ratio"], reverse=True)
+    return items
+
+
+def get_recommended(config=None):
+    """根据用户配置推荐模型
+    config: {"max_size_mb": int, "lang": "zh"/"en", "has_gpu": bool}
+    没有配置就返回默认推荐（最小但跑分最高）
+    """
+    recs = list_recommended()
+    if not config:
+        return recs[0] if recs else None
+
+    max_size = config.get("max_size_mb", 10000)
+    lang = config.get("lang", "zh")
+
+    candidates = [r for r in recs if r["size_mb"] <= max_size]
+    if not candidates:
+        candidates = recs  # 超出限制也放最小的
+
+    # 中文优先
+    if lang == "zh":
+        zh = [c for c in candidates if "中" in c["langs"]]
+        if zh:
+            return zh[0]
+    return candidates[0]
 
 
 # ===== 模型下载 =====
@@ -91,17 +158,22 @@ class LocalModel:
 
 # ===== 模型商店 =====
 class ModelStore:
-    """模型商店 - 模型下载、管理、断点续传"""
+    """模型商店 - 列出所有可下载模型，用户自选"""
 
     def __init__(self, store_dir: str = None):
         from core.paths import APP_DIR
         self.store_dir = Path(store_dir) if store_dir else Path(APP_DIR) / "models"
         self.store_dir.mkdir(parents=True, exist_ok=True)
 
-    def list_models(self) -> list:
+    def list_available(self) -> list:
+        """列出所有可下载模型（按推荐排序）"""
+        return list_recommended()
+
+    def list_installed(self) -> list:
+        """列出已下载的模型"""
         return [p.name for p in self.store_dir.iterdir() if p.is_dir()]
 
-    def download(self, model_name: str, url: str = "") -> bool:
+    def download(self, model_name: str) -> bool:
         preset = MODEL_PRESETS.get(model_name)
         if not preset:
             print(f"  [下载] 未知模型: {model_name}")
@@ -115,22 +187,34 @@ class ModelStore:
             return False
 
 
-# ===== 模型自我替换 =====
+# ===== 模型加载（用户选哪个加载哪个） =====
 class ModelReplacement:
-    def __init__(self, model_dir=None, adapter_dir=None):
+    def __init__(self, model_dir=None, adapter_dir=None, selected_name=None):
         from core.paths import APP_DIR
         self.model_dir = Path(model_dir) if model_dir else Path(APP_DIR) / "models"
         self.adapter_dir = Path(adapter_dir) if adapter_dir else Path(APP_DIR) / "adapters"
-        self.replaced = False
+        self.selected_name = selected_name  # 用户在设置里选的模型名
         self._local = None
+
+    def _find_installed(self):
+        """找到已下载的模型目录"""
+        # 优先用用户选的
+        if self.selected_name:
+            d = self.model_dir / self.selected_name
+            if d.exists() and any(d.glob("*.safetensors")):
+                return d
+        # 否则找任意已下载的
+        for name in MODEL_PRESETS:
+            d = self.model_dir / name
+            if d.exists() and any(d.glob("*.safetensors")):
+                return d
+        return None
 
     def get_model(self) -> LocalModel:
         if self._local is None:
-            for name in MODEL_PRESETS:
-                d = self.model_dir / name
-                if d.exists() and any(d.glob("*.safetensors")):
-                    self._local = LocalModel(str(d))
-                    break
+            d = self._find_installed()
+            if d:
+                self._local = LocalModel(str(d))
         return self._local
 
     def chat(self, text: str) -> str:
@@ -139,13 +223,8 @@ class ModelReplacement:
             return None
         return m.generate(text)
 
-    def check_and_replace(self):
-        if self.replaced:
-            return "self_research", "已是自研模型"
-        return "growing", "成长中"
-
     def status_text(self) -> str:
         m = self.get_model()
         if m is not None and m.model is not None:
-            return "已加载真实模型"
+            return f"已加载: {self.selected_name or '本地模型'}"
         return "等待下载模型"

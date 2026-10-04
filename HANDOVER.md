@@ -23,7 +23,7 @@
 
 ## 已实现功能
 
-- AI对话：Qwen2.5-0.5B-Instruct 本地推理
+- AI对话：用户自选模型，5个预设按跑分/大小排序推荐
 - 语音合成：edge-tts 五个中文音色
 - 模型下载：HuggingFace 断点续传
 - LoRA微调：peft r=4，CPU可跑，适配器保存
@@ -50,7 +50,7 @@
 | 文件 | 作用 |
 |------|------|
 | `engine.py` | 主引擎 XiaoLing 类，整合所有模块，chat()优先调真实模型 |
-| `model.py` | LLM加载与推理（transformers + Qwen2.5），模型下载与管理 |
+| `model.py` | 多模型预设，按score/size比值排序推荐，用户自选下载，transformers加载推理 |
 | `voice.py` | edge-tts语音合成，5个音色 |
 | `training.py` | LoRA r=4 CPU微调，适配器保存 |
 | `growth.py` | 成长引擎，五维能力等级 |
