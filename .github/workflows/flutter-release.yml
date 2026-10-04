@@ -42,8 +42,10 @@ jobs:
             --add-data "resources;resources" \
             --collect-submodules google.protobuf \
             --collect-submodules grpc \
+            --collect-all edge_tts \
             --hidden-import requests \
             --hidden-import aiohttp \
+            --hidden-import peft \
             --exclude-module torch --exclude-module PySide6 --exclude-module PyQt5 \
             main.py
       - name: 整合打包
