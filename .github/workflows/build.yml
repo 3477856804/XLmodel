@@ -55,6 +55,7 @@ jobs:
           printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/xiaoling" "$@"\n' > dist/AppDir/AppRun
           chmod +x dist/AppDir/AppRun
           printf '[Desktop Entry]\nName=XiaoLing\nExec=xiaoling\nType=Application\nIcon=xiaoling\nCategories=Utility;\n' > dist/AppDir/xiaoling.desktop
+          python3 -c "import struct,zlib; open('dist/AppDir/xiaoling.png','wb').write(b'\x89PNG\r\n\x1a\n'+struct.pack('>II',1,1)+b'\x00\x00\x00\x0dIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB\x60\x82')"
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O dist/appimagetool
           chmod +x dist/appimagetool
           dist/appimagetool --appimage-extract-and-run dist/AppDir dist/XiaoLing-Linux.AppImage
