@@ -13,8 +13,13 @@
 import sys
 import os
 
-# 添加 backend 到路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+# 兼容开发态与 PyInstaller 打包态：把项目根（含 backend/ 包）加入 sys.path。
+if getattr(sys, 'frozen', False):
+    # PyInstaller onefile：资源解包在 sys._MEIPASS
+    _ROOT = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+else:
+    _ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _ROOT)
 
 
 def main():
