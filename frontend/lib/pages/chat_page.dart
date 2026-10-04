@@ -23,9 +23,10 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    _chan = ClientChannel('localhost',
+    _chan = ClientChannel('127.0.0.1',
         port: 50051,
-        options: const ChannelOptions(connectTimeout: Duration(seconds: 2)));
+        options: const ChannelOptions(connectTimeout: Duration(seconds: 10),
+            idleTimeout: Duration(minutes: 5)));
     _stub = XiaoLingClient(_chan);
     _hello();
   }
@@ -42,8 +43,9 @@ class _ChatPageState extends State<ChatPage> {
     try {
       final s = await _stub.getStatus(StatusRequest());
       setState(() => _status = 'v${s.version} · ${s.stage}');
-    } catch (_) {
-      setState(() => _status = '未连接后端');
+    } catch (e) {
+      print('GRPC ERROR: $e');
+      setState(() => _status = '未连接后端: $e');
     }
     setState(() => _msgs.add(_Msg('xl', '我在呢～想聊什么都可以。')));
   }
