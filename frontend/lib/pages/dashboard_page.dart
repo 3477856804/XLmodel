@@ -3,8 +3,8 @@ import 'package:grpc/grpc.dart';
 import '../theme/theme.dart';
 import '../rpc/xiaoling.pbgrpc.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
+import '../widgets/model_showcase.dart';
 
-/// 工作台 - 真实 gRPC 数据
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -16,7 +16,8 @@ class _DashboardPageState extends State<DashboardPage> {
   late ClientChannel _chan;
   late XiaoLingClient _stub;
   GrowthStatusReply? _growth;
-  bool _loading = true;
+  String? _modelPath;
+  String _modelName = '小凌';
 
   @override
   void initState() {
@@ -38,10 +39,18 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       final g = await _stub.getGrowthStatus(pb.Empty(),
           options: CallOptions(timeout: const Duration(seconds: 3)));
-      if (mounted) setState(() { _growth = g; _loading = false; });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
+      final models = await _stub.listModels(pb.ListRequest(),
+          options: CallOptions(timeout: const Duration(seconds: 3)));
+      if (mounted) {
+        setState(() {
+          _growth = g;
+          if (models.models.isNotEmpty) {
+            _modelPath = models.models.first.path;
+            _modelName = models.models.first.name;
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -71,7 +80,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 children: [
                   Expanded(flex: 1, child: _buildStats(prog, inter)),
                   const SizedBox(width: 16),
-                  Expanded(flex: 2, child: _buildModelPreview()),
+                  Expanded(flex: 2, child: _buildShowcase()),
                   const SizedBox(width: 16),
                   Expanded(flex: 1, child: _buildActions()),
                 ],
@@ -114,29 +123,27 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildModelPreview() {
+  Widget _buildShowcase() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.primaryPink.withOpacity(0.1)),
+        color: Colors.white.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.primaryPink.withOpacity(0.15)),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 100, height: 100,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppTheme.primaryPink.withOpacity(0.1),
-              border: Border.all(color: AppTheme.primaryPink.withOpacity(0.2)),
-            ),
-            child: const Icon(Icons.face_6, size: 50, color: AppTheme.primaryPink),
+          ModelShowcase(
+            modelPath: _modelPath,
+            characterName: _modelName,
+            width: 260,
+            height: 260,
           ),
-          const SizedBox(height: 16),
-          const Text('小凌', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1a1a1a))),
-          const SizedBox(height: 4),
-          Text(_growth?.stage ?? '3D 模型预览', style: const TextStyle(fontSize: 12, color: Color(0xFF999))),
+          const SizedBox(height: 12),
+          Text(
+            _growth?.stage ?? '点击拖拽旋转模型',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF999)),
+          ),
         ],
       ),
     );
