@@ -1,6 +1,6 @@
 name: flutter-release
 
-# 打 tag 形如 flutter-v0.0.1 时触发，自动打包三平台 Flutter 桌面端
+# 打 tag 形如 flutter-v* 或手动触发，自动打包三平台完整桌面端（Flutter UI + Python gRPC 后端）
 on:
   push:
     tags: ['flutter-v*']
@@ -10,86 +10,154 @@ permissions:
   contents: write
 
 jobs:
-  # ---------------- Windows: zip ---------------- #
+  # ---------------- Windows ---------------- #
   build-windows:
     runs-on: windows-latest
-    defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '3.27.4', channel: 'stable' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
       - name: 强制 Flutter 使用 VS2022
         shell: bash
         run: |
           VS_FILE="$FLUTTER_ROOT/packages/flutter_tools/lib/src/windows/visual_studio.dart"
           sed -i 's/Visual Studio 16 2019/Visual Studio 17 2022/g' "$VS_FILE"
           rm -f "$FLUTTER_ROOT/bin/cache/flutter_tools.snapshot"
-          echo "Patched: $(grep 'Visual Studio 17' "$VS_FILE" | head -1)"
-      - run: flutter create . --platforms=windows --project-name=xiaoling
-      - run: flutter pub get
-      - run: flutter build windows --release
+      - name: 装后端依赖
+        run: pip install pyinstaller numpy pillow grpcio protobuf requests aiohttp
+      - name: Build Flutter UI
+        working-directory: frontend
+        run: |
+          flutter create . --platforms=windows --project-name=xiaoling
+          flutter pub get
+          flutter build windows --release
+      - name: Build Python 后端
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --clean --onefile \
+            --name backend \
+            --add-data "backend;backend" \
+            --add-data "resources;resources" \
+            --collect-submodules google.protobuf \
+            --collect-submodules grpc \
+            --hidden-import requests \
+            --hidden-import aiohttp \
+            --exclude-module torch --exclude-module PySide6 --exclude-module PyQt5 \
+            main.py
+      - name: 整合打包
+        shell: bash
+        run: |
+          BUNDLE="frontend/build/windows/x64/runner/Release"
+          cp dist/backend.exe "$BUNDLE/backend.exe"
+          cp -r resources "$BUNDLE/resources"
+          printf '@echo off\r\nstart /min backend.exe --port 50051\r\ntimeout /t 2 /nobreak >nul\r\nstart "" xiaoling.exe\r\n' > "$BUNDLE/小凌.bat"
       - name: 打包 zip
         shell: pwsh
-        run: |
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "xiaoling-windows-x64.zip" -Force
+        run: Compress-Archive -Path "frontend\build\windows\x64\runner\Release\*" -DestinationPath "xiaoling-windows-x64.zip" -Force
       - uses: actions/upload-artifact@v4
-        with:
-          name: xiaoling-windows
-          path: frontend/xiaoling-windows-x64.zip
+        with: { name: xiaoling-windows, path: frontend/xiaoling-windows-x64.zip }
 
-  # ---------------- macOS: .dmg ---------------- #
+  # ---------------- macOS ---------------- #
   build-macos:
     runs-on: macos-latest
-    defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '3.27.4', channel: 'stable' }
-      - run: flutter create . --platforms=macos --project-name=xiaoling
-      - run: flutter pub get
-      - run: flutter build macos --release
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: 装后端依赖
+        run: pip install pyinstaller numpy pillow grpcio protobuf requests aiohttp
+      - name: Build Flutter UI
+        working-directory: frontend
+        run: |
+          flutter create . --platforms=macos --project-name=xiaoling
+          flutter pub get
+          flutter build macos --release
+      - name: Build Python 后端
+        run: |
+          pyinstaller --noconfirm --clean --onefile \
+            --name backend \
+            --add-data "backend:backend" \
+            --add-data "resources:resources" \
+            --collect-submodules google.protobuf \
+            --collect-submodules grpc \
+            --hidden-import requests --hidden-import aiohttp \
+            --exclude-module torch --exclude-module PySide6 --exclude-module PyQt5 \
+            main.py
+      - name: 整合打包
+        run: |
+          APP="frontend/build/macos/Build/Products/Release/xiaoling.app/Contents/Resources"
+          cp dist/backend "$APP/backend"
+          chmod +x "$APP/backend"
+          cp -r resources "$APP/resources"
       - name: 打 .dmg
         run: |
           mkdir -p dist
-          hdiutil create -volname "XiaoLing" -srcfolder build/macos/Build/Products/Release/xiaoling.app \
+          hdiutil create -volname "XiaoLing" -srcfolder frontend/build/macos/Build/Products/Release/xiaoling.app \
             -ov -format UDZO dist/xiaoling-macos.dmg
       - uses: actions/upload-artifact@v4
-        with:
-          name: xiaoling-macos
-          path: frontend/dist/*.dmg
+        with: { name: xiaoling-macos, path: dist/*.dmg }
 
-  # ---------------- Linux: tar.gz ---------------- #
+  # ---------------- Linux ---------------- #
   build-linux:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: frontend } }
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '3.27.4', channel: 'stable' }
-      - run: |
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: 装系统依赖
+        run: |
           sudo apt-get update -qq
           sudo apt-get install -y ninja-build libgtk-3-dev libblkid-dev liblzma-dev
-      - run: flutter create . --platforms=linux --project-name=xiaoling
-      - run: flutter pub get
-      - run: flutter build linux --release
-      - name: 打包 tar.gz
+      - name: 装后端依赖
+        run: pip install pyinstaller numpy pillow grpcio protobuf requests aiohttp
+      - name: Build Flutter UI
+        working-directory: frontend
         run: |
-          cd build/linux/x64/release/bundle/ && tar czf ../../../../../xiaoling-linux-x64.tar.gz .
+          flutter create . --platforms=linux --project-name=xiaoling
+          flutter pub get
+          flutter build linux --release
+      - name: Build Python 后端
+        run: |
+          pyinstaller --noconfirm --clean --onefile \
+            --name backend \
+            --add-data "backend:backend" \
+            --add-data "resources:resources" \
+            --collect-submodules google.protobuf \
+            --collect-submodules grpc \
+            --hidden-import requests --hidden-import aiohttp \
+            --exclude-module torch --exclude-module PySide6 --exclude-module PyQt5 \
+            main.py
+      - name: 整合打包
+        run: |
+          BUNDLE="frontend/build/linux/x64/release/bundle"
+          cp dist/backend "$BUNDLE/backend"
+          chmod +x "$BUNDLE/backend"
+          cp -r resources "$BUNDLE/resources"
+          # 启动器
+          printf '#!/bin/bash\nDIR="$(cd "$(dirname "$0")" && pwd)"\n"$DIR/backend" --port 50051 &\nsleep 2\nexec "$DIR/xiaoling"\n' > "$BUNDLE/小凌.sh"
+          chmod +x "$BUNDLE/小凌.sh"
+      - name: 打包 tar.gz
+        run: cd frontend/build/linux/x64/release/bundle/ && tar czf ../../../../../xiaoling-linux-x64.tar.gz .
       - uses: actions/upload-artifact@v4
-        with:
-          name: xiaoling-linux
-          path: frontend/xiaoling-linux-x64.tar.gz
+        with: { name: xiaoling-linux, path: frontend/xiaoling-linux-x64.tar.gz }
 
   # ---------------- 汇总到 Release ---------------- #
   release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
+    permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: flutter-v0.0.1
+          tag_name: flutter-v0.0.2
           files: artifacts/**/*
           generate_release_notes: true
-          name: 小凌 Flutter 桌面端 v0.0.1
+          name: 小凌完整桌面端 v0.0.2（Flutter UI + Python 后端）
