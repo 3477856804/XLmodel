@@ -393,15 +393,23 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListRecommendedModels ----------------
     def ListRecommendedModels(self, request, context):
         try:
-            from core.model import MODEL_PRESETS
+            from core.model import MODEL_PRESETS, list_recommended
+            # 先检测硬件
+            hw = self.DetectHardware(pb.Empty(), context)
+            ram = hw.ram_gb or 8.0
             out = []
-            for name, p in MODEL_PRESETS.items():
-                size_hint = p.get('size_hint', '')
+            for item in list_recommended():
+                need_gb = item["size_mb"] / 1024.0 * 1.5  # 加载需要1.5倍大小
+                can_run = ram >= need_gb
                 out.append(pb.RecommendedModel(
-                    name=name,
-                    size_mb=int(_parse_size_mb(size_hint)),
-                    can_run=True,
-                    recommended=True,
+                    name=item["name"],
+                    params=item.get("size_mb", 0) and f'{item["size_mb"]//1024}B' or "",
+                    size_mb=item["size_mb"],
+                    ram_gb=round(need_gb, 1),
+                    quality=item["score"],
+                    context="32K",
+                    can_run=can_run,
+                    recommended=(can_run and item["ratio"] >= 30),
                 ))
             return pb.RecommendedModelList(models=out)
         except Exception as e:
@@ -419,16 +427,13 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             if not preset:
                 yield pb.DownloadProgress(status=f'failed: 未知模型 {model_name}')
                 return
-            # 报告开始
+            total_mb = float(preset["size_mb"])
             yield pb.DownloadProgress(percent=0.0, downloaded_mb=0.0,
-                total_mb=float(_parse_size_mb(preset.get('size_hint', '1GB'))),
-                status=f'downloading: {model_name}')
-            # 真实下载
-            ok = store.download(model_name, '')
+                total_mb=total_mb, status=f'downloading: {model_name}')
+            ok = store.download(model_name)
             if ok:
-                yield pb.DownloadProgress(percent=100.0, downloaded_mb=float(_parse_size_mb(preset.get('size_hint', '1GB'))),
-                    total_mb=float(_parse_size_mb(preset.get('size_hint', '1GB'))),
-                    status='done')
+                yield pb.DownloadProgress(percent=100.0, downloaded_mb=total_mb,
+                    total_mb=total_mb, status='done')
             else:
                 yield pb.DownloadProgress(status='failed: 下载失败')
         except Exception as e:
