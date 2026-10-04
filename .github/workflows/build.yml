@@ -50,27 +50,13 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          # 构造 AppDir
           mkdir -p dist/AppDir/usr/bin
           cp dist/XiaoLing dist/AppDir/usr/bin/xiaoling
-          cat > dist/AppDir/AppRun << 'EOF'
-#!/bin/bash
-HERE="$(dirname "$(readlink -f "$0")")"
-exec "$HERE/usr/bin/xiaoling" "$@"
-EOF
+          printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/xiaoling" "$@"\n' > dist/AppDir/AppRun
           chmod +x dist/AppDir/AppRun
-          cat > dist/AppDir/xiaoling.desktop << EOF
-[Desktop Entry]
-Name=小凌 XIAOLING
-Exec=xiaoling
-Type=Application
-Icon=xiaoling
-Categories=Utility;
-EOF
-          # 下载 appimagetool
+          printf '[Desktop Entry]\nName=XiaoLing\nExec=xiaoling\nType=Application\nIcon=xiaoling\nCategories=Utility;\n' > dist/AppDir/xiaoling.desktop
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O dist/appimagetool
           chmod +x dist/appimagetool
-          #  fuse 在 CI 不可用，用 --appimage-extract-and-run
           dist/appimagetool --appimage-extract-and-run dist/AppDir dist/XiaoLing-Linux.AppImage
       - uses: actions/upload-artifact@v4
         with:
