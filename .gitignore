@@ -31,3 +31,4 @@ xl_memory.json
 models/
 *.safetensors
 *.bin
+adapters/

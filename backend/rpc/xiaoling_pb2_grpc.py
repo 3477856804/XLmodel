@@ -142,6 +142,11 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.Empty.SerializeToString,
                 response_deserializer=xiaoling__pb2.PluginList.FromString,
                 _registered_method=True)
+        self.StartTraining = channel.unary_stream(
+                '/xiaoling.XiaoLing/StartTraining',
+                request_serializer=xiaoling__pb2.TrainingRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.TrainingProgress.FromString,
+                _registered_method=True)
 
 
 class XiaoLingServicer:
@@ -296,6 +301,12 @@ class XiaoLingServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StartTraining(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_XiaoLingServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -403,6 +414,11 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     servicer.ListPlugins,
                     request_deserializer=xiaoling__pb2.Empty.FromString,
                     response_serializer=xiaoling__pb2.PluginList.SerializeToString,
+            ),
+            'StartTraining': grpc.unary_stream_rpc_method_handler(
+                    servicer.StartTraining,
+                    request_deserializer=xiaoling__pb2.TrainingRequest.FromString,
+                    response_serializer=xiaoling__pb2.TrainingProgress.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -975,6 +991,33 @@ class XiaoLing:
             '/xiaoling.XiaoLing/ListPlugins',
             xiaoling__pb2.Empty.SerializeToString,
             xiaoling__pb2.PluginList.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StartTraining(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/xiaoling.XiaoLing/StartTraining',
+            xiaoling__pb2.TrainingRequest.SerializeToString,
+            xiaoling__pb2.TrainingProgress.FromString,
             options,
             channel_credentials,
             insecure,

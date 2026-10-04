@@ -305,6 +305,68 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         except Exception as e:
             return pb.PluginList()
 
+    # ---------------- StartTraining（LoRA 微调） ----------------
+    def StartTraining(self, request, context):
+        try:
+            eng = _get_engine()
+            local = eng.model_replace.get_model()
+            if local is None or local.model is None:
+                yield pb.TrainingProgress(status='failed: 模型未加载，请先聊天加载模型')
+                return
+
+            steps = max(1, request.steps or 10)
+            conversations = [
+                {"user": "你好", "assistant": "你好呀～我是小凌，今天想聊什么？"},
+                {"user": "你是谁", "assistant": "我是小凌，住在你电脑里的AI女孩。"},
+                {"user": "谢谢", "assistant": "不客气～有什么需要随时叫我。"},
+            ]
+
+            yield pb.TrainingProgress(step=0, total_steps=steps, status='准备训练...')
+            import torch
+            from peft import LoraConfig, get_peft_model, TaskType
+            lora_config = LoraConfig(
+                task_type=TaskType.CAUSAL_LM, r=4, lora_alpha=8,
+                lora_dropout=0.05, target_modules=["q_proj", "v_proj"],
+            )
+            model = get_peft_model(local.model, lora_config)
+            optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+            model.train()
+
+            step = 0
+            for epoch in range(3):
+                for conv in conversations:
+                    if step >= steps:
+                        break
+                    messages = [
+                        {"role": "system", "content": "你是小凌，住在用户电脑里的AI女孩。"},
+                        {"role": "user", "content": conv["user"]},
+                        {"role": "assistant", "content": conv["assistant"]},
+                    ]
+                    text = local.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                    enc = local.tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
+                    ids = enc["input_ids"]
+                    labels = ids.clone()
+                    optimizer.zero_grad()
+                    out = model(input_ids=ids, labels=labels)
+                    out.loss.backward()
+                    optimizer.step()
+                    step += 1
+                    yield pb.TrainingProgress(
+                        step=step, total_steps=steps,
+                        loss=float(out.loss.item()),
+                        status=f'training step {step}/{steps}',
+                    )
+                if step >= steps:
+                    break
+
+            save_dir = "adapters/lora_latest"
+            model.save_pretrained(save_dir)
+            local.tokenizer.save_pretrained(save_dir)
+            yield pb.TrainingProgress(step=steps, total_steps=steps,
+                status=f'done: 适配器已保存到 {save_dir}')
+        except Exception as e:
+            yield pb.TrainingProgress(status=f'failed: {e}')
+
     # ==================== v0.0.1 新增 ====================
 
     # ---------------- DetectHardware ----------------

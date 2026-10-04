@@ -65,6 +65,18 @@ service XiaoLing {
 
   // 插件列表
   rpc ListPlugins (Empty) returns (PluginList);
+  rpc StartTraining (TrainingRequest) returns (stream TrainingProgress);
+}
+
+message TrainingRequest {
+  int32 steps = 1;
+}
+
+message TrainingProgress {
+  int32 step = 1;
+  int32 total_steps = 2;
+  float loss = 3;
+  string status = 4;
 }
 
 // ===== 基础消息 =====
