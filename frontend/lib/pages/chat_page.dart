@@ -25,7 +25,9 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     _chan = ClientChannel('127.0.0.1',
         port: 50051,
-        options: const ChannelOptions(connectTimeout: Duration(seconds: 10),
+        options: const ChannelOptions(
+            credentials: ChannelCredentials.insecure(),
+            connectTimeout: Duration(seconds: 10),
             idleTimeout: Duration(minutes: 5)));
     _stub = XiaoLingClient(_chan);
     _hello();
