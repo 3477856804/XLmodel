@@ -1,171 +1,80 @@
 import 'package:flutter/material.dart';
+import 'package:grpc/grpc.dart';
 import '../theme/theme.dart';
+import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/xiaoling.pb.dart' as pb;
 
-/// 工作台 - 中间3D模型预览 + 进度卡片 + 对话入口
-class DashboardPage extends StatelessWidget {
+/// 工作台 - 真实 gRPC 数据
+class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
   @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  late ClientChannel _chan;
+  late XiaoLingClient _stub;
+  GrowthStatusReply? _growth;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _chan = ClientChannel('localhost',
+        port: 50051,
+        options: const ChannelOptions(connectTimeout: Duration(seconds: 2)));
+    _stub = XiaoLingClient(_chan);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _chan.shutdown();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final g = await _stub.getGrowthStatus(pb.Empty(),
+          options: CallOptions(timeout: const Duration(seconds: 3)));
+      if (mounted) setState(() { _growth = g; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final prog = _growth?.progressPercent ?? 0.0;
+    final inter = _growth?.totalInteractions ?? 0;
     return Scaffold(
-      body: Container(
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: Row(
-                  children: [
-                    // 左侧：进度卡片
-                    Expanded(
-                      flex: 1,
-                      child: _buildProgressCards(),
-                    ),
-                    // 中间：3D模型预览
-                    Expanded(
-                      flex: 2,
-                      child: _buildModelPreview(),
-                    ),
-                    // 右侧：快捷入口
-                    Expanded(
-                      flex: 1,
-                      child: _buildQuickActions(),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text(
-            '小凌工作台',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-          Row(
-            children: [
-              _buildIconButton(Icons.settings),
-              const SizedBox(width: 12),
-              _buildIconButton(Icons.person),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIconButton(IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: AppTheme.glassDecoration,
-      child: Icon(icon, color: AppTheme.primaryPink, size: 20),
-    );
-  }
-
-  Widget _buildProgressCards() {
-    final cards = [
-      _ProgressItem('成长值', 0.65, '65%', Icons.trending_up),
-      _ProgressItem('亲密度', 0.45, '45%', Icons.favorite),
-      _ProgressItem('训练进度', 0.30, '30%', Icons.school),
-      _ProgressItem('记忆数', 0.80, '128条', Icons.memory),
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: cards.map((c) => _buildProgressCard(c)).toList(),
-      ),
-    );
-  }
-
-  Widget _buildProgressCard(_ProgressItem item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: AppTheme.glassDecoration,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(item.icon, size: 16, color: AppTheme.primaryPink),
-              const SizedBox(width: 8),
-              Text(
-                item.label,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: item.progress,
-              minHeight: 6,
-              backgroundColor: Colors.white.withOpacity(0.3),
-              valueColor: const AlwaysStoppedAnimation(AppTheme.primaryPink),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            item.value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModelPreview() {
-    return Center(
-      child: Container(
-        width: 300,
-        height: 400,
-        decoration: AppTheme.glassDecoration,
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      backgroundColor: Colors.transparent,
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.face_6,
-              size: 120,
-              color: AppTheme.primaryPink,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('工作台', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1a1a1a))),
+                Row(children: [
+                  IconButton(icon: const Icon(Icons.settings, color: AppTheme.primaryPink), onPressed: () {}),
+                  IconButton(icon: const Icon(Icons.person, color: AppTheme.primaryPink), onPressed: () {}),
+                ]),
+              ],
             ),
-            SizedBox(height: 20),
-            Text(
-              '小凌',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              '3D 模型预览',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
+            const SizedBox(height: 20),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(flex: 1, child: _buildStats(prog, inter)),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 2, child: _buildModelPreview()),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 1, child: _buildActions()),
+                ],
               ),
             ),
           ],
@@ -174,67 +83,84 @@ class DashboardPage extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickActions() {
-    final actions = [
-      _ActionItem(Icons.chat_bubble, '聊天'),
-      _ActionItem(Icons.mic, '语音'),
-      _ActionItem(Icons.download, '模型商店'),
-      _ActionItem(Icons.extension, '插件'),
+  Widget _buildStats(double prog, int inter) {
+    final cards = [
+      ('成长值', prog / 100.0, '${prog.toStringAsFixed(0)}%', Icons.trending_up),
+      ('亲密度', (prog * 0.7) / 100.0, '${(prog * 0.7).toStringAsFixed(0)}%', Icons.favorite),
+      ('训练进度', (prog * 0.5) / 100.0, '${(prog * 0.5).toStringAsFixed(0)}%', Icons.school),
+      ('记忆数', inter / 200.0, '$inter 条', Icons.memory),
     ];
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: cards.map((c) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.primaryPink.withOpacity(0.1)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [Icon(c.$4, size: 14, color: AppTheme.primaryPink), const SizedBox(width: 6), Text(c.$1, style: const TextStyle(fontSize: 12, color: Color(0xFF666)))]),
+            const SizedBox(height: 8),
+            ClipRRect(borderRadius: BorderRadius.circular(3), child: LinearProgressIndicator(value: c.$2.clamp(0,1), minHeight: 5, backgroundColor: AppTheme.primaryPink.withOpacity(0.1), valueColor: const AlwaysStoppedAnimation(AppTheme.primaryPink))),
+            const SizedBox(height: 6),
+            Text(c.$3, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1a1a1a))),
+          ],
+        ),
+      )).toList(),
+    );
+  }
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
+  Widget _buildModelPreview() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.primaryPink.withOpacity(0.1)),
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: actions.map((a) => _buildActionButton(a)).toList(),
-      ),
-    );
-  }
-
-  Widget _buildActionButton(_ActionItem item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {},
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: AppTheme.glassDecoration,
-            child: Row(
-              children: [
-                Icon(item.icon, color: AppTheme.primaryPink, size: 20),
-                const SizedBox(width: 12),
-                Text(
-                  item.label,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+        children: [
+          Container(
+            width: 100, height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppTheme.primaryPink.withOpacity(0.1),
+              border: Border.all(color: AppTheme.primaryPink.withOpacity(0.2)),
             ),
+            child: const Icon(Icons.face_6, size: 50, color: AppTheme.primaryPink),
           ),
-        ),
+          const SizedBox(height: 16),
+          const Text('小凌', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1a1a1a))),
+          const SizedBox(height: 4),
+          Text(_growth?.stage ?? '3D 模型预览', style: const TextStyle(fontSize: 12, color: Color(0xFF999))),
+        ],
       ),
     );
   }
-}
 
-class _ProgressItem {
-  final String label;
-  final double progress;
-  final String value;
-  final IconData icon;
-
-  _ProgressItem(this.label, this.progress, this.value, this.icon);
-}
-
-class _ActionItem {
-  final IconData icon;
-  final String label;
-
-  _ActionItem(this.icon, this.label);
+  Widget _buildActions() {
+    final actions = [
+      (Icons.chat_bubble, '聊天'),
+      (Icons.mic, '语音对话'),
+      (Icons.shopping_bag_outlined, '模型商店'),
+      (Icons.extension, '插件管理'),
+    ];
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: actions.map((a) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.primaryPink.withOpacity(0.1)),
+        ),
+        child: Row(children: [Icon(a.$1, color: AppTheme.primaryPink, size: 18), const SizedBox(width: 10), Text(a.$2, style: const TextStyle(fontSize: 13, color: Color(0xFF333)))]),
+      )).toList(),
+    );
+  }
 }

@@ -26,7 +26,7 @@ if _version_not_supported:
 
 
 class XiaoLingStub:
-    """小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -46,21 +46,6 @@ class XiaoLingStub:
                 '/xiaoling.XiaoLing/GetStatus',
                 request_serializer=xiaoling__pb2.StatusRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
-                _registered_method=True)
-        self.GetGrowthStatus = channel.unary_unary(
-                '/xiaoling.XiaoLing/GetGrowthStatus',
-                request_serializer=xiaoling__pb2.Empty.SerializeToString,
-                response_deserializer=xiaoling__pb2.GrowthStatusReply.FromString,
-                _registered_method=True)
-        self.GetTrainingStatus = channel.unary_unary(
-                '/xiaoling.XiaoLing/GetTrainingStatus',
-                request_serializer=xiaoling__pb2.Empty.SerializeToString,
-                response_deserializer=xiaoling__pb2.TrainingStatusReply.FromString,
-                _registered_method=True)
-        self.ListPlugins = channel.unary_unary(
-                '/xiaoling.XiaoLing/ListPlugins',
-                request_serializer=xiaoling__pb2.Empty.SerializeToString,
-                response_deserializer=xiaoling__pb2.PluginList.FromString,
                 _registered_method=True)
         self.ListModels = channel.unary_unary(
                 '/xiaoling.XiaoLing/ListModels',
@@ -142,10 +127,25 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.SettingsRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
                 _registered_method=True)
+        self.GetGrowthStatus = channel.unary_unary(
+                '/xiaoling.XiaoLing/GetGrowthStatus',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.GrowthStatusReply.FromString,
+                _registered_method=True)
+        self.GetTrainingStatus = channel.unary_unary(
+                '/xiaoling.XiaoLing/GetTrainingStatus',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.TrainingStatusReply.FromString,
+                _registered_method=True)
+        self.ListPlugins = channel.unary_unary(
+                '/xiaoling.XiaoLing/ListPlugins',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.PluginList.FromString,
+                _registered_method=True)
 
 
 class XiaoLingServicer:
-    """小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -159,26 +159,6 @@ class XiaoLingServicer:
 
     def GetStatus(self, request, context):
         """===== 状态 =====
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetGrowthStatus(self, request, context):
-        """===== 成长 / 训练（Flutter 可视化） =====
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetTrainingStatus(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def ListPlugins(self, request, context):
-        """===== 插件系统 =====
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -225,70 +205,92 @@ class XiaoLingServicer:
         raise NotImplementedError('Method not implemented!')
 
     def DetectHardware(self, request, context):
-        """===== 硬件检测 =====
+        """===== v0.0.4 新增 =====
+        硬件检测
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListRecommendedModels(self, request, context):
-        """===== 智能模型推荐 =====
+        """智能模型推荐
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def DownloadModel(self, request, context):
-        """===== 模型下载（流式进度） =====
+        """模型下载（流式进度）
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListInstalledModels(self, request, context):
-        """===== 列出已安装模型 =====
+        """列出已安装模型
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def DeleteModel(self, request, context):
-        """===== 删除模型 =====
+        """删除模型
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListVoices(self, request, context):
-        """===== 音色列表 =====
+        """音色列表
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SetVoice(self, request, context):
-        """===== 切换音色 =====
+        """切换音色
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ReadAloud(self, request, context):
-        """===== 语音朗读（流式音频） =====
+        """语音朗读（流式音频）
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetSettings(self, request, context):
-        """===== 读取设置 =====
+        """读取设置
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def UpdateSettings(self, request, context):
-        """===== 更新设置 =====
+        """更新设置
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetGrowthStatus(self, request, context):
+        """成长状态
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTrainingStatus(self, request, context):
+        """训练五维状态
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListPlugins(self, request, context):
+        """插件列表
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -306,21 +308,6 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     servicer.GetStatus,
                     request_deserializer=xiaoling__pb2.StatusRequest.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
-            ),
-            'GetGrowthStatus': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetGrowthStatus,
-                    request_deserializer=xiaoling__pb2.Empty.FromString,
-                    response_serializer=xiaoling__pb2.GrowthStatusReply.SerializeToString,
-            ),
-            'GetTrainingStatus': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetTrainingStatus,
-                    request_deserializer=xiaoling__pb2.Empty.FromString,
-                    response_serializer=xiaoling__pb2.TrainingStatusReply.SerializeToString,
-            ),
-            'ListPlugins': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListPlugins,
-                    request_deserializer=xiaoling__pb2.Empty.FromString,
-                    response_serializer=xiaoling__pb2.PluginList.SerializeToString,
             ),
             'ListModels': grpc.unary_unary_rpc_method_handler(
                     servicer.ListModels,
@@ -402,6 +389,21 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     request_deserializer=xiaoling__pb2.SettingsRequest.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
             ),
+            'GetGrowthStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetGrowthStatus,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.GrowthStatusReply.SerializeToString,
+            ),
+            'GetTrainingStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTrainingStatus,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.TrainingStatusReply.SerializeToString,
+            ),
+            'ListPlugins': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListPlugins,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.PluginList.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'xiaoling.XiaoLing', rpc_method_handlers)
@@ -411,7 +413,7 @@ def add_XiaoLingServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class XiaoLing:
-    """小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -460,87 +462,6 @@ class XiaoLing:
             '/xiaoling.XiaoLing/GetStatus',
             xiaoling__pb2.StatusRequest.SerializeToString,
             xiaoling__pb2.StatusReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetGrowthStatus(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/xiaoling.XiaoLing/GetGrowthStatus',
-            xiaoling__pb2.Empty.SerializeToString,
-            xiaoling__pb2.GrowthStatusReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetTrainingStatus(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/xiaoling.XiaoLing/GetTrainingStatus',
-            xiaoling__pb2.Empty.SerializeToString,
-            xiaoling__pb2.TrainingStatusReply.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def ListPlugins(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/xiaoling.XiaoLing/ListPlugins',
-            xiaoling__pb2.Empty.SerializeToString,
-            xiaoling__pb2.PluginList.FromString,
             options,
             channel_credentials,
             insecure,
@@ -973,6 +894,87 @@ class XiaoLing:
             '/xiaoling.XiaoLing/UpdateSettings',
             xiaoling__pb2.SettingsRequest.SerializeToString,
             xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetGrowthStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/GetGrowthStatus',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.GrowthStatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTrainingStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/GetTrainingStatus',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.TrainingStatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListPlugins(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ListPlugins',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.PluginList.FromString,
             options,
             channel_credentials,
             insecure,

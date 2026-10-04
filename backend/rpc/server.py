@@ -317,7 +317,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             device = detect_best_device()
             return pb.HardwareInfo(
                 ram_gb=float(mem.get('total_gb', 0.0) or 0.0),
-                cpu_cores=float(os.cpu_count() or 0),
+                cpu_cores=int(os.cpu_count() or 0),
                 gpu_name=str(info.get('gpu', '')),
                 platform=info.get('os', _pl.system()),
                 has_cuda=(device == 'cuda'),

@@ -56,6 +56,15 @@ service XiaoLing {
 
   // 更新设置
   rpc UpdateSettings (SettingsRequest) returns (StatusReply);
+
+  // 成长状态
+  rpc GetGrowthStatus (Empty) returns (GrowthStatusReply);
+
+  // 训练五维状态
+  rpc GetTrainingStatus (Empty) returns (TrainingStatusReply);
+
+  // 插件列表
+  rpc ListPlugins (Empty) returns (PluginList);
 }
 
 // ===== 基础消息 =====
@@ -219,4 +228,46 @@ message SettingsRequest {
   optional bool asr_enabled = 6;
   optional bool tts_enabled = 7;
   optional bool read_aloud_mode = 8;
+}
+
+// ===== 成长状态 =====
+message GrowthStatusReply {
+  string stage = 1;
+  double progress_percent = 2;
+  int32 total_interactions = 3;
+  int32 current_generation = 4;
+  int32 total_generations = 5;
+  string current_rank = 6;
+  string emotion = 7;
+  bool training_paused = 8;
+  string status_text = 9;
+}
+
+// ===== 训练五维 =====
+message TrainingDimension {
+  string name = 1;
+  double value = 2;
+  string label = 3;
+}
+
+message TrainingStatusReply {
+  bool is_training = 1;
+  int32 current_epoch = 2;
+  int32 total_epochs = 3;
+  double loss = 4;
+  repeated TrainingDimension dimensions = 5;
+  string status_text = 6;
+}
+
+// ===== 插件 =====
+message PluginInfo {
+  string name = 1;
+  string description = 2;
+  string version = 3;
+  bool enabled = 4;
+  string category = 5;
+}
+
+message PluginList {
+  repeated PluginInfo plugins = 1;
 }
