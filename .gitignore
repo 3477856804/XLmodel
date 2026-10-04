@@ -28,3 +28,6 @@ xl_memory.json
 .star_core/guide_done.txt
 数据/interactions.jsonl
 数据/session_history.jsonl
+models/
+*.safetensors
+*.bin

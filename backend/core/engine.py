@@ -97,8 +97,17 @@ class XiaoLing:
         # 插件钩子：聊天前
         self.plugins.emit("before_chat", text)
 
-        # 基础回复
-        reply = f"你说的是：{text}"
+        # 优先用真实模型
+        reply = None
+        try:
+            reply = self.model_replace.chat(text)
+        except Exception as e:                                           # noqa: BLE001
+            print(f"  [模型] 推理失败: {e}")
+            reply = None
+
+        # 模型不可用时兜底
+        if not reply:
+            reply = f"你说的是：{text}"
 
         # 插件钩子：聊天后（插件可改写回复）
         try:

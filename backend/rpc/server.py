@@ -350,25 +350,25 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- DownloadModel（流式） ----------------
     def DownloadModel(self, request, context):
         try:
-            from core.model import ModelStore
+            from core.model import ModelStore, MODEL_PRESETS
             store = ModelStore()
             model_name = request.model_name
-            store.download(model_name, "")
-            # 模拟流式进度
-            for i in range(10):
-                yield pb.DownloadProgress(
-                    percent=(i + 1) * 10.0,
-                    downloaded_mb=(i + 1) * 100.0,
-                    total_mb=1000.0,
-                    status='downloading',
-                )
-                time.sleep(0.1)
-            yield pb.DownloadProgress(
-                percent=100.0,
-                downloaded_mb=1000.0,
-                total_mb=1000.0,
-                status='done',
-            )
+            preset = MODEL_PRESETS.get(model_name)
+            if not preset:
+                yield pb.DownloadProgress(status=f'failed: 未知模型 {model_name}')
+                return
+            # 报告开始
+            yield pb.DownloadProgress(percent=0.0, downloaded_mb=0.0,
+                total_mb=float(_parse_size_mb(preset.get('size_hint', '1GB'))),
+                status=f'downloading: {model_name}')
+            # 真实下载
+            ok = store.download(model_name, '')
+            if ok:
+                yield pb.DownloadProgress(percent=100.0, downloaded_mb=float(_parse_size_mb(preset.get('size_hint', '1GB'))),
+                    total_mb=float(_parse_size_mb(preset.get('size_hint', '1GB'))),
+                    status='done')
+            else:
+                yield pb.DownloadProgress(status='failed: 下载失败')
         except Exception as e:
             yield pb.DownloadProgress(status=f'failed: {e}')
 
