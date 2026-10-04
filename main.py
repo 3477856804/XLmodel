@@ -20,6 +20,8 @@ if getattr(sys, 'frozen', False):
 else:
     _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
+# 内部模块统一用 `from core.xxx` 导入，需把 backend/ 也加入路径。
+sys.path.insert(0, os.path.join(_ROOT, 'backend'))
 
 
 def main():
