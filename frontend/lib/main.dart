@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'theme/theme.dart';
 import 'pages/splash_page.dart';
@@ -25,7 +24,7 @@ class XiaoLingApp extends StatelessWidget {
   }
 }
 
-/// 应用主壳：极光背景 + 五页 + 毛玻璃底部导航
+/// 应用主壳
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -47,81 +46,56 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: AppTheme.auroraBackground(
-        child: SafeArea(
-          bottom: false,
-          child: IndexedStack(index: _index, children: _pages),
-        ),
+      backgroundColor: const Color(0xFFFDD8E5),
+      body: SafeArea(
+        bottom: false,
+        child: IndexedStack(index: _index, children: _pages),
       ),
-      bottomNavigationBar: _glassNavBar(),
-    );
-  }
-
-  Widget _glassNavBar() {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.6),
-            border: Border(
-              top: BorderSide(color: Colors.white.withOpacity(0.5), width: 1),
-            ),
-          ),
-          child: SafeArea(
-            top: false,
-            child: SizedBox(
-              height: 68,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _navItem(0, Icons.chat_bubble_outline, Icons.chat_bubble, '聊天'),
-                  _navItem(1, Icons.dashboard_outlined, Icons.dashboard_rounded, '工作台'),
-                  _navItem(2, Icons.bubble_chart_outlined, Icons.bubble_chart_rounded, '训练'),
-                  _navItem(3, Icons.favorite_border, Icons.favorite_rounded, '成长'),
-                  _navItem(4, Icons.settings_outlined, Icons.settings_rounded, '设置'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _navItem(int i, IconData outline, IconData filled, String label) {
-    final selected = _index == i;
-    return GestureDetector(
-      onTap: () => setState(() => _index = i),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-        padding: EdgeInsets.symmetric(
-          horizontal: selected ? 14 : 10,
-          vertical: 8,
-        ),
+      bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: selected ? AppTheme.primaryPink.withOpacity(0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              selected ? filled : outline,
-              color: selected ? AppTheme.primaryPink : AppTheme.textLight,
-              size: 22,
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primaryPink.withOpacity(0.15),
+              blurRadius: 16, offset: const Offset(0, -4),
             ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                color: selected ? AppTheme.primaryPink : AppTheme.textLight,
-              ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _index,
+          onTap: (i) => setState(() => _index = i),
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: Colors.white,
+          selectedItemColor: AppTheme.primaryPink,
+          unselectedItemColor: AppTheme.textLight,
+          selectedFontSize: 11,
+          unselectedFontSize: 11,
+          showUnselectedLabels: true,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              activeIcon: Icon(Icons.chat_bubble),
+              label: '聊天',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard_outlined),
+              activeIcon: Icon(Icons.dashboard_rounded),
+              label: '工作台',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.bubble_chart_outlined),
+              activeIcon: Icon(Icons.bubble_chart_rounded),
+              label: '训练',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.favorite_border),
+              activeIcon: Icon(Icons.favorite_rounded),
+              label: '成长',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_outlined),
+              activeIcon: Icon(Icons.settings_rounded),
+              label: '设置',
             ),
           ],
         ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
-import 'chat_page.dart';
+import '../main.dart';
 
 /// 启动画面 - 粉色少女风
 class SplashPage extends StatefulWidget {
@@ -38,7 +38,7 @@ class _SplashPageState extends State<SplashPage>
     if (mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const ChatPage()),
+        MaterialPageRoute(builder: (context) => const HomeShell()),
       );
     }
   }

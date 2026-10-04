@@ -67,15 +67,18 @@ class AppTheme {
   /// 极光渐变背景：多层彩色光斑 + 基底色
   static Widget auroraBackground({required Widget child}) {
     return Container(
+      width: double.infinity,
+      height: double.infinity,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFFFF5F8), Color(0xFFFDE8F0), Color(0xFFFBE0E8)],
+          colors: [Color(0xFFFFE4EE), Color(0xFFFDD8E5), Color(0xFFF8C8D8)],
           stops: [0.0, 0.5, 1.0],
         ),
       ),
       child: Stack(
+        fit: StackFit.expand,
         children: [
           // 左上粉色光斑
           Positioned(
