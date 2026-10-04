@@ -6,7 +6,8 @@ import '../rpc/xiaoling.pb.dart' as pb;
 import '../widgets/model_showcase.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final void Function(int) onNavigate;
+  const DashboardPage({super.key, required this.onNavigate});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -69,8 +70,8 @@ class _DashboardPageState extends State<DashboardPage> {
               children: [
                 const Text('工作台', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1a1a1a))),
                 Row(children: [
-                  IconButton(icon: const Icon(Icons.settings, color: AppTheme.primaryPink), onPressed: () {}),
-                  IconButton(icon: const Icon(Icons.person, color: AppTheme.primaryPink), onPressed: () {}),
+                  IconButton(icon: const Icon(Icons.settings, color: AppTheme.primaryPink), onPressed: () => widget.onNavigate(4)),
+                  IconButton(icon: const Icon(Icons.person, color: AppTheme.primaryPink), onPressed: () => widget.onNavigate(3)),
                 ]),
               ],
             ),
@@ -151,14 +152,16 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildActions() {
     final actions = [
-      (Icons.chat_bubble, '聊天'),
-      (Icons.mic, '语音对话'),
-      (Icons.shopping_bag_outlined, '模型商店'),
-      (Icons.extension, '插件管理'),
+      (Icons.chat_bubble, '聊天', 0),
+      (Icons.mic, '语音对话', 0),
+      (Icons.shopping_bag_outlined, '模型商店', 4),
+      (Icons.extension, '插件管理', 2),
     ];
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: actions.map((a) => Container(
+      children: actions.map((a) => GestureDetector(
+        onTap: () => widget.onNavigate(a.$3),
+        child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -167,6 +170,7 @@ class _DashboardPageState extends State<DashboardPage> {
           border: Border.all(color: AppTheme.primaryPink.withOpacity(0.1)),
         ),
         child: Row(children: [Icon(a.$1, color: AppTheme.primaryPink, size: 18), const SizedBox(width: 10), Text(a.$2, style: const TextStyle(fontSize: 13, color: Color(0xFF333)))]),
+        ),
       )).toList(),
     );
   }

@@ -12,6 +12,29 @@ class KnowledgeGraph:
     def __init__(self):
         self.entities = {}
         self.relations = []
+        self._path = Path("data/knowledge.json")
+        self._load()
+
+    def _load(self):
+        try:
+            if self._path.exists():
+                import json
+                data = json.loads(self._path.read_text(encoding="utf-8"))
+                self.entities = data.get("entities", {})
+                self.relations = data.get("relations", [])
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            import json
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(json.dumps({
+                "entities": self.entities,
+                "relations": self.relations,
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def learn(self, text: str) -> int:
         """从文本抽取三元组"""
@@ -24,7 +47,11 @@ class KnowledgeGraph:
             for m in pat.finditer(text):
                 subj, obj = m.group(1).strip(), m.group(2).strip()[:10]
                 if subj and obj and subj != obj:
+                    self.entities[subj] = self.entities.get(subj, {"count": 0})
+                    self.entities[subj]["count"] += 1
+                    self.relations.append((subj, v, obj))
                     n += 1
+        self._save()
         return n
 
     def query(self, entity: str, depth: int = 1) -> str:

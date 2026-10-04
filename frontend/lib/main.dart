@@ -51,22 +51,21 @@ class _HomeShellState extends State<HomeShell> {
     Icons.settings_rounded,
   ];
 
-  final _pages = const [
-    ChatPage(),
-    DashboardPage(),
-    TrainingPage(),
-    GrowthPage(),
-    SettingsPage(),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      const ChatPage(),
+      DashboardPage(onNavigate: (i) => setState(() => _index = i)),
+      const TrainingPage(),
+      const GrowthPage(),
+      const SettingsPage(),
+    ];
     return Scaffold(
       backgroundColor: const Color(0xFFFFF5F8),
       body: Row(
         children: [
           _buildSidebar(),
-          Expanded(child: _pages[_index]),
+          Expanded(child: pages[_index]),
         ],
       ),
     );

@@ -7,8 +7,27 @@ class GoalManager:
 
     def __init__(self, memory=None):
         self.memory = memory
-        # 记忆系统不暴露可变 .data，目标列表自包含保存。
+        self._path = "data/goals.json"
         self.goals = []
+        self._load()
+
+    def _load(self):
+        import json, os
+        try:
+            os.makedirs("data", exist_ok=True)
+            if os.path.exists(self._path):
+                with open(self._path, "r", encoding="utf-8") as f:
+                    self.goals = json.load(f)
+        except Exception:
+            self.goals = []
+
+    def _save(self):
+        import json
+        try:
+            with open(self._path, "w", encoding="utf-8") as f:
+                json.dump(self.goals, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def create(self, objective, max_rounds=20):
         goal = {
@@ -77,7 +96,3 @@ class GoalManager:
             if g["id"] == goal_id:
                 return g
         return None
-
-    def _save(self):
-        # 目标列表自包含；持久化由成长/会话层统一负责。
-        pass
