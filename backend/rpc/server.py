@@ -396,7 +396,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                     params = f'{int(item["size_mb"]//1024)}B' if item["size_mb"] >= 1024 else f'{item["size_mb"]}MB',
                     size_mb=item["size_mb"],
                     ram_gb=round(need_gb, 1),
-                    quality=item["score"],
+                    quality=int(item["score"]),
                     context="32K",
                     can_run=can_run,
                     recommended=(can_run and item["ratio"] >= 30),
