@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:grpc/grpc.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../theme/theme.dart';
 import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/xiaoling.pb.dart' as pb;
 
 /// 聊天页 — 液态玻璃风
 class ChatPage extends StatefulWidget {
@@ -16,9 +20,11 @@ class _ChatPageState extends State<ChatPage> {
   final _scroll = ScrollController();
   final List<_Msg> _msgs = [];
   bool _busy = false;
+  bool _ttsOn = true;
   String _status = '连接中…';
   late ClientChannel _chan;
   late XiaoLingClient _stub;
+  final _player = AudioPlayer();
 
   @override
   void initState() {
@@ -75,7 +81,29 @@ class _ChatPageState extends State<ChatPage> {
     } finally {
       setState(() => _busy = false);
       _scrollToBottom();
+      // 自动语音播报
+      if (_ttsOn && _msgs.isNotEmpty) {
+        final reply = _msgs.last.text;
+        if (reply.isNotEmpty) _speak(reply);
+      }
     }
+  }
+
+  Future<void> _speak(String text) async {
+    try {
+      final chunks = <int>[];
+      final stream = _stub.readAloud(pb.ReadRequest(text: text));
+      await for (final c in stream) {
+        chunks.addAll(c.data);
+        if (c.done) break;
+      }
+      if (chunks.isNotEmpty) {
+        final dir = await getTemporaryDirectory();
+        final f = File('${dir.path}/xl_tts.mp3');
+        await f.writeAsBytes(chunks);
+        await _player.play(DeviceFileSource(f.path));
+      }
+    } catch (_) {}
   }
 
   void _scrollToBottom() {
@@ -141,6 +169,11 @@ class _ChatPageState extends State<ChatPage> {
                 ],
               ),
             ],
+          ),
+          IconButton(
+            icon: Icon(_ttsOn ? Icons.volume_up : Icons.volume_off,
+                color: _ttsOn ? AppTheme.primaryPink : AppTheme.textLight, size: 20),
+            onPressed: () => setState(() => _ttsOn = !_ttsOn),
           ),
         ],
       ),
