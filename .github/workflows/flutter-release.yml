@@ -55,7 +55,7 @@ jobs:
           printf '@echo off\r\nstart /min backend.exe --port 50051\r\ntimeout /t 2 /nobreak >nul\r\nstart "" xiaoling.exe\r\n' > "$BUNDLE/小凌.bat"
       - name: 打包 zip
         shell: pwsh
-        run: Compress-Archive -Path "frontend\build\windows\x64\runner\Release\*" -DestinationPath "xiaoling-windows-x64.zip" -Force
+        run: Compress-Archive -Path "frontend\build\windows\x64\runner\Release\*" -DestinationPath "frontend\xiaoling-windows-x64.zip" -Force
       - uses: actions/upload-artifact@v4
         with: { name: xiaoling-windows, path: frontend/xiaoling-windows-x64.zip }
 
