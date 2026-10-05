@@ -175,7 +175,7 @@ jobs:
           chmod +x appimagetool
           ./appimagetool --appimage-extract-and-run "$APPDIR" xiaoling-0.0.1-x86_64.AppImage
       - uses: actions/upload-artifact@v4
-        with: { name: xiaoling-linux, path: *.AppImage }
+        with: { name: xiaoling-linux, path: '*.AppImage' }
 
   # ---------------- 汇总到 Release ---------------- #
   release:
