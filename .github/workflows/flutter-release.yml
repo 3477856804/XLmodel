@@ -158,24 +158,10 @@ jobs:
           cp dist/backend "$BUNDLE/backend"
           chmod +x "$BUNDLE/backend"
           cp -r resources "$BUNDLE/resources"
-      - name: 打 AppImage
-        run: |
-          BUNDLE="frontend/build/linux/x64/release/bundle"
-          APPDIR="AppDir"
-          mkdir -p "$APPDIR/usr/bin"
-          cp -r "$BUNDLE"/* "$APPDIR/usr/bin/"
-          cat > "$APPDIR/xiaoling.desktop" << DESK
-          [Desktop Entry]
-          Name=XiaoLing
-          Exec=xiaoling
-          Type=Application
-          Icon=xiaoling
-          DESK
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
-          chmod +x appimagetool
-          ./appimagetool --appimage-extract-and-run "$APPDIR" xiaoling-0.0.1-x86_64.AppImage
+      - name: 打包 tar.gz
+        run: cd frontend/build/linux/x64/release/bundle/ && tar czf ../../../../../xiaoling-linux-x64.tar.gz .
       - uses: actions/upload-artifact@v4
-        with: { name: xiaoling-linux, path: '*.AppImage' }
+        with: { name: xiaoling-linux, path: frontend/xiaoling-linux-x64.tar.gz }
 
   # ---------------- 汇总到 Release ---------------- #
   release:
