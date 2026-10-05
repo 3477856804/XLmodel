@@ -14,7 +14,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  GrowthStatusReply? _growth;
+  pb.GrowthStatusReply? _growth;
   String? _modelPath;
   String _modelName = '小凌';
 
