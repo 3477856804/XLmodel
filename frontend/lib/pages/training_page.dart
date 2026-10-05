@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:grpc/grpc.dart';
 import '../theme/theme.dart';
-import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling.pb.dart';
 
 /// 训练页 — 五维能力雷达 + 训练状态
 class TrainingPage extends StatefulWidget {
@@ -13,30 +13,19 @@ class TrainingPage extends StatefulWidget {
 }
 
 class _TrainingPageState extends State<TrainingPage> {
-  late ClientChannel _chan;
-  late XiaoLingClient _stub;
   TrainingStatusReply? _data;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _chan = ClientChannel('localhost', port: 50051,
-        options: const ChannelOptions(connectTimeout: Duration(seconds: 2)));
-    _stub = XiaoLingClient(_chan);
     _refresh();
-  }
-
-  @override
-  void dispose() {
-    _chan.shutdown();
-    super.dispose();
   }
 
   Future<void> _refresh() async {
     setState(() => _loading = true);
     try {
-      final r = await _stub.getTrainingStatus(Empty());
+      final r = await XlClient.withRetry((s) => s.getTrainingStatus(Empty()));
       setState(() => _data = r);
     } catch (_) {
       setState(() => _data = null);

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:grpc/grpc.dart';
 import '../theme/theme.dart';
-import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling.pb.dart';
 
 /// 成长页 — 成长状态可视化
 class GrowthPage extends StatefulWidget {
@@ -12,30 +12,19 @@ class GrowthPage extends StatefulWidget {
 }
 
 class _GrowthPageState extends State<GrowthPage> {
-  late ClientChannel _chan;
-  late XiaoLingClient _stub;
   GrowthStatusReply? _data;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _chan = ClientChannel('localhost', port: 50051,
-        options: const ChannelOptions(connectTimeout: Duration(seconds: 2)));
-    _stub = XiaoLingClient(_chan);
     _refresh();
-  }
-
-  @override
-  void dispose() {
-    _chan.shutdown();
-    super.dispose();
   }
 
   Future<void> _refresh() async {
     setState(() => _loading = true);
     try {
-      final r = await _stub.getGrowthStatus(Empty());
+      final r = await XlClient.withRetry((s) => s.getGrowthStatus(Empty()));
       setState(() => _data = r);
     } catch (_) {
       setState(() => _data = null);

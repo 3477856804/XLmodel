@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
-import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
-import 'package:grpc/grpc.dart';
 
 /// 模型商店 - 读取用户硬件配置推荐模型
 class ModelStorePage extends StatefulWidget {
@@ -13,7 +12,6 @@ class ModelStorePage extends StatefulWidget {
 }
 
 class _ModelStorePageState extends State<ModelStorePage> {
-  XiaoLingStub? _stub;
   HardwareInfo? _hw;
   List<RecommendedModel> _models = [];
   bool _loading = true;
@@ -25,12 +23,9 @@ class _ModelStorePageState extends State<ModelStorePage> {
   }
 
   Future<void> _load() async {
-    final chan = ClientChannel('localhost', port: 50051,
-        options: const ChannelOptions(credentials: ChannelCredentials.insecure()));
-    _stub = XiaoLingStub(chan);
     try {
-      final hw = await _stub.detectHardware(Empty());
-      final recs = await _stub.listRecommendedModels(HardwareRequest());
+      final hw = await XlClient.withRetry((s) => s.detectHardware(Empty()));
+      final recs = await XlClient.withRetry((s) => s.listRecommendedModels(HardwareRequest()));
       if (mounted) setState(() { _hw = hw; _models = recs.models; _loading = false; });
     } catch (e) {
       if (mounted) setState(() => _loading = false);

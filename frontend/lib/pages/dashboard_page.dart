@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:grpc/grpc.dart';
 import '../theme/theme.dart';
-import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 import '../widgets/model_showcase.dart';
 
@@ -14,8 +14,6 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  late ClientChannel _chan;
-  late XiaoLingClient _stub;
   GrowthStatusReply? _growth;
   String? _modelPath;
   String _modelName = '小凌';
@@ -23,25 +21,15 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    _chan = ClientChannel('localhost',
-        port: 50051,
-        options: const ChannelOptions(connectTimeout: Duration(seconds: 2)));
-    _stub = XiaoLingClient(_chan);
     _load();
-  }
-
-  @override
-  void dispose() {
-    _chan.shutdown();
-    super.dispose();
   }
 
   Future<void> _load() async {
     try {
-      final g = await _stub.getGrowthStatus(pb.Empty(),
-          options: CallOptions(timeout: const Duration(seconds: 3)));
-      final models = await _stub.listModels(pb.ListRequest(),
-          options: CallOptions(timeout: const Duration(seconds: 3)));
+      final g = await XlClient.withRetry((s) => s.getGrowthStatus(pb.Empty(),
+          options: CallOptions(timeout: const Duration(seconds: 5))));
+      final models = await XlClient.withRetry((s) => s.listModels(pb.ListRequest(),
+          options: CallOptions(timeout: const Duration(seconds: 5))));
       if (mounted) {
         setState(() {
           _growth = g;

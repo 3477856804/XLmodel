@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:grpc/grpc.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../theme/theme.dart';
-import '../rpc/xiaoling.pbgrpc.dart';
+import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 
 /// 聊天页 — 液态玻璃风
@@ -22,23 +21,16 @@ class _ChatPageState extends State<ChatPage> {
   bool _busy = false;
   bool _ttsOn = true;
   String _status = '连接中…';
-  late ClientChannel _chan;
-  late XiaoLingClient _stub;
   final _player = AudioPlayer();
 
   @override
   void initState() {
     super.initState();
-    _chan = ClientChannel('localhost',
-        port: 50051,
-        options: const ChannelOptions(connectTimeout: Duration(seconds: 2)));
-    _stub = XiaoLingClient(_chan);
     _hello();
   }
 
   @override
   void dispose() {
-    _chan.shutdown();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -46,7 +38,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _hello() async {
     try {
-      final s = await _stub.getStatus(StatusRequest());
+      final s = await XlClient.withRetry((s) => s.getStatus(pb.StatusRequest()));
       setState(() => _status = 'v${s.version} · ${s.stage}');
     } catch (_) {
       setState(() => _status = '未连接后端');
@@ -65,7 +57,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollToBottom();
     try {
-      final stream = _stub.chat(ChatRequest(text: text));
+      final stream = XlClient.stub.chat(ChatRequest(text: text));
       await for (final chunk in stream) {
         if (chunk.delta.isNotEmpty) {
           _msgs[_msgs.length - 1] =
@@ -92,7 +84,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _speak(String text) async {
     try {
       final chunks = <int>[];
-      final stream = _stub.readAloud(pb.ReadRequest(text: text));
+      final stream = XlClient.stub.readAloud(pb.ReadRequest(text: text));
       await for (final c in stream) {
         chunks.addAll(c.data);
         if (c.done) break;
