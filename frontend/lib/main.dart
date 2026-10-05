@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'theme/theme.dart';
 import 'pages/splash_page.dart';
@@ -7,7 +8,34 @@ import 'pages/training_page.dart';
 import 'pages/growth_page.dart';
 import 'pages/settings_page.dart';
 
-void main() => runApp(const XiaoLingApp());
+/// 启动后端 gRPC 进程 —— 双击 xiaoling.exe 时自动拉起，不需要 bat
+Process? _backendProc;
+
+Future<void> _startBackend() async {
+  if (Platform.environment['FLUTTER_TEST'] == '1') return;
+  final exeDir = File(Platform.resolvedExecutable).parent;
+  String backendPath;
+  if (Platform.isWindows) {
+    backendPath = '${exeDir.path}/backend.exe';
+  } else {
+    backendPath = '${exeDir.path}/backend';
+  }
+  final f = File(backendPath);
+  if (!await f.exists()) return;
+  try {
+    _backendProc = await Process.start(
+      backendPath, ['--port', '50051'],
+      workingDirectory: exeDir.path,
+      mode: ProcessStartMode.detached,
+    );
+  } catch (_) {}
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await _startBackend();
+  runApp(const XiaoLingApp());
+}
 
 class XiaoLingApp extends StatelessWidget {
   const XiaoLingApp({super.key});
