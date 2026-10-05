@@ -158,10 +158,39 @@ jobs:
           cp dist/backend "$BUNDLE/backend"
           chmod +x "$BUNDLE/backend"
           cp -r resources "$BUNDLE/resources"
-      - name: 打 tar.gz
-        run: cd frontend/build/linux/x64/release/bundle/ && tar czf ../../../../../xiaoling-linux-x64.tar.gz .
+      - name: 打 AppImage
+        run: |
+          BUNDLE="frontend/build/linux/x64/release/bundle"
+          APPDIR="AppDir"
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          cp -r "$BUNDLE"/* "$APPDIR/usr/bin/"
+          # desktop 文件
+          cat > "$APPDIR/xiaoling.desktop" << EOF
+          [Desktop Entry]
+          Type=Application
+          Name=XiaoLing
+          Exec=xiaoling
+          Icon=xiaoling
+          Categories=Utility;
+          EOF
+          # 图标
+          convert -size 256x256 xc:"#E85A8A" "$APPDIR/xiaoling.png"
+          # AppRun
+          cat > "$APPDIR/AppRun" << 'EOF'
+          #!/bin/bash
+          SELF="$(readlink -f "$0")"
+          HERE="$(dirname "$SELF")"
+          exec "$HERE/usr/bin/xiaoling"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          # 用 linuxdeploy 打 AppImage
+          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" -O linuxdeploy
+          chmod +x linuxdeploy
+          ./linuxdeploy --appdir "$APPDIR" --output appimage
+          ls -lh *.AppImage
       - uses: actions/upload-artifact@v4
-        with: { name: xiaoling-linux, path: frontend/xiaoling-linux-x64.tar.gz }
+        with: { name: xiaoling-linux, path: '*.AppImage' }
 
   # ---------------- 汇总到 Release ---------------- #
   release:
