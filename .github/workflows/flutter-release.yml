@@ -55,11 +55,29 @@ jobs:
           cp dist/backend.exe "$BUNDLE/backend.exe"
           cp -r resources "$BUNDLE/resources"
           printf '@echo off\r\nstart /min backend.exe --port 50051\r\ntimeout /t 2 /nobreak >nul\r\nstart "" xiaoling.exe\r\n' > "$BUNDLE/小凌.bat"
-      - name: 打包 zip
+      - name: 打 NSIS 安装包
         shell: pwsh
-        run: Compress-Archive -Path "frontend\build\windows\x64\runner\Release\*" -DestinationPath "frontend\xiaoling-windows-x64.zip" -Force
+        run: |
+          BUNDLE="frontend\build\windows\x64\runner\Release"
+          choco install innosetup --no-progress
+          $iss = @"
+          [Setup]
+          AppName=小凌
+          AppVersion=0.0.1
+          DefaultDirName={autopf}\XiaoLing
+          DefaultGroupName=小凌
+          OutputBaseFilename=xiaoling-setup-0.0.1
+          Compression=lzma
+          [Files]
+          Source: "$BUNDLE\*"; DestDir: "{app}"; Flags: recursesubdirs
+          [Icons]
+          Name: "{autodesktop}\小凌"; Filename: "{app}\小凌.bat"
+          Name: "{autoprograms}\小凌"; Filename: "{app}\小凌.bat"
+          "@
+          $iss | Out-File -Encoding utf8 setup.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
       - uses: actions/upload-artifact@v4
-        with: { name: xiaoling-windows, path: frontend/xiaoling-windows-x64.zip }
+        with: { name: xiaoling-windows, path: Output/*.exe }
 
   # ---------------- macOS ---------------- #
   build-macos:
@@ -144,10 +162,26 @@ jobs:
           # 启动器
           printf '#!/bin/bash\nDIR="$(cd "$(dirname "$0")" && pwd)"\n"$DIR/backend" --port 50051 &\nsleep 2\nexec "$DIR/xiaoling"\n' > "$BUNDLE/小凌.sh"
           chmod +x "$BUNDLE/小凌.sh"
-      - name: 打包 tar.gz
-        run: cd frontend/build/linux/x64/release/bundle/ && tar czf ../../../../../xiaoling-linux-x64.tar.gz .
+      - name: 打 AppImage
+        run: |
+          BUNDLE="frontend/build/linux/x64/release/bundle"
+          # AppDir 结构
+          APPDIR="AppDir"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
+          cp -r "$BUNDLE"/* "$APPDIR/usr/bin/"
+          cat > "$APPDIR/小凌.desktop" << DESK
+          [Desktop Entry]
+          Name=小凌
+          Exec=小凌.sh
+          Type=Application
+          Icon=xiaoling
+          DESK
+          # 下载 appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool "$APPDIR" xiaoling-0.0.1-x86_64.AppImage
       - uses: actions/upload-artifact@v4
-        with: { name: xiaoling-linux, path: frontend/xiaoling-linux-x64.tar.gz }
+        with: { name: xiaoling-linux, path: *.AppImage }
 
   # ---------------- 汇总到 Release ---------------- #
   release:
@@ -159,7 +193,7 @@ jobs:
         with: { path: artifacts }
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: flutter-v0.0.2
+          tag_name: flutter-v0.0.1
           files: artifacts/**/*
           generate_release_notes: true
-          name: 小凌完整桌面端 v0.0.2（Flutter UI + Python 后端）
+          name: 小凌桌面端 v0.0.1
