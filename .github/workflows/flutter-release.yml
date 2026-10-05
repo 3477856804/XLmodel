@@ -164,10 +164,10 @@ jobs:
           BUNDLE="frontend/build/linux/x64/release/bundle"
           APPDIR="AppDir"
           rm -rf "$APPDIR"
-          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/bin"
           cp -r "$BUNDLE"/* "$APPDIR/usr/bin/"
-          # desktop 文件
-          cat > "$APPDIR/usr/share/applications/xiaoling.desktop" << EOF
+          # desktop 文件放根目录
+          cat > "$APPDIR/xiaoling.desktop" << EOF
           [Desktop Entry]
           Type=Application
           Name=XiaoLing
@@ -175,16 +175,19 @@ jobs:
           Icon=xiaoling
           Categories=Utility;
           EOF
-          # 根目录软链（AppImage要求）
-          ln -sf usr/share/applications/xiaoling.desktop "$APPDIR/xiaoling.desktop"
-          # 简单 PNG 图标
-          convert -size 256x256 xc:"#E85A8A" "$APPDIR/xiaoling.png" || true
-          ln -sf usr/bin/xiaoling "$APPDIR/AppRun"
+          # PNG 图标
+          convert -size 256x256 xc:"#E85A8A" "$APPDIR/xiaoling.png" || cp /usr/share/icons/gnome/48x48/apps/utilities-terminal.png "$APPDIR/xiaoling.png"
+          # AppRun 脚本
+          cat > "$APPDIR/AppRun" << EOF
+          #!/bin/bash
+          SELF="$(readlink -f "$0")"
+          HERE="$(dirname "$SELF")"
+          exec "$HERE/usr/bin/xiaoling"
+          EOF
           chmod +x "$APPDIR/AppRun"
           # 下载 appimagetool
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage" -O appimagetool
           chmod +x appimagetool
-          # 构建
           ARCH=x86_64 ./appimagetool --appimage-extract-and-run "$APPDIR" xiaoling-0.0.1-x86_64.AppImage
           ls -lh xiaoling-0.0.1-x86_64.AppImage
       - uses: actions/upload-artifact@v4
