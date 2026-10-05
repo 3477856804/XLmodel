@@ -57,7 +57,7 @@ class _ChatPageState extends State<ChatPage> {
     });
     _scrollToBottom();
     try {
-      final stream = XlClient.stub.chat(ChatRequest(text: text));
+      final stream = XlClient.stub.chat(pb.ChatRequest(text: text));
       await for (final chunk in stream) {
         if (chunk.delta.isNotEmpty) {
           _msgs[_msgs.length - 1] =
