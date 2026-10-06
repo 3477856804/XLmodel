@@ -53,6 +53,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _Section('render', '渲染设置', Icons.blur_on_rounded, 'gold'),
     _Section('voice', '语音设置', Icons.record_voice_over_rounded, 'violet'),
     _Section('interface', '界面设置', Icons.dashboard_customize_rounded, 'green'),
+    _Section('channels', '多平台通道', Icons.hub_rounded, 'gold'),
     _Section('advanced', '高级设置', Icons.tune_rounded, 'blue'),
     _Section('about', '关于小凌', Icons.info_outline_rounded, 'pink'),
   ];
@@ -451,6 +452,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       case 'render': return _renderSection(p);
       case 'voice': return _voiceSection(p);
       case 'interface': return _interfaceSection(p);
+      case 'channels': return _channelsSection(p);
       case 'advanced': return _advancedSection(p);
       case 'about': return _aboutSection(p);
       default: return _modelSection(p);
@@ -846,6 +848,36 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
               )),
         ],
       ),
+    );
+  }
+
+  Widget _channelsSection(XlPalette p) {
+    final items = [
+      {'name': 'Webhook', 'desc': '接收外部系统推送', 'icon': Icons.webhook_rounded, 'on': true},
+      {'name': 'Telegram', 'desc': '通过 Bot 收发消息', 'icon': Icons.send_rounded, 'on': false},
+      {'name': 'Discord', 'desc': '接入 Discord 服务器', 'icon': Icons.discord_rounded, 'on': false},
+      {'name': '飞书', 'desc': '飞书机器人', 'icon': Icons.business_center_rounded, 'on': false},
+      {'name': '邮件', 'desc': 'SMTP 收发邮件', 'icon': Icons.email_rounded, 'on': false},
+    ];
+    return ListView(
+      padding: const EdgeInsets.all(8),
+      children: items.map((e) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(18), boxShadow: [BoxShadow(color: p.shDark, offset: const Offset(3,3), blurRadius: 7), BoxShadow(color: p.shLight, offset: const Offset(-3,-3), blurRadius: 7)]),
+          child: Row(children: [
+            Icon(e['icon'] as IconData, color: p.gold, size: 22),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(e['name'] as String, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: p.text1)),
+              const SizedBox(height: 2),
+              Text(e['desc'] as String, style: TextStyle(fontSize: 12, color: p.text2)),
+            ])),
+            Switch(value: e['on'] as bool, onChanged: (_) {}, activeColor: p.pink),
+          ]),
+        ),
+      )).toList(),
     );
   }
 
