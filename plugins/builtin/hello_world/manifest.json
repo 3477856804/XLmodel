@@ -1,9 +1,0 @@
-{
-  "name": "hello_world",
-  "version": "0.1.0",
-  "description": "示例插件 - 打个招呼",
-  "author": "xiaoling",
-  "permissions": ["chat:read"],
-  "entry": "on_message",
-  "min_app_version": "0.0.1"
-}
