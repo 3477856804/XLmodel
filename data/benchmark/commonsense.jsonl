@@ -1,0 +1,20 @@
+{"id": "c01", "question": "太阳从哪个方向升起？", "expect": ["东", "东方", "east"], "type": "keyword"}
+{"id": "c02", "question": "一年有几个季节？", "expect": ["4", "四"], "type": "keyword"}
+{"id": "c03", "question": "标准大气压下水的沸点是多少摄氏度？", "expect": ["100", "一百"], "type": "keyword"}
+{"id": "c04", "question": "冰是水的什么状态？", "expect": ["固", "固态"], "type": "keyword"}
+{"id": "c05", "question": "人类用哪个器官呼吸？", "expect": ["肺", "鼻子"], "type": "keyword"}
+{"id": "c06", "question": "中国的首都是哪座城市？", "expect": ["北京"], "type": "keyword"}
+{"id": "c07", "question": "一天有多少小时？", "expect": ["24", "二十四"], "type": "keyword"}
+{"id": "c08", "question": "三角形内角和是多少度？", "expect": ["180", "一百八十"], "type": "keyword"}
+{"id": "c09", "question": "光速比声速快还是慢？", "expect": ["快"], "type": "keyword"}
+{"id": "c10", "question": "鲨鱼属于鱼类还是哺乳动物？", "expect": ["鱼"], "type": "keyword"}
+{"id": "c11", "question": "彩虹主要有几种颜色？", "expect": ["7", "七"], "type": "keyword"}
+{"id": "c12", "question": "鸟主要靠什么飞行？", "expect": ["翅膀", "翼"], "type": "keyword"}
+{"id": "c13", "question": "植物通过什么过程制造氧气？", "expect": ["光合"], "type": "keyword"}
+{"id": "c14", "question": "地球绕着哪颗恒星公转？", "expect": ["太阳"], "type": "keyword"}
+{"id": "c15", "question": "熊猫主要吃什么？", "expect": ["竹子", "竹"], "type": "keyword"}
+{"id": "c16", "question": "一周有几天？", "expect": ["7", "七"], "type": "keyword"}
+{"id": "c17", "question": "铁在常温下是什么状态？", "expect": ["固", "固态"], "type": "keyword"}
+{"id": "c18", "question": "成人每天建议睡多少小时？", "expect": ["7", "8", "七", "八"], "type": "keyword"}
+{"id": "c19", "question": "0 摄氏度时水会怎样？", "expect": ["结冰", "结冰了", "冻结", "凝固", "变成冰"], "type": "keyword"}
+{"id": "c20", "question": "光年是什么单位？", "expect": ["距离", "长度"], "type": "keyword"}
