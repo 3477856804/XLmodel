@@ -550,9 +550,3 @@ def serve(port: int = 50051):
         server.stop(5)
 
 
-if __name__ == '__main__':
-    port = 50051
-    if '--port' in sys.argv:
-        i = sys.argv.index('--port')
-        port = int(sys.argv[i + 1])
-    serve(port)
