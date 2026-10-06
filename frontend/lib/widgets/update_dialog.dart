@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/theme.dart';
-import '../utils/updater.dart';
+import '../updater.dart';
 
 class UpdateDialog extends StatefulWidget {
   final UpdateInfo info;
@@ -180,7 +180,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                           gradient: p.gradBrand,
                           borderRadius: BorderRadius.circular(XlRadius.xl),
                           border: Border.all(
-                            color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5),
+                            color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5),
                             width: 2,
                           ),
                           boxShadow: [
@@ -341,7 +341,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: highlight
-            ? color.withOpacity(p.dark ? 0.16 : 0.10)
+            ? color.withOpacity(p.isDark ? 0.16 : 0.10)
             : p.surfaceLo,
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(
@@ -557,7 +557,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
               width: 24,
               height: 24,
               decoration: BoxDecoration(
-                color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                 borderRadius: BorderRadius.circular(XlRadius.xs),
                 border: Border.all(color: color.withOpacity(0.28), width: 1),
               ),
@@ -660,7 +660,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                 width: 26,
                 height: 26,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.xs),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                 ),
@@ -735,7 +735,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                     border: Border.all(
                       color: selected
                           ? color
-                          : p.shDark.withOpacity(p.dark ? 0.32 : 0.14),
+                          : p.shDark.withOpacity(p.isDark ? 0.32 : 0.14),
                       width: 1.5,
                     ),
                   ),
@@ -743,7 +743,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                       ? Icon(
                           Icons.check_rounded,
                           size: 13,
-                          color: p.dark ? p.btnInk : Colors.white,
+                          color: p.isDark ? p.btnInk : Colors.white,
                         )
                       : null,
                 ),
@@ -770,7 +770,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
-                                color: p.gold.withOpacity(p.dark ? 0.18 : 0.12),
+                                color: p.gold.withOpacity(p.isDark ? 0.18 : 0.12),
                                 borderRadius: BorderRadius.circular(XlRadius.xs),
                                 border: Border.all(
                                   color: p.gold.withOpacity(0.32),
@@ -957,7 +957,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: _skipNext
-                        ? p.gold.withOpacity(p.dark ? 0.14 : 0.10)
+                        ? p.gold.withOpacity(p.isDark ? 0.14 : 0.10)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(XlRadius.sm),
                     border: Border.all(
@@ -980,14 +980,14 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                           border: Border.all(
                             color: _skipNext
                                 ? p.gold
-                                : p.shDark.withOpacity(p.dark ? 0.32 : 0.14),
+                                : p.shDark.withOpacity(p.isDark ? 0.32 : 0.14),
                             width: 1.4,
                           ),
                         ),
                         child: _skipNext
                             ? Icon(Icons.check_rounded,
                                 size: 11,
-                                color: p.dark ? p.btnInk : Colors.white)
+                                color: p.isDark ? p.btnInk : Colors.white)
                             : null,
                       ),
                       const SizedBox(width: 8),

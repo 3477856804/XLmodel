@@ -459,7 +459,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListVoices ----------------
     def ListVoices(self, request, context):
         try:
-            from core.voice import VOICE_MAP
+            from core.multimodal import VOICE_MAP
             out = [pb.VoiceInfo(id=v, name=k, lang='zh-CN') for k, v in VOICE_MAP.items()]
             return pb.VoiceList(voices=out)
         except Exception as e:
@@ -479,7 +479,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ReadAloud（流式音频） ----------------
     def ReadAloud(self, request, context):
         try:
-            from core.voice import TTS
+            from core.multimodal import TTS
             audio = TTS().synthesize(request.text) or b''
             # 分块发送
             chunk_size = 4096

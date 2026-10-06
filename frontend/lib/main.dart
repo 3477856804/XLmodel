@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -93,7 +94,7 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
       themeMode: _mode,
       themeAnimationDuration: XlDuration.slow,
       themeAnimationCurve: XlCurve.standard,
-      home: SplashPage(onToggleTheme: toggleTheme, isDark: isDark),
+      home: SplashPage(onToggleTheme: toggleTheme),
       routes: {
         '/home': (_) => HomeShell(onToggleTheme: toggleTheme, isDark: isDark),
       },
@@ -114,7 +115,7 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
 class HomeShell extends StatefulWidget {
   final VoidCallback onToggleTheme;
   final bool isDark;
-  const HomeShell({super.key, required this.onToggleTheme, required this.isDark});
+  const HomeShell({super.key, required this.onToggleTheme, this.isDark = false});
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
@@ -424,7 +425,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                 ? BoxDecoration(
                     color: p.surfaceLo,
                     borderRadius: BorderRadius.circular(XlRadius.ml),
-                    border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.35 : 0.15), width: 1),
+                    border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.35 : 0.15), width: 1),
                     boxShadow: p.sunkenSm,
                   )
                 : const BoxDecoration(),
@@ -470,7 +471,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
             width: size + 14,
             height: size + 14,
             decoration: BoxDecoration(
-              color: color.withOpacity(p.dark ? 0.14 : 0.12),
+              color: color.withOpacity(p.isDark ? 0.14 : 0.12),
               shape: BoxShape.circle,
             ),
           ),
@@ -503,7 +504,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                       SizedBox(
                         width: 32,
                         height: 32,
-                        child: Icon(icon, size: 18, color: color.withOpacity(p.dark ? 0.85 : 0.75)),
+                        child: Icon(icon, size: 18, color: color.withOpacity(p.isDark ? 0.85 : 0.75)),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -743,7 +744,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         gradient: p.gradBrand,
         borderRadius: BorderRadius.circular(XlRadius.md),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5), width: 1.5),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 1.5),
         boxShadow: [...p.raisedXs, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 14, spreadRadius: -3)],
       ),
       child: Center(

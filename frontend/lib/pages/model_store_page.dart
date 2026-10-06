@@ -421,7 +421,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                   width: 28,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                    color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                     borderRadius: BorderRadius.circular(XlRadius.xs),
                     border: Border.all(color: color.withOpacity(0.28), width: 1),
                   ),
@@ -492,13 +492,13 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: [color, color.withOpacity(0.75)]),
               borderRadius: BorderRadius.circular(XlRadius.sm),
-              border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.48), width: 1),
+              border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1),
               boxShadow: p.raisedXxs,
             ),
             child: Icon(
               hw.hasCuda ? Icons.flash_on_rounded : (hw.hasMetal ? Icons.apple_rounded : Icons.laptop_rounded),
               size: 15,
-              color: p.dark ? p.btnInk : Colors.white,
+              color: p.isDark ? p.btnInk : Colors.white,
             ),
           ),
           const SizedBox(width: 14),
@@ -529,7 +529,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: color.withOpacity(p.dark ? 0.14 : 0.10),
+              color: color.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.pill),
               border: Border.all(color: color.withOpacity(0.30), width: 1),
             ),
@@ -550,7 +550,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     final models = _source;
     final runnable = models.where((m) => m.canRun).length;
     final rec = models.where((m) => m.recommended).length;
-    final best = models.where((m) => m.canRun).fold<double>(0, (a, b) => a > b.quality ? a : b.quality);
+    final best = models.where((m) => m.canRun).fold<double>(0, (a, b) => a > b.quality.toDouble() ? a : b.quality.toDouble());
     final installedCount = _installed?.models.length ?? 0;
     return LayoutBuilder(
       builder: (context, c) {
@@ -588,7 +588,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: color.withOpacity(p.dark ? 0.14 : 0.10),
+              color: color.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.md),
               border: Border.all(color: color.withOpacity(0.28), width: 1),
             ),
@@ -692,7 +692,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
               decoration: BoxDecoration(
                 color: p.surfaceLo,
                 borderRadius: BorderRadius.circular(XlRadius.pill),
-                border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.28 : 0.12), width: 1),
+                border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -818,10 +818,10 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [color, color.withOpacity(0.72)]),
                     borderRadius: BorderRadius.circular(XlRadius.md),
-                    border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.48), width: 1.2),
+                    border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.2),
                     boxShadow: [...p.raisedXs, BoxShadow(color: color.withOpacity(0.35), blurRadius: 16, spreadRadius: -3)],
                   ),
-                  child: Icon(Icons.auto_awesome_rounded, size: 20, color: p.dark ? p.btnInk : Colors.white),
+                  child: Icon(Icons.auto_awesome_rounded, size: 20, color: p.isDark ? p.btnInk : Colors.white),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -852,7 +852,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
-                                color: p.gold.withOpacity(p.dark ? 0.18 : 0.12),
+                                color: p.gold.withOpacity(p.isDark ? 0.18 : 0.12),
                                 borderRadius: BorderRadius.circular(XlRadius.xs),
                                 border: Border.all(color: p.gold.withOpacity(0.35), width: 1),
                               ),
@@ -941,7 +941,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
         decoration: BoxDecoration(
-          color: p.green.withOpacity(p.dark ? 0.14 : 0.10),
+          color: p.green.withOpacity(p.isDark ? 0.14 : 0.10),
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(color: p.green.withOpacity(0.30), width: 1),
         ),
@@ -965,7 +965,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
         decoration: BoxDecoration(
-          color: p.pink.withOpacity(p.dark ? 0.14 : 0.10),
+          color: p.pink.withOpacity(p.isDark ? 0.14 : 0.10),
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(color: p.pink.withOpacity(0.30), width: 1),
         ),
@@ -982,7 +982,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
         decoration: BoxDecoration(
-          color: p.red.withOpacity(p.dark ? 0.14 : 0.10),
+          color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(color: p.red.withOpacity(0.30), width: 1),
         ),
@@ -998,7 +998,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: p.green.withOpacity(p.dark ? 0.14 : 0.10),
+        color: p.green.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: p.green.withOpacity(0.30), width: 1),
       ),
@@ -1068,7 +1068,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
         decoration: BoxDecoration(
           color: p.surfaceLo,
           borderRadius: BorderRadius.circular(XlRadius.pill),
-          border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.32 : 0.14), width: 1),
+          border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.32 : 0.14), width: 1),
           boxShadow: p.sunkenXs,
         ),
         child: Row(
@@ -1213,9 +1213,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                       decoration: BoxDecoration(
                         gradient: LinearGradient(colors: [color, color.withOpacity(0.72)]),
                         borderRadius: BorderRadius.circular(XlRadius.md),
-                        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.48), width: 1.2),
+                        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.2),
                       ),
-                      child: Icon(Icons.auto_awesome_rounded, size: 20, color: p.dark ? p.btnInk : Colors.white),
+                      child: Icon(Icons.auto_awesome_rounded, size: 20, color: p.isDark ? p.btnInk : Colors.white),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -1320,7 +1320,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),
@@ -1375,7 +1375,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: p.gold.withOpacity(p.dark ? 0.14 : 0.10),
+              color: p.gold.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.md),
               border: Border.all(color: p.gold.withOpacity(0.28), width: 1),
             ),
@@ -1436,7 +1436,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                     decoration: BoxDecoration(
                       gradient: p.gradBrand,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.5), width: 2),
+                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
                       boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
                     ),
                     child: Icon(Icons.shopping_bag_outlined, size: 28, color: p.btnInk),

@@ -263,7 +263,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: p.green.withOpacity(p.dark ? 0.14 : 0.10),
+        color: p.green.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: p.green.withOpacity(0.32), width: 1),
       ),
@@ -366,7 +366,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: s.color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: s.color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.sm),
                   border: Border.all(color: s.color.withOpacity(0.28), width: 1),
                 ),
@@ -461,7 +461,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
               decoration: BoxDecoration(
                 color: p.surfaceLo,
                 borderRadius: BorderRadius.circular(XlRadius.pill),
-                border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.28 : 0.12), width: 1),
+                border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -594,7 +594,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.md),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                   boxShadow: plugin.enabled
@@ -703,8 +703,8 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(
             color: on
-                ? Colors.white.withOpacity(p.dark ? 0.34 : 0.22)
-                : p.shDark.withOpacity(p.dark ? 0.32 : 0.14),
+                ? Colors.white.withOpacity(p.isDark ? 0.34 : 0.22)
+                : p.shDark.withOpacity(p.isDark ? 0.32 : 0.14),
             width: 1,
           ),
           boxShadow: on ? p.raisedXxs : p.sunkenXs,
@@ -979,7 +979,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: p.pink.withOpacity(p.dark ? 0.14 : 0.10),
+                    color: p.pink.withOpacity(p.isDark ? 0.14 : 0.10),
                     borderRadius: BorderRadius.circular(XlRadius.sm),
                     border: Border.all(color: p.pink.withOpacity(0.28), width: 1),
                   ),

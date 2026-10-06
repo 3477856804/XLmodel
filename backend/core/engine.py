@@ -14,17 +14,17 @@ from typing import Callable, Iterable
 from .config import (APP_DIR, DATA_DIR, STAR_DIR, load as load_config,
                      patch as patch_config, migrate_legacy_env, describe as describe_paths)
 from .memory import MemoryHub, LongTermMemory, ShortTermMemory, RAG, KnowledgeGraph
-from .persona import PersonaEngine, Emotion, EmotionEngine, RelationshipEngine
+from .memory import PersonaEngine, Emotion, EmotionEngine, RelationshipEngine
 from .tools import ToolKit, ToolManager, SkillManager, GoalManager, extract_tool_calls
 from .model import ModelReplacement, ModelStore, detect_hardware, compute_plan
 from .growth import GrowthEngine, GrowthStore, DistillThrottle
-from .voice import VoiceEngine, TTS, ASR
-from .plugins import PluginManager
-from .scheduler import CronScheduler
-from .guards import Guard, OfflineGuard
-from .updater import UpdateChecker
-from .multi_agent import MultiAgentSystem
-from .vision import VisionHub
+from .multimodal import VoiceEngine, TTS, ASR
+from .config import PluginManager
+from .tools import CronScheduler
+from .tools import Guard, OfflineGuard
+from .config import UpdateChecker
+from .tools import MultiAgentSystem
+from .multimodal import VisionHub
 
 VERSION = "0.0.1"
 NAME = "小凌"

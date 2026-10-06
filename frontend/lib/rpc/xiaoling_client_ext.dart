@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:grpc/grpc.dart';
 import 'xiaoling.pb.dart';
 import 'xiaoling.pbgrpc.dart';
 import 'client.dart';
@@ -71,7 +72,7 @@ class XlAudioResult {
     if (bytes.length < 1024 * 1024) return '${(bytes.length / 1024).toStringAsFixed(1)} KB';
     return '${(bytes.length / 1024 / 1024).toStringAsFixed(2)} MB';
   }
-  static const empty = XlAudioResult(
+  static final empty = XlAudioResult(
     bytes: Uint8List(0),
     chunkCount: 0,
     elapsed: Duration.zero,
@@ -811,7 +812,7 @@ extension XlApiBatch on XiaoLingClient {
     while (queue.isNotEmpty || running.isNotEmpty) {
       while (running.length < maxConcurrent && queue.isNotEmpty) {
         final job = queue.removeAt(0);
-        running.add(job().then((v) => results.add(v)).whenComplete(() => running.removeWhere((f) => f.isCompleted)));
+        running.add(job().then((v) => results.add(v)));
       }
       if (running.isNotEmpty) {
         await Future.any(running);
@@ -839,7 +840,7 @@ extension XlApiBatch on XiaoLingClient {
           } catch (_) {
             results[item.index] = null;
           }
-        }().whenComplete(() => running.removeWhere((f) => f.isCompleted)));
+        }());
       }
       if (running.isNotEmpty) await Future.any(running);
     }

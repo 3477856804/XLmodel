@@ -307,18 +307,9 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
           exposure: _exposure,
           shadowIntensity: _shadow,
           shadowSoftness: 0.9,
-          environmentImage: EnvironmentImage.neutral,
           backgroundColor: Colors.transparent,
           onWebViewCreated: (_) {
             if (mounted) setState(() => _loading = false);
-          },
-          onError: (e) {
-            if (mounted) {
-              setState(() {
-                _hasError = true;
-                _loading = false;
-              });
-            }
           },
         ),
       ),
@@ -340,7 +331,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                 shape: BoxShape.circle,
                 gradient: p.gradBrand,
                 border: Border.all(
-                  color: Colors.white.withOpacity(p.dark ? 0.28 + t * 0.14 : 0.42 + t * 0.14),
+                  color: Colors.white.withOpacity(p.isDark ? 0.28 + t * 0.14 : 0.42 + t * 0.14),
                   width: 2,
                 ),
                 boxShadow: [
@@ -398,7 +389,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: p.surface.withOpacity(p.dark ? 0.85 : 0.9),
+            color: p.surface.withOpacity(p.isDark ? 0.85 : 0.9),
             borderRadius: BorderRadius.circular(XlRadius.pill),
             border: Border.all(color: color.withOpacity(0.32), width: 1),
             boxShadow: p.raisedXxs,
@@ -434,7 +425,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
     return Positioned.fill(
       child: ClipOval(
         child: Container(
-          color: p.screen.withOpacity(p.dark ? 0.72 : 0.62),
+          color: p.screen.withOpacity(p.isDark ? 0.72 : 0.62),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -490,7 +481,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
     return Positioned.fill(
       child: ClipOval(
         child: Container(
-          color: p.screen.withOpacity(p.dark ? 0.85 : 0.78),
+          color: p.screen.withOpacity(p.isDark ? 0.85 : 0.78),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -499,7 +490,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                   width: widget.width * 0.22,
                   height: widget.width * 0.22,
                   decoration: BoxDecoration(
-                    color: p.red.withOpacity(p.dark ? 0.14 : 0.10),
+                    color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
                     shape: BoxShape.circle,
                     border: Border.all(color: p.red.withOpacity(0.32), width: 1),
                   ),
@@ -568,7 +559,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
             decoration: BoxDecoration(
               gradient: p.gradBrand,
               borderRadius: BorderRadius.circular(XlRadius.xs),
-              border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.48), width: 1),
+              border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1),
               boxShadow: p.raisedXxs,
             ),
             child: Center(
@@ -618,7 +609,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),
@@ -669,7 +660,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.sm),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                   boxShadow: [BoxShadow(color: color.withOpacity(0.18), blurRadius: 10, spreadRadius: -3)],

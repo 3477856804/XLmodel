@@ -455,7 +455,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               decoration: BoxDecoration(
                 gradient: p.gradBrand,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5), width: 2),
+                border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 2),
                 boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 22, spreadRadius: -4)],
               ),
               child: Icon(Icons.favorite_rounded, color: p.btnInk, size: 20),
@@ -485,7 +485,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: c.withOpacity(p.dark ? 0.14 : 0.10),
+        color: c.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: c.withOpacity(0.30), width: 1),
       ),
@@ -560,7 +560,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: s.color.withOpacity(p.dark ? 0.14 : 0.10),
+              color: s.color.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.xs),
               border: Border.all(color: s.color.withOpacity(0.28), width: 1),
             ),
@@ -672,7 +672,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           decoration: BoxDecoration(
             color: p.surfaceLo,
             borderRadius: BorderRadius.circular(XlRadius.pill),
-            border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.24 : 0.10), width: 1),
+            border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.24 : 0.10), width: 1),
           ),
           child: Text(formatRelative(t),
               style: TextStyle(
@@ -781,7 +781,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         bottomLeft: Radius.circular(XlRadius.lg),
         bottomRight: Radius.circular(XlRadius.micro),
       ),
-      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.28 : 0.4), width: 1),
+      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.28 : 0.4), width: 1),
       boxShadow: [...p.raisedXs, BoxShadow(color: p.pink.withOpacity(0.28), blurRadius: 18, spreadRadius: -4)],
     );
   }
@@ -808,7 +808,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         gradient: p.gradBrand,
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.48), width: 1.5),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.5),
         boxShadow: p.raisedXxs,
       ),
       child: Icon(Icons.favorite_rounded, size: 13, color: p.btnInk),
@@ -917,7 +917,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
-          color: p.surface.withOpacity(p.dark ? 0.6 : 0.5),
+          color: p.surface.withOpacity(p.isDark ? 0.6 : 0.5),
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(color: p.edge, width: 1),
         ),
@@ -1160,7 +1160,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           gradient: _busy ? LinearGradient(colors: [p.surfaceLo, p.surface]) : p.gradBrand,
           shape: BoxShape.circle,
           border: Border.all(
-            color: Colors.white.withOpacity(p.dark ? 0.35 : 0.45),
+            color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.45),
             width: 1.5,
           ),
           boxShadow: _busy

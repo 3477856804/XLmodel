@@ -308,7 +308,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                    color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                     borderRadius: BorderRadius.circular(XlRadius.md),
                     border: Border.all(color: color.withOpacity(0.28), width: 1),
                     boxShadow: [BoxShadow(color: color.withOpacity(0.20), blurRadius: 14, spreadRadius: -3)],
@@ -631,7 +631,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                    color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                     borderRadius: BorderRadius.circular(XlRadius.sm),
                     border: Border.all(color: color.withOpacity(0.28), width: 1),
                   ),
@@ -768,7 +768,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                      color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                       borderRadius: BorderRadius.circular(XlRadius.sm),
                       border: Border.all(color: color.withOpacity(0.28), width: 1),
                     ),
@@ -922,7 +922,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.30), width: 1),
       ),
@@ -962,7 +962,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                     decoration: BoxDecoration(
                       gradient: p.gradBrand,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.5), width: 2),
+                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
                       boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
                     ),
                     child: Icon(Icons.auto_awesome_rounded, size: 28, color: p.btnInk),

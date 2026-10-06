@@ -149,7 +149,6 @@ class Updater {
     }
 
     final fallback = UpdateInfo.empty.copyWith(
-      current: _current,
       message: 'check failed: $lastError',
     );
     return fallback;

@@ -274,7 +274,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: color.withOpacity(p.dark ? 0.14 : 0.10),
+            color: color.withOpacity(p.isDark ? 0.14 : 0.10),
             borderRadius: BorderRadius.circular(XlRadius.pill),
             border: Border.all(color: color.withOpacity(0.32), width: 1),
             boxShadow: training
@@ -365,12 +365,12 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                     decoration: BoxDecoration(
                       gradient: LinearGradient(colors: [color, color.withOpacity(0.75)]),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.48), width: 1.5),
+                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.5),
                       boxShadow: [...p.raisedXs, BoxShadow(color: color.withOpacity(0.4), blurRadius: 18, spreadRadius: -4)],
                     ),
                     child: Icon(
                       training ? Icons.auto_awesome_rounded : Icons.pause_rounded,
-                      color: p.dark ? p.btnInk : Colors.white,
+                      color: p.isDark ? p.btnInk : Colors.white,
                       size: 20,
                     ),
                   ),
@@ -780,7 +780,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.sm),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                 ),
@@ -817,12 +817,12 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                   color: selected ? color : Colors.transparent,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: selected ? color : p.shDark.withOpacity(p.dark ? 0.32 : 0.14),
+                    color: selected ? color : p.shDark.withOpacity(p.isDark ? 0.32 : 0.14),
                     width: 1.5,
                   ),
                 ),
                 child: selected
-                    ? Icon(Icons.check_rounded, size: 13, color: p.dark ? p.btnInk : Colors.white)
+                    ? Icon(Icons.check_rounded, size: 13, color: p.isDark ? p.btnInk : Colors.white)
                     : null,
               ),
             ],
@@ -854,7 +854,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: _autoScroll ? p.pink.withOpacity(p.dark ? 0.14 : 0.10) : p.surfaceLo,
+                    color: _autoScroll ? p.pink.withOpacity(p.isDark ? 0.14 : 0.10) : p.surfaceLo,
                     borderRadius: BorderRadius.circular(XlRadius.pill),
                     border: Border.all(
                       color: _autoScroll ? p.pink.withOpacity(0.30) : p.edgeSoft,
@@ -1012,8 +1012,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             shape: BoxShape.circle,
             border: Border.all(
               color: m.done
-                  ? Colors.white.withOpacity(p.dark ? 0.32 : 0.48)
-                  : p.shDark.withOpacity(p.dark ? 0.30 : 0.13),
+                  ? Colors.white.withOpacity(p.isDark ? 0.32 : 0.48)
+                  : p.shDark.withOpacity(p.isDark ? 0.30 : 0.13),
               width: 1,
             ),
             boxShadow: m.done
@@ -1023,7 +1023,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           child: Icon(
             m.done ? Icons.check_rounded : Icons.lock_outline_rounded,
             size: 14,
-            color: m.done ? (p.dark ? p.btnInk : Colors.white) : p.decor,
+            color: m.done ? (p.isDark ? p.btnInk : Colors.white) : p.decor,
           ),
         ),
         const SizedBox(width: 14),
@@ -1039,7 +1039,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: m.done ? color.withOpacity(p.dark ? 0.14 : 0.10) : p.surfaceLo,
+            color: m.done ? color.withOpacity(p.isDark ? 0.14 : 0.10) : p.surfaceLo,
             borderRadius: BorderRadius.circular(XlRadius.pill),
             border: Border.all(
               color: m.done ? color.withOpacity(0.30) : p.edgeSoft,
@@ -1139,7 +1139,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),
@@ -1157,7 +1157,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.xs),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),
@@ -1197,7 +1197,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                     decoration: BoxDecoration(
                       gradient: p.gradBrand,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.5), width: 2),
+                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
                       boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
                     ),
                     child: Icon(Icons.auto_graph_rounded, size: 28, color: p.btnInk),
@@ -1232,7 +1232,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
               width: 62,
               height: 62,
               decoration: BoxDecoration(
-                color: p.red.withOpacity(p.dark ? 0.14 : 0.10),
+                color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
                 shape: BoxShape.circle,
                 border: Border.all(color: p.red.withOpacity(0.32), width: 1),
               ),

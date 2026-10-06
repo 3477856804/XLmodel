@@ -58,7 +58,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   ];
 
   static const _models = <String>['小凌', 'Vivi', 'QuQu', 'Imeris', 'Yuki'];
-  static const _voices = <String>['晓晓', '晓伊', '云希', '云扬', '晓辰', '晓涵'];
+  static const _voiceNames = <String>['晓晓', '晓伊', '云希', '云扬', '晓辰', '晓涵'];
   static const _renders = <String>['软件光栅', 'OpenGL', 'Vulkan', 'Metal'];
   static const _threadsList = <String>['2 线程', '4 线程', '6 线程', '8 线程', '自动'];
   static const _themes = <String>['跟随系统', '始终深色', '始终浅色'];
@@ -239,7 +239,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: color.withOpacity(p.dark ? 0.14 : 0.10),
+            color: color.withOpacity(p.isDark ? 0.14 : 0.10),
             borderRadius: BorderRadius.circular(XlRadius.pill),
             border: Border.all(color: color.withOpacity(0.32), width: 1),
           ),
@@ -358,7 +358,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              color: selected ? color.withOpacity(p.dark ? 0.18 : 0.12) : p.surfaceLo,
+              color: selected ? color.withOpacity(p.isDark ? 0.18 : 0.12) : p.surfaceLo,
               borderRadius: BorderRadius.circular(XlRadius.sm),
               border: Border.all(
                 color: selected ? color.withOpacity(0.30) : p.edgeSoft,
@@ -466,7 +466,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: color.withOpacity(p.dark ? 0.14 : 0.10),
+              color: color.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.md),
               border: Border.all(color: color.withOpacity(0.28), width: 1),
               boxShadow: [BoxShadow(color: color.withOpacity(0.20), blurRadius: 16, spreadRadius: -4)],
@@ -574,7 +574,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: p.pink.withOpacity(p.dark ? 0.06 : 0.05),
+              color: p.pink.withOpacity(p.isDark ? 0.06 : 0.05),
               borderRadius: BorderRadius.circular(XlRadius.sm),
               border: Border.all(color: p.pink.withOpacity(0.18), width: 1),
             ),
@@ -666,7 +666,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHeader(p, '语音设置', '语音识别与语音合成', p.violet),
-        _selectRow(p, '合成音色', '不同角色默认绑定不同音色', Icons.graphic_eq_rounded, _voices, _voice, p.violet, (v) async {
+        _selectRow(p, '合成音色', '不同角色默认绑定不同音色', Icons.graphic_eq_rounded, _voiceNames, _voice, p.violet, (v) async {
           setState(() => _voice = v);
           await XlClient.stub.safe(() => XlClient.stub.setVoiceName(v));
         }),
@@ -728,7 +728,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.12 : 0.08),
+        color: color.withOpacity(p.isDark ? 0.12 : 0.08),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),
@@ -907,7 +907,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       decoration: BoxDecoration(
         gradient: p.gradBrand,
         borderRadius: BorderRadius.circular(XlRadius.xxl),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.28 : 0.42), width: 1.4),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.28 : 0.42), width: 1.4),
         boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 26, spreadRadius: -6)],
       ),
       child: Row(
@@ -931,7 +931,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                     width: 72,
                     height: 72,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(p.dark ? 0.22 : 0.32),
+                      color: Colors.white.withOpacity(p.isDark ? 0.22 : 0.32),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
                     ),
@@ -967,7 +967,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(p.dark ? 0.24 : 0.18),
+                        color: Colors.black.withOpacity(p.isDark ? 0.24 : 0.18),
                         borderRadius: BorderRadius.circular(XlRadius.pill),
                       ),
                       child: Text('v0.0.1',
@@ -982,7 +982,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(p.dark ? 0.24 : 0.18),
+                        color: Colors.black.withOpacity(p.isDark ? 0.24 : 0.18),
                         borderRadius: BorderRadius.circular(XlRadius.pill),
                       ),
                       child: Text('MIT',
@@ -1013,7 +1013,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              color: p.pink.withOpacity(p.dark ? 0.14 : 0.10),
+              color: p.pink.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.sm),
               border: Border.all(color: p.pink.withOpacity(0.28), width: 1),
             ),
@@ -1057,7 +1057,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.sm),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                 ),
@@ -1089,7 +1089,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: color.withOpacity(p.dark ? 0.14 : 0.10),
+              color: color.withOpacity(p.isDark ? 0.14 : 0.10),
               borderRadius: BorderRadius.circular(XlRadius.md),
               border: Border.all(color: color.withOpacity(0.28), width: 1),
             ),
@@ -1133,7 +1133,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       decoration: BoxDecoration(
         color: p.surfaceLo,
         borderRadius: BorderRadius.circular(XlRadius.md),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.28 : 0.12), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
         boxShadow: p.sunkenXxs,
       ),
       child: DropdownButtonHideUnderline(
@@ -1179,7 +1179,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: on ? color.withOpacity(p.dark ? 0.18 : 0.12) : p.surfaceLo,
+              color: on ? color.withOpacity(p.isDark ? 0.18 : 0.12) : p.surfaceLo,
               borderRadius: BorderRadius.circular(XlRadius.md),
               border: Border.all(
                 color: on ? color.withOpacity(0.30) : p.edgeSoft,
@@ -1233,8 +1233,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(
             color: on
-                ? Colors.white.withOpacity(p.dark ? 0.34 : 0.22)
-                : p.shDark.withOpacity(p.dark ? 0.32 : 0.14),
+                ? Colors.white.withOpacity(p.isDark ? 0.34 : 0.22)
+                : p.shDark.withOpacity(p.isDark ? 0.32 : 0.14),
             width: 1,
           ),
           boxShadow: on
@@ -1274,7 +1274,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.sm),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                 ),
@@ -1366,7 +1366,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                   borderRadius: BorderRadius.circular(XlRadius.md),
                   border: Border.all(color: color.withOpacity(0.28), width: 1),
                 ),
@@ -1407,7 +1407,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: p.pink.withOpacity(p.dark ? 0.06 : 0.05),
+        color: p.pink.withOpacity(p.isDark ? 0.06 : 0.05),
         borderRadius: BorderRadius.circular(XlRadius.md),
         border: Border.all(color: p.pink.withOpacity(0.18), width: 1),
       ),
@@ -1435,7 +1435,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),

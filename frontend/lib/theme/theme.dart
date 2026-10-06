@@ -141,7 +141,7 @@ class XlLineHeight {
 
 @immutable
 class XlPalette extends ThemeExtension<XlPalette> {
-  final bool dark;
+  final bool isDark;
   final Color bg;
   final Color bgSoft;
   final Color bgDeep;
@@ -225,9 +225,9 @@ class XlPalette extends ThemeExtension<XlPalette> {
   final LinearGradient btnFaceV;
   final LinearGradient btnFacePressed;
   final LinearGradient btnFaceGhost;
-  final LinearGradient screenGlow;
-  final LinearGradient screenGlowPink;
-  final LinearGradient screenGlowGold;
+  final Gradient screenGlow;
+  final Gradient screenGlowPink;
+  final Gradient screenGlowGold;
   final LinearGradient navFace;
   final LinearGradient navFaceDeep;
   final LinearGradient sidebarFace;
@@ -247,7 +247,7 @@ class XlPalette extends ThemeExtension<XlPalette> {
   final double noiseOpacity;
 
   const XlPalette({
-    required this.dark,
+    required this.isDark,
     required this.bg,
     required this.bgSoft,
     required this.bgDeep,
@@ -354,7 +354,7 @@ class XlPalette extends ThemeExtension<XlPalette> {
   });
 
   static const dark = XlPalette(
-    dark: true,
+    isDark: true,
     bg: Color(0xFF17131D),
     bgSoft: Color(0xFF1A1520),
     bgDeep: Color(0xFF0F0B14),
@@ -586,7 +586,7 @@ class XlPalette extends ThemeExtension<XlPalette> {
   );
 
   static const light = XlPalette(
-    dark: false,
+    isDark: false,
     bg: Color(0xFFE9E4EE),
     bgSoft: Color(0xFFEDE8F2),
     bgDeep: Color(0xFFDFD8E7),
@@ -819,7 +819,7 @@ class XlPalette extends ThemeExtension<XlPalette> {
   );
 
   static XlPalette of(BuildContext c) =>
-      Theme.of(c).extension<XlPalette>() ?? dark;
+      Theme.of(c).extension<XlPalette>() ?? XlPalette.dark;
 
   List<BoxShadow> get raisedUltra => [
     BoxShadow(color: shDark, offset: const Offset(18, 18), blurRadius: 36, spreadRadius: -4),
@@ -861,6 +861,10 @@ class XlPalette extends ThemeExtension<XlPalette> {
     BoxShadow(color: shDark, offset: const Offset(1, 1), blurRadius: 2),
     BoxShadow(color: shLight, offset: const Offset(-1, -1), blurRadius: 2),
   ];
+  List<BoxShadow> get sunkenXxs => [
+    BoxShadow(color: shDark, offset: const Offset(1, 1), blurRadius: 2),
+    BoxShadow(color: shLight, offset: const Offset(-1, -1), blurRadius: 2),
+  ];
   List<BoxShadow> get sunkenXs => [
     BoxShadow(color: shDark, offset: const Offset(2, 2), blurRadius: 4),
     BoxShadow(color: shLight, offset: const Offset(-2, -2), blurRadius: 4),
@@ -886,31 +890,31 @@ class XlPalette extends ThemeExtension<XlPalette> {
     BoxShadow(color: shLight, offset: const Offset(-12, -12), blurRadius: 22, spreadRadius: -4),
   ];
   List<BoxShadow> glowPink({double intensity = 1.0}) => [
-    BoxShadow(color: pink.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: pink.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> glowGold({double intensity = 1.0}) => [
-    BoxShadow(color: gold.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: gold.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> glowGreen({double intensity = 1.0}) => [
-    BoxShadow(color: green.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: green.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> glowViolet({double intensity = 1.0}) => [
-    BoxShadow(color: violet.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: violet.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> glowRed({double intensity = 1.0}) => [
-    BoxShadow(color: red.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: red.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> glowBlue({double intensity = 1.0}) => [
-    BoxShadow(color: blue.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: blue.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> glowCyan({double intensity = 1.0}) => [
-    BoxShadow(color: cyan.withOpacity((dark ? 0.45 : 0.32) * intensity),
+    BoxShadow(color: cyan.withOpacity((isDark ? 0.45 : 0.32) * intensity),
         blurRadius: 24, spreadRadius: -4),
   ];
   List<BoxShadow> get innerTopHighlight => [
@@ -979,7 +983,7 @@ class AppTheme {
   static ThemeData get lightTheme => _build(XlPalette.light);
 
   static ThemeData _build(XlPalette p) {
-    final brightness = p.dark ? Brightness.dark : Brightness.light;
+    final brightness = p.isDark ? Brightness.dark : Brightness.light;
     return ThemeData(
       useMaterial3: true, brightness: brightness,
       scaffoldBackgroundColor: p.bg, canvasColor: p.bg,
@@ -1073,79 +1077,79 @@ class AppTheme {
   static BoxDecoration sunkenHair(BuildContext c, {double r = XlRadius.micro}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surfaceHi, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.15 : 0.06), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.15 : 0.06), width: 1),
         boxShadow: p.sunkenHair);
   }
   static BoxDecoration sunkenXs(BuildContext c, {double r = XlRadius.sm}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.22 : 0.10), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.22 : 0.10), width: 1),
         boxShadow: p.sunkenXs);
   }
   static BoxDecoration sunkenSm(BuildContext c, {double r = XlRadius.md}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.26 : 0.11), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.26 : 0.11), width: 1),
         boxShadow: p.sunkenSm);
   }
   static BoxDecoration sunken(BuildContext c, {double r = XlRadius.md}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.30 : 0.13), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.30 : 0.13), width: 1),
         boxShadow: p.sunken);
   }
   static BoxDecoration sunkenLg(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surfaceLo, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.35 : 0.15), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.35 : 0.15), width: 1),
         boxShadow: p.sunkenLg);
   }
   static BoxDecoration sunkenDeep(BuildContext c, {double r = XlRadius.md}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surfaceLo, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.38 : 0.17), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.38 : 0.17), width: 1),
         boxShadow: p.sunkenDeep);
   }
   static BoxDecoration sunkenUltra(BuildContext c, {double r = XlRadius.md}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.screen, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.45 : 0.20), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.45 : 0.20), width: 1),
         boxShadow: p.sunkenUltra);
   }
   static BoxDecoration screen(BuildContext c, {double r = XlRadius.md}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.screen, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.40 : 0.18), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.40 : 0.18), width: 1),
         boxShadow: p.sunkenDeep);
   }
   static BoxDecoration screenSoft(BuildContext c, {double r = XlRadius.md}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.screenSoft, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.35 : 0.15), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.35 : 0.15), width: 1),
         boxShadow: p.sunkenLg);
   }
   static BoxDecoration btn(BuildContext c, {double r = XlRadius.pill}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.btnFace, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.22), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.22), width: 1),
         boxShadow: p.raisedXs);
   }
   static BoxDecoration btnLg(BuildContext c, {double r = XlRadius.pill}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.btnFace, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.40 : 0.26), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.40 : 0.26), width: 1),
         boxShadow: p.raisedSm);
   }
   static BoxDecoration btnV(BuildContext c, {double r = XlRadius.pill}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.btnFaceV, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.22), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.22), width: 1),
         boxShadow: p.raisedXs);
   }
   static BoxDecoration btnPressed(BuildContext c, {double r = XlRadius.pill}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.btnFacePressed, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.18 : 0.10), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.18 : 0.10), width: 1),
         boxShadow: p.sunkenSm);
   }
   static BoxDecoration ghost(BuildContext c, {double r = XlRadius.pill}) {
@@ -1156,18 +1160,18 @@ class AppTheme {
   static BoxDecoration ghostPressed(BuildContext c, {double r = XlRadius.pill}) {
     final p = XlPalette.of(c);
     return BoxDecoration(color: p.surfaceLo, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.30 : 0.13), width: 1),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.30 : 0.13), width: 1),
         boxShadow: p.sunkenSm);
   }
   static BoxDecoration glass(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
-    return BoxDecoration(color: p.surface.withOpacity(p.dark ? 0.85 : 0.72),
+    return BoxDecoration(color: p.surface.withOpacity(p.isDark ? 0.85 : 0.72),
         borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.edge, width: 1), boxShadow: p.raised);
   }
   static BoxDecoration glassDeep(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
-    return BoxDecoration(color: p.surface.withOpacity(p.dark ? 0.92 : 0.85),
+    return BoxDecoration(color: p.surface.withOpacity(p.isDark ? 0.92 : 0.85),
         borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.edge, width: 1), boxShadow: p.raisedSm);
   }
@@ -1179,66 +1183,66 @@ class AppTheme {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.face, borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.pink.withOpacity(0.35), width: 1.4),
-        boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(p.dark ? 0.28 : 0.18),
+        boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(p.isDark ? 0.28 : 0.18),
             blurRadius: 26, spreadRadius: -6)]);
   }
   static BoxDecoration accentSoft(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.face, borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.pink.withOpacity(0.22), width: 1.2),
-        boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(p.dark ? 0.18 : 0.12),
+        boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(p.isDark ? 0.18 : 0.12),
             blurRadius: 20, spreadRadius: -5)]);
   }
   static BoxDecoration gold(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.face, borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.gold.withOpacity(0.4), width: 1.4),
-        boxShadow: [...p.raised, BoxShadow(color: p.gold.withOpacity(p.dark ? 0.30 : 0.20),
+        boxShadow: [...p.raised, BoxShadow(color: p.gold.withOpacity(p.isDark ? 0.30 : 0.20),
             blurRadius: 26, spreadRadius: -6)]);
   }
   static BoxDecoration green(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.face, borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.green.withOpacity(0.4), width: 1.4),
-        boxShadow: [...p.raised, BoxShadow(color: p.green.withOpacity(p.dark ? 0.30 : 0.20),
+        boxShadow: [...p.raised, BoxShadow(color: p.green.withOpacity(p.isDark ? 0.30 : 0.20),
             blurRadius: 26, spreadRadius: -6)]);
   }
   static BoxDecoration violet(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.face, borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.violet.withOpacity(0.4), width: 1.4),
-        boxShadow: [...p.raised, BoxShadow(color: p.violet.withOpacity(p.dark ? 0.30 : 0.20),
+        boxShadow: [...p.raised, BoxShadow(color: p.violet.withOpacity(p.isDark ? 0.30 : 0.20),
             blurRadius: 26, spreadRadius: -6)]);
   }
   static BoxDecoration red(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.face, borderRadius: BorderRadius.circular(r),
         border: Border.all(color: p.red.withOpacity(0.4), width: 1.4),
-        boxShadow: [...p.raised, BoxShadow(color: p.red.withOpacity(p.dark ? 0.30 : 0.20),
+        boxShadow: [...p.raised, BoxShadow(color: p.red.withOpacity(p.isDark ? 0.30 : 0.20),
             blurRadius: 26, spreadRadius: -6)]);
   }
   static BoxDecoration brand(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.gradBrand, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 1),
         boxShadow: p.raisedSm);
   }
   static BoxDecoration brandV(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.gradBrandV, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 1),
         boxShadow: p.raisedSm);
   }
   static BoxDecoration goldFill(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.gradGold, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.30 : 0.45), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.30 : 0.45), width: 1),
         boxShadow: p.raisedSm);
   }
   static BoxDecoration greenFill(BuildContext c, {double r = XlRadius.lg}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.gradGreen, borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.30 : 0.45), width: 1),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.30 : 0.45), width: 1),
         boxShadow: p.raisedSm);
   }
   static BoxDecoration glowDot(Color color, {double size = 8}) => BoxDecoration(
@@ -1250,13 +1254,13 @@ class AppTheme {
   static BoxDecoration brandOrb(BuildContext c, {double size = 44}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.gradBrand, shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5), width: 2),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 2),
         boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 22, spreadRadius: -4)]);
   }
   static BoxDecoration brandOrbLg(BuildContext c, {double size = 60}) {
     final p = XlPalette.of(c);
     return BoxDecoration(gradient: p.gradBrand, shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.40 : 0.55), width: 3),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.40 : 0.55), width: 3),
         boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.5), blurRadius: 30, spreadRadius: -6)]);
   }
   static BoxDecoration orb(BuildContext c, {double size = 44, Color? color}) {
@@ -1265,7 +1269,7 @@ class AppTheme {
     return BoxDecoration(
       gradient: RadialGradient(colors: [cc.withOpacity(0.9), cc.withOpacity(0.6), cc.withOpacity(0.2)]),
       shape: BoxShape.circle,
-      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.20 : 0.40), width: 1),
+      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.20 : 0.40), width: 1),
       boxShadow: [...p.raisedSm, BoxShadow(color: cc.withOpacity(0.35), blurRadius: 24, spreadRadius: -4)]);
   }
   static Widget aurora(BuildContext c, {required Widget child}) {
@@ -1296,7 +1300,7 @@ class AppTheme {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: cc.withOpacity(p.dark ? 0.14 : 0.10),
+        color: cc.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: cc.withOpacity(0.28), width: 1),
       ),
@@ -1316,7 +1320,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(XlRadius.pill),
           boxShadow: [BoxShadow(color: cc.withOpacity(0.35), blurRadius: 8, spreadRadius: -2)]),
       child: Text(text, style: TextStyle(fontSize: XlFont.labelSm, fontWeight: FontWeight.w800,
-          color: p.dark ? p.btnInk : Colors.white, letterSpacing: XlLetterSpacing.wider)),
+          color: p.isDark ? p.btnInk : Colors.white, letterSpacing: XlLetterSpacing.wider)),
     );
   }
   static Widget statusDot(Color color, {double size = 8, bool glow = true}) => Container(
@@ -1328,8 +1332,8 @@ class AppTheme {
 
 extension XlContext on BuildContext {
   XlPalette get xl => XlPalette.of(this);
-  bool get isDark => xl.dark;
-  bool get isLight => !xl.dark;
+  bool get isDark => xl.isDark;
+  bool get isLight => !xl.isDark;
   bool get isMobile => MediaQuery.of(this).size.width < XlBreakpoint.mobile;
   bool get isTablet => MediaQuery.of(this).size.width < XlBreakpoint.desktopSm;
   bool get isDesktop => MediaQuery.of(this).size.width >= XlBreakpoint.desktopSm;

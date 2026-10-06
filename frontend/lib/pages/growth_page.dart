@@ -265,7 +265,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         gradient: p.gradBrand,
         borderRadius: BorderRadius.circular(XlRadius.xxxl),
-        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.28 : 0.42), width: 1.5),
+        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.28 : 0.42), width: 1.5),
         boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.38), blurRadius: 30, spreadRadius: -6)],
       ),
       child: Stack(
@@ -308,7 +308,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(p.dark ? 0.28 : 0.20),
+                      color: Colors.black.withOpacity(p.isDark ? 0.28 : 0.20),
                       borderRadius: BorderRadius.circular(XlRadius.pill),
                     ),
                     child: Row(
@@ -406,7 +406,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               Container(
                 height: 10,
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(p.dark ? 0.22 : 0.16),
+                  color: Colors.black.withOpacity(p.isDark ? 0.22 : 0.16),
                   borderRadius: BorderRadius.circular(99),
                 ),
                 child: Stack(
@@ -450,7 +450,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(p.dark ? 0.22 : 0.16),
+        color: Colors.black.withOpacity(p.isDark ? 0.22 : 0.16),
         borderRadius: BorderRadius.circular(XlRadius.pill),
       ),
       child: Row(
@@ -631,8 +631,8 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(XlRadius.sm),
                 border: Border.all(
                   color: r.unlocked
-                      ? Colors.white.withOpacity(p.dark ? 0.32 : 0.48)
-                      : p.shDark.withOpacity(p.dark ? 0.28 : 0.12),
+                      ? Colors.white.withOpacity(p.isDark ? 0.32 : 0.48)
+                      : p.shDark.withOpacity(p.isDark ? 0.28 : 0.12),
                   width: 1,
                 ),
                 boxShadow: r.unlocked
@@ -642,7 +642,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               child: Icon(
                 r.icon,
                 size: 15,
-                color: r.unlocked ? (p.dark ? p.btnInk : Colors.white) : p.decor,
+                color: r.unlocked ? (p.isDark ? p.btnInk : Colors.white) : p.decor,
               ),
             ),
             const SizedBox(width: 14),
@@ -664,7 +664,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: color.withOpacity(p.dark ? 0.18 : 0.14),
+                            color: color.withOpacity(p.isDark ? 0.18 : 0.14),
                             borderRadius: BorderRadius.circular(XlRadius.pill),
                           ),
                           child: Text('NOW',
@@ -747,7 +747,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(p.dark ? 0.14 : 0.10),
+                    color: color.withOpacity(p.isDark ? 0.14 : 0.10),
                     borderRadius: BorderRadius.circular(XlRadius.md),
                     border: Border.all(color: color.withOpacity(0.28), width: 1),
                     boxShadow: [BoxShadow(color: color.withOpacity(0.20), blurRadius: 14, spreadRadius: -3)],
@@ -849,7 +849,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
             decoration: BoxDecoration(
               color: p.surfaceLo,
               borderRadius: BorderRadius.circular(XlRadius.pill),
-              border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.28 : 0.12), width: 1),
+              border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
             ),
             child: Row(
               children: List.generate(_ranges.length, (i) {
@@ -957,8 +957,8 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: n.done
-                              ? Colors.white.withOpacity(p.dark ? 0.32 : 0.48)
-                              : p.shDark.withOpacity(p.dark ? 0.30 : 0.13),
+                              ? Colors.white.withOpacity(p.isDark ? 0.32 : 0.48)
+                              : p.shDark.withOpacity(p.isDark ? 0.30 : 0.13),
                           width: 1.4,
                         ),
                         boxShadow: n.done
@@ -968,7 +968,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                       child: Icon(
                         n.icon,
                         size: 16,
-                        color: n.done ? (p.dark ? p.btnInk : Colors.white) : p.decor,
+                        color: n.done ? (p.isDark ? p.btnInk : Colors.white) : p.decor,
                       ),
                     ),
                     if (!last)
@@ -1052,7 +1052,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: active ? color.withOpacity(p.dark ? 0.14 : 0.10) : p.surfaceLo,
+        color: active ? color.withOpacity(p.isDark ? 0.14 : 0.10) : p.surfaceLo,
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(
           color: active ? color.withOpacity(0.30) : p.edgeSoft,
@@ -1081,7 +1081,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(p.dark ? 0.14 : 0.10),
+        color: color.withOpacity(p.isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(XlRadius.pill),
         border: Border.all(color: color.withOpacity(0.28), width: 1),
       ),
@@ -1121,7 +1121,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                     decoration: BoxDecoration(
                       gradient: p.gradBrand,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.32 : 0.5), width: 2),
+                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
                       boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
                     ),
                     child: Icon(Icons.favorite_rounded, size: 28, color: p.btnInk),
@@ -1156,7 +1156,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               width: 62,
               height: 62,
               decoration: BoxDecoration(
-                color: p.red.withOpacity(p.dark ? 0.14 : 0.10),
+                color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
                 shape: BoxShape.circle,
                 border: Border.all(color: p.red.withOpacity(0.32), width: 1),
               ),

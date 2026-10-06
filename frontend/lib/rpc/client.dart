@@ -274,13 +274,11 @@ class XlClient {
       options: ChannelOptions(
         connectTimeout: const Duration(seconds: 5),
         idleTimeout: const Duration(minutes: 10),
-        keepAlive: _keepAlive
-            ? const ClientKeepAliveOptions(
-                pingInterval: Duration(seconds: 30),
-                timeout: Duration(seconds: 10),
-                permitWithoutCalls: true,
-              )
-            : null,
+        keepAlive: const ClientKeepAliveOptions(
+          pingInterval: Duration(seconds: 30),
+          timeout: Duration(seconds: 10),
+          permitWithoutCalls: true,
+        ),
       ),
     );
     _stub = XiaoLingClient(_chan!);
@@ -346,7 +344,7 @@ class XlClient {
         lastStack = StackTrace.current;
         metrics.fail(e);
         if (e.code == StatusCode.unavailable) {
-          _setState(XlConnectionState.reconnecting, detail: '$tag · ${e.code.name}');
+          _setState(XlConnectionState.reconnecting, detail: '$tag · ${'${e.code}'}');
         }
         if (!pol.shouldRetry(e) || i >= limit - 1) {
           _activeCalls--;
