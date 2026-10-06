@@ -25,6 +25,8 @@ from .tools import Guard, OfflineGuard
 from .config import UpdateChecker
 from .tools import MultiAgentSystem
 from .multimodal import VisionHub
+from .channels import ChannelHub
+from .search import SearchAgent
 
 VERSION = "0.0.1"
 NAME = "小凌"
