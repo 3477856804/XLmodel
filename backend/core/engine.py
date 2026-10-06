@@ -25,8 +25,8 @@ from .tools import Guard, OfflineGuard
 from .config import UpdateChecker
 from .tools import MultiAgentSystem
 from .multimodal import VisionHub
-from .channels import ChannelHub
-from .search import SearchAgent
+from .channels import ChannelManager
+from . import search as search_agent
 
 VERSION = "0.0.1"
 NAME = "小凌"
