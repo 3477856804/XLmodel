@@ -1,0 +1,11 @@
+grpcio>=1.60
+grpcio-tools>=1.60
+protobuf>=4.25
+edge-tts>=6.1
+torch>=2.0
+transformers>=4.35
+peft>=0.7
+safetensors>=0.40
+Pillow>=10.0
+openai>=1.0
+requests>=2.31
