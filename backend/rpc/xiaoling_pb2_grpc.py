@@ -26,7 +26,7 @@ if _version_not_supported:
 
 
 class XiaoLingStub:
-    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -150,7 +150,7 @@ class XiaoLingStub:
 
 
 class XiaoLingServicer:
-    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """
@@ -429,7 +429,7 @@ def add_XiaoLingServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class XiaoLing:
-    """小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+    """小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
     Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
     """

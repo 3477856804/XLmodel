@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package xiaoling;
 
-// 小凌 v0.0.4：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
+// 小凌 v0.0.1：Flutter(UI) + Python(AI后端) + gRPC(通信) 混合架构
 // Flutter 客户端通过 localhost:50051 与 Python 后端通信。
 
 service XiaoLing {

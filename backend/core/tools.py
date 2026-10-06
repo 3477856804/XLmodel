@@ -1,87 +1,600 @@
-"""工具系统 - 工具管理器 + 技能管理器"""
-import time
+"""小凌 · 工具系统（工具 + 技能 + 目标）"""
+import json
+import math
 import re
+import threading
+import time
+import uuid
 from pathlib import Path
 
+from .config import DATA_DIR
 
-# ===== 工具管理器 =====
+SAFE_MATH = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
+SAFE_MATH.update({"abs": abs, "min": min, "max": max, "round": round,
+                  "pow": pow, "int": int, "float": float, "sum": sum, "len": len})
+
+DANGEROUS_TOKENS = re.compile(
+    r"__|import|exec|eval|open|file|globals|locals|lambda|compile|"
+    r"getattr|setattr|delattr|input|breakpoint|memoryview"
+)
+
+GOALS_PATH = DATA_DIR / "goals.json"
+
+
 class ToolManager:
-    """工具管理器 - 注册/执行/缓存工具"""
+    CORE_TOOLS = ("get_time", "calculator", "read_file", "write_file",
+                  "list_dir", "remember", "recall")
+    WRITE_TOOLS = ("write_file", "run_cmd", "pip_install")
+    CACHEABLE_TOOLS = ("get_time", "calculator", "list_dir", "read_file")
 
-    CORE_TOOLS = {"get_time", "read_file", "write_file", "list_dir", "calculator", "remember", "recall"}
-    WRITE_TOOLS = {"write_file", "str_replace", "run_cmd", "pip_install"}
-    CACHEABLE_TOOLS = {"get_time", "calculator", "list_dir", "read_file"}
-
-    def __init__(self, base_dir=None, memory=None):
-        self.base_dir = Path(base_dir) if base_dir else Path(".")
+    def __init__(self, base_dir: str | None = None, memory=None,
+                 cache_ttl: float = 60.0, max_read: int = 8000,
+                 max_list: int = 200):
+        self.base_dir = Path(base_dir) if base_dir else Path.cwd()
         self.memory = memory
-        self.tools = {}
-        self.before_hooks = []
-        self.after_hooks = []
-        self._tool_cache = {}
-        self._tool_cache_ttl = 60.0
-        self._register()
+        self.cache_ttl = cache_ttl
+        self.max_read = max_read
+        self.max_list = max_list
+        self.tools: dict[str, dict] = {}
+        self.before_hooks: list = []
+        self.after_hooks: list = []
+        self._cache: dict[str, tuple] = {}
+        self._lock = threading.RLock()
+        self._register_default()
 
-    def register(self, name, func, desc):
-        self.tools[name] = {"func": func, "desc": desc}
+    def register(self, name: str, func, desc: str, dangerous: bool = False):
+        with self._lock:
+            self.tools[name] = {"func": func, "desc": desc, "dangerous": dangerous}
 
-    def add_before_hook(self, hook):
-        self.before_hooks.append(hook)
+    def unregister(self, name: str) -> bool:
+        with self._lock:
+            return self.tools.pop(name, None) is not None
 
-    def add_after_hook(self, hook):
-        self.after_hooks.append(hook)
+    def add_before_hook(self, fn):
+        self.before_hooks.append(fn)
 
-    def execute(self, name, args):
-        """执行工具"""
+    def add_after_hook(self, fn):
+        self.after_hooks.append(fn)
+
+    def execute(self, name: str, args: dict | None = None):
+        args = dict(args) if isinstance(args, dict) else {}
         if name not in self.tools:
             return f"未知工具：{name}"
-        cur_args = dict(args) if isinstance(args, dict) else {}
+        for h in self.before_hooks:
+            try:
+                h(name, args)
+            except Exception:
+                pass
+        cache_key = None
+        if name in self.CACHEABLE_TOOLS:
+            try:
+                cache_key = f"{name}|{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+            except Exception:
+                cache_key = None
+            if cache_key:
+                with self._lock:
+                    hit = self._cache.get(cache_key)
+                if hit and time.time() - hit[1] < self.cache_ttl:
+                    return hit[0]
         try:
-            result = str(self.tools[name]["func"](**cur_args))
+            result = str(self.tools[name]["func"](**args))
+        except TypeError as e:
+            result = f"参数错误：{e}"
         except Exception as e:
-            result = f"工具出错：{e}"
+            result = f"工具出错：{type(e).__name__}: {e}"
+        if cache_key:
+            with self._lock:
+                self._cache[cache_key] = (result, time.time())
+        for h in self.after_hooks:
+            try:
+                h(name, args, result)
+            except Exception:
+                pass
         return result
 
-    def _register(self):
-        self.register("get_time", lambda **kw: time.strftime("%Y-%m-%d %H:%M:%S"), "获取当前时间")
-        self.register("calculator", lambda expr="", **kw: eval(expr, {"__builtins__": {}}, {}), "计算器")
+    def exists(self, name: str) -> bool:
+        return name in self.tools
 
-    def tool_list_text(self):
-        return "可用工具：" + ", ".join(self.tools.keys())
+    def is_dangerous(self, name: str) -> bool:
+        with self._lock:
+            return bool(self.tools.get(name, {}).get("dangerous"))
+
+    def list_tools(self) -> list:
+        with self._lock:
+            return [{"name": k, "desc": v["desc"], "dangerous": v.get("dangerous", False)}
+                    for k, v in self.tools.items()]
+
+    def tool_list_text(self) -> str:
+        with self._lock:
+            return "可用工具：" + ", ".join(sorted(self.tools.keys()))
+
+    def clear_cache(self):
+        with self._lock:
+            self._cache.clear()
+
+    def _register_default(self):
+        self.register("get_time", self._get_time, "获取当前时间")
+        self.register("calculator", self._calculator, "计算器")
+        self.register("read_file", self._read_file, "读取文件")
+        self.register("write_file", self._write_file, "写入文件", dangerous=True)
+        self.register("list_dir", self._list_dir, "列出目录")
+        if self.memory is not None:
+            self.register("remember", self._remember, "记住内容")
+            self.register("recall", self._recall, "回忆内容")
+
+    @staticmethod
+    def _get_time(**_):
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def _calculator(expr: str = "", **_):
+        if not expr or len(expr) > 200:
+            return "表达式无效"
+        if DANGEROUS_TOKENS.search(expr):
+            return "表达式包含非法字符"
+        try:
+            return str(eval(expr, {"__builtins__": {}}, SAFE_MATH))
+        except ZeroDivisionError:
+            return "除数不能为零"
+        except (SyntaxError, TypeError, NameError, ValueError) as e:
+            return f"计算失败：{type(e).__name__}"
+        except Exception as e:
+            return f"计算失败：{e}"
+
+    def _read_file(self, path: str = "", limit: int = 0, **_):
+        p = self._safe_path(path)
+        if p is None or not p.exists() or not p.is_file():
+            return "文件不存在"
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            cap = limit if limit and limit > 0 else self.max_read
+            if len(text) > cap:
+                return text[:cap] + f"\n…（已截断，共 {len(text)} 字符）"
+            return text
+        except OSError as e:
+            return f"读取失败：{e}"
+
+    def _write_file(self, path: str = "", content: str = "", mode: str = "w", **_):
+        p = self._safe_path(path)
+        if p is None:
+            return "路径不合法"
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            m = "a" if mode == "a" else "w"
+            with open(p, m, encoding="utf-8") as f:
+                f.write(content or "")
+            return f"已{'追加' if m == 'a' else '写入'} {len(content or '')} 字符到 {p.name}"
+        except OSError as e:
+            return f"写入失败：{e}"
+
+    def _list_dir(self, path: str = ".", show_hidden: bool = False, **_):
+        p = self._safe_path(path)
+        if p is None or not p.exists() or not p.is_dir():
+            return "目录不存在"
+        try:
+            items = []
+            for it in sorted(p.iterdir()):
+                if not show_hidden and it.name.startswith("."):
+                    continue
+                items.append(f"{'[D]' if it.is_dir() else '[F]'} {it.name}")
+                if len(items) >= self.max_list:
+                    break
+            return "\n".join(items) if items else "（空目录）"
+        except OSError as e:
+            return f"列出失败：{e}"
+
+    def _remember(self, key: str = "", value: str = "", **_):
+        if not key:
+            return "缺少 key"
+        if self.memory is None:
+            return "记忆模块未加载"
+        try:
+            self.memory.add("note", f"{key}: {value}",
+                            importance=0.9, tags=["note", key])
+            return f"已记住 {key}"
+        except Exception as e:
+            return f"记忆失败：{e}"
+
+    def _recall(self, query: str = "", **_):
+        if not query:
+            return "缺少查询词"
+        if self.memory is None:
+            return "记忆模块未加载"
+        try:
+            items = self.memory.search(query, top_k=5)
+            if not items:
+                return "没有相关记忆"
+            return "\n".join(f"- {i.content}" for i in items)
+        except Exception as e:
+            return f"回忆失败：{e}"
+
+    def _safe_path(self, path: str):
+        if not path:
+            return None
+        try:
+            p = Path(path).expanduser()
+            if not p.is_absolute():
+                p = self.base_dir / p
+            return p.resolve()
+        except (OSError, RuntimeError):
+            return None
 
 
-# ===== 技能管理器 =====
 class SkillManager:
-    """技能管理器 - 扫描skills/目录，动态加载技能"""
-
-    def __init__(self, skills_dir, tool_manager=None, memory=None):
-        self.skills_dir = Path(skills_dir)
+    def __init__(self, skills_dir: str | None = None, tool_manager: ToolManager | None = None,
+                 memory=None, max_content: int = 4000):
+        self.skills_dir = Path(skills_dir) if skills_dir else Path("skills")
         self.tool_manager = tool_manager
         self.memory = memory
-        self.skills = {}
+        self.max_content = max_content
+        self.skills: dict[str, dict] = {}
+        self._lock = threading.RLock()
         self.load_all()
 
-    def load_all(self):
-        """加载所有技能"""
-        self.skills_dir.mkdir(parents=True, exist_ok=True)
-        count = 0
-        for md_file in sorted(self.skills_dir.glob("*.md")):
-            if self.load_skill(md_file):
-                count += 1
-        return count
-
-    def load_skill(self, md_path):
-        """加载单个技能"""
+    def load_all(self) -> int:
         try:
-            content = Path(md_path).read_text(encoding="utf-8")
-            name = md_path.stem
-            m = re.search(r'^#\s*(.+)$', content, re.MULTILINE)
-            desc = m.group(1).strip() if m else name
-            self.skills[name] = {"name": name, "description": desc, "file": str(md_path)}
-            return True
-        except Exception as e:
-            print(f"  [技能] 加载失败 {md_path}: {e}")
-            return False
+            self.skills_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return 0
+        n = 0
+        for md in sorted(self.skills_dir.glob("*.md")):
+            if self.load_skill(md):
+                n += 1
+        for py in sorted(self.skills_dir.glob("*.py")):
+            if py.name.startswith("_"):
+                continue
+            if self.load_python_skill(py):
+                n += 1
+        return n
 
-    def list_skills(self):
-        return list(self.skills.keys())
+    def load_skill(self, md_path) -> bool:
+        p = Path(md_path)
+        try:
+            content = p.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        name = p.stem
+        m = re.search(r"^#\s*(.+)$", content, re.MULTILINE)
+        desc = m.group(1).strip() if m else name
+        triggers = self._extract_triggers(content)
+        with self._lock:
+            self.skills[name] = {
+                "name": name,
+                "description": desc,
+                "file": str(p),
+                "content": content[:self.max_content],
+                "triggers": triggers,
+                "kind": "markdown",
+            }
+        return True
+
+    def load_python_skill(self, py_path) -> bool:
+        p = Path(py_path)
+        name = p.stem
+        try:
+            content = p.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        if "def run" not in content and "def invoke" not in content:
+            return False
+        m = re.search(r'"""(.*?)"""', content, re.DOTALL)
+        desc = m.group(1).strip().split("\n")[0] if m else name
+        with self._lock:
+            self.skills[name] = {
+                "name": name,
+                "description": desc,
+                "file": str(p),
+                "content": content[:self.max_content],
+                "triggers": [],
+                "kind": "python",
+            }
+        return True
+
+    @staticmethod
+    def _extract_triggers(content: str) -> list:
+        out = []
+        for m in re.finditer(r"^trigger[s]?:\s*(.+)$", content,
+                             re.MULTILINE | re.IGNORECASE):
+            out.extend([t.strip() for t in re.split(r"[,，]", m.group(1)) if t.strip()])
+        return out
+
+    def list_skills(self) -> list:
+        with self._lock:
+            return [{"name": v["name"], "description": v["description"],
+                     "kind": v.get("kind", "markdown"), "triggers": v.get("triggers", [])}
+                    for v in self.skills.values()]
+
+    def list_names(self) -> list:
+        with self._lock:
+            return list(self.skills.keys())
+
+    def get(self, name: str) -> dict:
+        with self._lock:
+            return dict(self.skills.get(name, {}))
+
+    def match(self, text: str, threshold: int = 1) -> list:
+        if not text:
+            return []
+        hits = []
+        with self._lock:
+            for s in self.skills.values():
+                score = 0
+                for t in s.get("triggers", []):
+                    if t and t in text:
+                        score += 1
+                if s["name"] in text:
+                    score += 1
+                if score >= threshold:
+                    hits.append((score, s))
+        hits.sort(key=lambda x: x[0], reverse=True)
+        return [s for _, s in hits]
+
+    def reload(self) -> int:
+        with self._lock:
+            self.skills.clear()
+        return self.load_all()
+
+    def stats(self) -> dict:
+        with self._lock:
+            kinds: dict[str, int] = {}
+            for v in self.skills.values():
+                k = v.get("kind", "markdown")
+                kinds[k] = kinds.get(k, 0) + 1
+            return {"total": len(self.skills), "kinds": kinds,
+                    "dir": str(self.skills_dir)}
+
+
+class GoalManager:
+    def __init__(self, memory=None, path: str | None = None,
+                 max_goals: int = 200, max_rounds: int = 20):
+        self.memory = memory
+        self.path = Path(path) if path else GOALS_PATH
+        self.max_goals = max_goals
+        self.max_rounds = max_rounds
+        self.goals: list[dict] = []
+        self._lock = threading.RLock()
+        self._load()
+
+    def _load(self):
+        if not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                self.goals = [g for g in data if isinstance(g, dict)]
+            elif isinstance(data, dict):
+                self.goals = [g for g in (data.get("goals") or []) if isinstance(g, dict)]
+        except Exception:
+            self.goals = []
+
+    def _save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                payload = list(self.goals)
+            self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
+                                 encoding="utf-8")
+        except OSError:
+            pass
+
+    def create(self, objective: str, max_rounds: int = 0, tags: list | None = None) -> dict:
+        goal = {
+            "id": f"goal_{uuid.uuid4().hex[:12]}",
+            "objective": (objective or "").strip()[:500],
+            "phase": "active",
+            "rounds_started": 0,
+            "max_rounds": max(1, int(max_rounds or self.max_rounds)),
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "blocked_reason": "",
+            "tags": list(tags or []),
+            "history": [],
+        }
+        with self._lock:
+            self.goals.append(goal)
+            if len(self.goals) > self.max_goals:
+                active = [g for g in self.goals if g.get("phase") == "active"]
+                done = [g for g in self.goals if g.get("phase") != "active"]
+                self.goals = (done[-(self.max_goals // 2):] + active)[-self.max_goals:]
+        self._save()
+        return goal
+
+    def get(self, goal_id: str) -> dict | None:
+        with self._lock:
+            return self._find(goal_id)
+
+    def get_active(self) -> dict | None:
+        with self._lock:
+            return self._find_active()
+
+    def advance(self, goal_id: str = "", note: str = "") -> dict | None:
+        with self._lock:
+            goal = self._find(goal_id) or self._find_active()
+            if not goal:
+                return None
+            goal["rounds_started"] = int(goal.get("rounds_started", 0)) + 1
+            goal["updated_at"] = time.time()
+            goal["history"].append({"at": time.time(),
+                                    "round": goal["rounds_started"],
+                                    "note": note[:200]})
+            if len(goal["history"]) > 50:
+                goal["history"] = goal["history"][-30:]
+            if goal["rounds_started"] >= int(goal.get("max_rounds", self.max_rounds)):
+                goal["phase"] = "blocked"
+                goal["blocked_reason"] = "达到最大轮次限制"
+            result = dict(goal)
+        self._save()
+        return result
+
+    def complete(self, goal_id: str = "", summary: str = "") -> dict | None:
+        with self._lock:
+            goal = self._find(goal_id) or self._find_active()
+            if not goal:
+                return None
+            goal["phase"] = "complete"
+            goal["completed_at"] = time.time()
+            goal["updated_at"] = time.time()
+            if summary:
+                goal["summary"] = summary[:500]
+            result = dict(goal)
+        self._save()
+        if self.memory:
+            try:
+                self.memory.add("note", f"目标完成：{result.get('objective', '')[:100]}",
+                                importance=0.7, tags=["goal"])
+            except Exception:
+                pass
+        return result
+
+    def block(self, reason: str = "", goal_id: str = "") -> dict | None:
+        with self._lock:
+            goal = self._find(goal_id) or self._find_active()
+            if not goal:
+                return None
+            goal["phase"] = "blocked"
+            goal["blocked_reason"] = (reason or "")[:200]
+            goal["updated_at"] = time.time()
+            result = dict(goal)
+        self._save()
+        return result
+
+    def abandon(self, goal_id: str = "") -> dict | None:
+        with self._lock:
+            goal = self._find(goal_id) or self._find_active()
+            if not goal:
+                return None
+            goal["phase"] = "abandoned"
+            goal["updated_at"] = time.time()
+            result = dict(goal)
+        self._save()
+        return result
+
+    def resume(self, goal_id: str = "") -> dict | None:
+        with self._lock:
+            goal = self._find(goal_id)
+            if not goal or goal.get("phase") not in ("blocked", "abandoned"):
+                return None
+            goal["phase"] = "active"
+            goal["blocked_reason"] = ""
+            goal["updated_at"] = time.time()
+            result = dict(goal)
+        self._save()
+        return result
+
+    def list_goals(self, limit: int = 20, phase: str = "", tag: str = "") -> list:
+        with self._lock:
+            goals = list(self.goals)
+        if phase:
+            goals = [g for g in goals if g.get("phase") == phase]
+        if tag:
+            goals = [g for g in goals if tag in (g.get("tags") or [])]
+        return goals[-limit:]
+
+    def list_text(self, limit: int = 10) -> str:
+        goals = self.list_goals(limit=limit)
+        if not goals:
+            return "无目标"
+        return "\n".join(
+            f"[{g.get('phase', '?')}] {g.get('objective', '')[:60]}"
+            f" (轮次 {g.get('rounds_started', 0)}/{g.get('max_rounds', 0)})"
+            for g in goals
+        )
+
+    def remove(self, goal_id: str) -> bool:
+        with self._lock:
+            before = len(self.goals)
+            self.goals = [g for g in self.goals if g.get("id") != goal_id]
+            changed = len(self.goals) < before
+        if changed:
+            self._save()
+        return changed
+
+    def clear(self, phase: str = ""):
+        with self._lock:
+            if phase:
+                self.goals = [g for g in self.goals if g.get("phase") != phase]
+            else:
+                self.goals.clear()
+        self._save()
+
+    def stats(self) -> dict:
+        with self._lock:
+            by_phase: dict[str, int] = {}
+            for g in self.goals:
+                p = g.get("phase", "unknown")
+                by_phase[p] = by_phase.get(p, 0) + 1
+            return {"total": len(self.goals), "by_phase": by_phase,
+                    "path": str(self.path)}
+
+    def _find(self, goal_id: str) -> dict | None:
+        if not goal_id:
+            return None
+        for g in self.goals:
+            if g.get("id") == goal_id:
+                return g
+        return None
+
+    def _find_active(self) -> dict | None:
+        for g in self.goals:
+            if g.get("phase") == "active":
+                return g
+        return None
+
+
+class ToolKit:
+    def __init__(self, base_dir: str | None = None, memory=None,
+                 skills_dir: str | None = None):
+        self.tools = ToolManager(base_dir=base_dir, memory=memory)
+        self.skills = SkillManager(skills_dir=skills_dir, tool_manager=self.tools,
+                                   memory=memory)
+        self.goals = GoalManager(memory=memory)
+
+    def execute(self, name: str, args: dict | None = None) -> str:
+        return self.tools.execute(name, args)
+
+    def match_skills(self, text: str) -> list:
+        return self.skills.match(text)
+
+    def snapshot(self) -> dict:
+        return {
+            "tools": self.tools.list_tools(),
+            "skills": self.skills.list_skills(),
+            "goals": self.goals.stats(),
+        }
+
+    def stats(self) -> dict:
+        return {
+            "tools": len(self.tools.tools),
+            "skills": self.skills.stats(),
+            "goals": self.goals.stats(),
+        }
+
+    def close(self):
+        try:
+            self.goals._save()
+        except Exception:
+            pass
+
+
+def quick_calc(expr: str) -> str:
+    return ToolManager._calculator(expr)
+
+
+def quick_time() -> str:
+    return ToolManager._get_time()
+
+
+def extract_tool_calls(text: str) -> tuple:
+    pattern = re.compile(r"\[\[tool:(\w+)([^\]]*)\]\]")
+    calls = []
+    for m in pattern.finditer(text):
+        args = {}
+        rest = m.group(2).strip()
+        if rest:
+            for part in rest.split("|"):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    args[k.strip()] = v.strip()
+        calls.append({"name": m.group(1), "args": args})
+    clean = pattern.sub("", text).strip()
+    return clean, calls

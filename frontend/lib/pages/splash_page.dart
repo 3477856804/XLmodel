@@ -2,121 +2,77 @@ import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../main.dart';
 
-/// 启动画面 - 粉色少女风
 class SplashPage extends StatefulWidget {
-  const SplashPage({super.key});
-
+  final VoidCallback onToggleTheme;
+  const SplashPage({super.key, required this.onToggleTheme});
   @override
   State<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
+class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateMixin {
+  late AnimationController _c;
+  late Animation<double> _fade, _scale;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
-    );
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
-    _controller.forward();
-    _navigateToHome();
+    _c = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this);
+    _fade = Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(parent: _c, curve: Curves.easeIn));
+    _scale = Tween<double>(begin: .82, end: 1).animate(
+        CurvedAnimation(parent: _c, curve: Curves.easeOutBack));
+    _c.forward();
+    _go();
   }
 
-  void _navigateToHome() async {
+  void _go() async {
     await Future.delayed(const Duration(milliseconds: 2000));
     if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HomeShell()),
-      );
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) =>
+              HomeShell(onToggleTheme: widget.onToggleTheme)));
     }
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  void dispose() { _c.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
     return Scaffold(
-      body: Container(
-        decoration: AppTheme.gradientBackground,
-        child: Center(
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: ScaleTransition(
-              scale: _scaleAnimation,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // 头像圆形
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [AppTheme.gradientStart, AppTheme.gradientEnd],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primaryPink.withOpacity(0.4),
-                          blurRadius: 30,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.pets_rounded,
-                      size: 60,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  // 标题
-                  const Text(
-                    '小凌',
-                    style: TextStyle(
-                      fontSize: 36,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
-                      letterSpacing: 8,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '你的专属AI伙伴',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textSecondary.withOpacity(0.8),
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  const SizedBox(height: 48),
-                  // 加载进度条
-                  SizedBox(
-                    width: 200,
-                    child: LinearProgressIndicator(
-                      backgroundColor: Colors.white.withOpacity(0.5),
-                      valueColor: const AlwaysStoppedAnimation(AppTheme.primaryPink),
-                    ),
-                  ),
-                ],
+      backgroundColor: p.bg,
+      body: Center(
+        child: FadeTransition(
+          opacity: _fade,
+          child: ScaleTransition(
+            scale: _scale,
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(
+                width: 124, height: 124,
+                decoration: BoxDecoration(
+                  gradient: p.gradBrand,
+                  shape: BoxShape.circle,
+                  boxShadow: p.raised,
+                ),
+                child: Icon(Icons.pets_rounded, size: 60, color: p.btnInk),
               ),
-            ),
+              const SizedBox(height: 34),
+              Text('小凌', style: TextStyle(fontSize: 38, fontWeight: FontWeight.w800,
+                  color: p.text1, letterSpacing: 8)),
+              const SizedBox(height: 10),
+              Text('你的专属 AI 伙伴', style: TextStyle(fontSize: 13,
+                  color: p.text2, letterSpacing: 3, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 48),
+              SizedBox(width: 200, child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  minHeight: 6,
+                  backgroundColor: p.surfaceLo,
+                  valueColor: AlwaysStoppedAnimation(p.pink),
+                ),
+              )),
+            ]),
           ),
         ),
       ),

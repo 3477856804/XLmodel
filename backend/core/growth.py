@@ -1,121 +1,86 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""小凌 · 成长闭环引擎 v2（融合版 + 设计文档全量落地）
-=====================================================
-
-小凌的核心机制：**基底模型 + LoRA 适配器 → 蒸馏训练（DeepSeek 老师）→ 适配器持续增长
-→ 每轮训练后自动检查 → 三条件达标 → 合并 → 成为自研模型 → 原基底退役
-→ 适配器晋升为新基底 → 完全脱离原基底 → 循环成长**
-
-v2 相对 v1 的补全（对应《小凌个人模型成长管线设计文档》）：
-
-    触发策略（2.3）     样本 ≥ 阈值 + 距上次 ≥ 24h + 设备空闲 + 电量温度允许 + 用户未暂停
-    数据来源（2.2）     接入 core.growth_store：真实对话 / 点赞点踩 / 纠正 / 蒸馏 / 导入
-    防遗忘（2.4）       每轮混入 10%~20% 通用语料（`growth.base_mix_ratio`）
-    晋升三条件（2.5）   A 体积 + B 用户专属验证集 loss + C 通用基准通过率（core.eval）
-    升 rank（7.1）      不达标时自动升 rank（8→16→…→上限，旧权重复制，core.rank）
-    退役与生命周期（4） trash/ 退役 + 24h/100 轮稳定期 + 保留代数 GC + 回滚 + 导出（core.lifecycle）
-    增长上限（7.6）     最多 N 代 / 总体积上限，可手动解除
-    算力策略（6）       读 core.device 显存档位，决定是否训练、batch/accum/量化
-    蒸馏节流（3.4）     core.throttle：缓存 / 日限流 / 开关 / 成本估算
-    用户控制（7.7）     暂停 / 恢复 / 手动触发 / 回滚 / 导出 / 查看与删除样本
-
-用法：
-    python3 -m core.growth status                 # 成长状态（含触发条件、生命周期、算力）
-    python3 -m core.growth report                 # 人类可读成长报告
-    python3 -m core.growth trigger                # 只看"现在能不能训练，为什么"
-    python3 -m core.growth check                  # 检查并（必要时）合并晋升
-    python3 -m core.growth train --epochs 2       # 蒸馏训练一轮 + 自动检查
-    python3 -m core.growth train --manual         # 手动触发（放宽样本数要求）
-    python3 -m core.growth simulate               # 干跑一次完整晋升流程（不动真模型）
-    python3 -m core.growth pause | resume         # 暂停 / 恢复成长
-    python3 -m core.growth rank                   # 查看/升 LoRA rank
-    python3 -m core.growth eval                   # 跑晋升三条件评估
-    python3 -m core.growth rollback [--gen N]     # 回滚到旧代
-    python3 -m core.growth gc [--keep N]          # 清理旧代（含稳定期校验）
-    python3 -m core.growth export --path x.zip    # 导出自己的模型
-    python3 -m core.growth samples                # 查看训练样本与蒸馏节流状态
-"""
-from __future__ import annotations
-
-import argparse
+"""小凌 · 成长闭环（数据仓库 + 蒸馏节流 + LoRA 训练 + 生命周期 + 晋升 + 回滚）"""
+import hashlib
 import json
+import math
 import os
+import re
 import shutil
-import sys
+import sqlite3
+import struct
+import threading
 import time
-from datetime import datetime
+import uuid
+import zipfile
+from dataclasses import dataclass
+from datetime import datetime, timezone, date
 from pathlib import Path
 
-from core.paths import APP_DIR, STAR_DIR
+from .config import APP_DIR, STAR_DIR, DATA_DIR, load as load_config, patch as patch_config
+from .model import best_device, device_kwargs, train_plan
 
-BASE_DIR = APP_DIR
-STAR = STAR_DIR
-BASE_DIR_MODEL = STAR / 'XLmodel'
-ADAPTER_DIR = STAR / 'adapter'
-GROWTH_DIR = STAR / 'growth'
-JOURNAL = GROWTH_DIR / 'journal.jsonl'
-STATE = GROWTH_DIR / 'replacement_state.json'
-CORPUS_DIR = BASE_DIR / '数据'
+GROWTH_DIR = STAR_DIR / "growth"
+ADAPTER_DIR = STAR_DIR / "adapter"
+ADAPTER_SEEDS = STAR_DIR / "adapter_seeds"
+TRASH_DIR = STAR_DIR / "trash"
+LEGACY_RETIRED = STAR_DIR / "base_retired"
+BASE_MODEL_DIR = STAR_DIR / "XLmodel"
+RECORDS_DB = GROWTH_DIR / "records.db"
+RECORDS_ARCHIVE = DATA_DIR / "records"
+JOURNAL = GROWTH_DIR / "journal.jsonl"
+STATE_PATH = GROWTH_DIR / "replacement_state.json"
+REGISTRY_PATH = GROWTH_DIR / "generations.json"
+LIFECYCLE_STATE = GROWTH_DIR / "lifecycle.json"
+CORPUS_PATH = GROWTH_DIR / "round_corpus.jsonl"
+BASE_CORPUS = DATA_DIR / "corpus.txt"
+THROTTLE_CACHE = GROWTH_DIR / "distill_cache.json"
+THROTTLE_USAGE = GROWTH_DIR / "api_usage.json"
 
-MODEL_WEIGHT_EXT = ('.safetensors', '.bin', '.gguf', '.pt', '.pth')
-ADAPTER_WEIGHT_EXT = ('.safetensors', '.bin', '.pt', '.pth')
+MODEL_WEIGHT_EXTS = (".safetensors", ".bin", ".gguf", ".pt", ".pth")
+ADAPTER_WEIGHT_EXTS = (".safetensors", ".bin", ".pt", ".pth")
 
-# 成长配置默认值（可被 .star_core/xiaoling_config.json 的 growth 段覆盖）
-GROWTH_DEFAULTS = {
-    'auto_train': True,               # 满足触发条件就自动训练
-    'auto_check_after_train': True,   # 每轮训练后自动检查体积
-    'retire_mode': 'trash',           # trash（默认，稳定期后清理）/ delete / archive
-    'keep_backup': False,
-    'simulate_without_torch': False,
-    'train_epochs': 2,
-    'train_batch': 2,
-    'train_lr': 0.0001,
-    # —— 触发策略（文档 2.3）——
-    'min_samples': 500,
-    'manual_min_samples': 20,         # 用户手动说「蒸馏」时的放宽阈值
-    'min_interval_hours': 24,
-    'require_device_idle': True,
-    'require_power_ok': True,
-    'allow_train_on_cpu': False,
-    # —— 训练与防遗忘 ——
-    'base_mix_ratio': 0.15,           # 混入 10%~20% 通用语料
-    'init_rank': 8,
-    'max_rank': 256,
-    'min_quality': 0.5,
-    # —— 晋升评估（文档 2.5 / 7.3）—— eval 模块已下线，默认不做基准评估 ——
-    'require_eval': False,
-    'pass_threshold': 0.90,
-    # —— 生命周期（文档 4 / 7.6）——
-    'keep_generations': 2,
-    'max_generations': 5,
-    'max_total_bytes': 10 * 1024 ** 3,
-    'stability_hours': 24,
-    'stability_rounds': 100,
-    # —— 蒸馏节流（文档 3.4）——
-    'distill_enabled': True,
-    'distill_daily_limit': 200,
-    'teacher_price_in': 1.0,
-    'teacher_price_out': 2.0,
-    # —— 用户控制（文档 7.7）——
-    'paused': False,
-}
+EMB_DIM = 512
+DEDUP_THRESHOLD = 0.97
+DEFAULT_TEMPLATES = [
+    {"user": "你好", "assistant": "你好呀，我是小凌，住在你电脑里的AI女孩。"},
+    {"user": "你是谁", "assistant": "我是小凌，一款会陪你聊天、慢慢成长的人工智能桌宠。"},
+    {"user": "谢谢", "assistant": "不客气，有什么需要随时叫我。"},
+    {"user": "今天天气不错", "assistant": "是呀，好天气心情也会变好呢。"},
+]
 
 
-def human(n: float) -> str:
-    for unit, div in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+def human_bytes(n: float) -> str:
+    for unit, div in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
         if n >= div:
-            return f'{n / div:.2f} {unit}'
-    return f'{int(n)} B'
+            return f"{n / div:.2f} {unit}"
+    return f"{int(n)} B"
 
 
-def detect_adapter_dir(star: Path) -> Path:
-    """兼容两种历史布局：
-       · 新版：.star_core/adapter/
-       · 旧版：.star_core/  （adapter_config.json / adapter_model.safetensors 直接躺在里面）
-    """
-    marks = ('adapter_config.json', 'adapter_model.safetensors', 'adapter.bin', 'adapter.pt')
-    new = star / 'adapter'
+def now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def dir_bytes(path: Path, exts=None, exclude_adapter: bool = False) -> int:
+    if not path or not path.exists():
+        return 0
+    total = 0
+    for p in path.rglob("*"):
+        try:
+            if not p.is_file():
+                continue
+            if exts and p.suffix.lower() not in exts:
+                continue
+            if exclude_adapter and p.name.lower().startswith("adapter"):
+                continue
+            total += p.stat().st_size
+        except OSError:
+            pass
+    return total
+
+
+def detect_adapter_dir(star: Path = STAR_DIR) -> Path:
+    marks = ("adapter_config.json", "adapter_model.safetensors",
+             "adapter.bin", "adapter.pt")
+    new = star / "adapter"
     if any((new / m).exists() for m in marks):
         return new
     if any((star / m).exists() for m in marks):
@@ -123,110 +88,1283 @@ def detect_adapter_dir(star: Path) -> Path:
     return new
 
 
-class GrowthEngine:
-    """小凌的成长闭环：数据 → 触发 → 训练 → 三条件 → 合并晋升 → 退役 → 循环。"""
+def normalize_text(text: str) -> str:
+    t = (text or "").strip().lower()
+    return "".join(c for c in t if c.isalnum() or "\u4e00" <= c <= "\u9fff")
 
-    def __init__(self, base_dir: Path | str = BASE_DIR, base_model_dir: Path | None = None,
-                 adapter_dir: Path | None = None, log=print, dry_run: bool = False):
-        self.base_dir = Path(base_dir)
-        self.star = self.base_dir / '.star_core'
-        self.base_model_dir = Path(base_model_dir) if base_model_dir else self.star / 'XLmodel'
-        self.adapter_dir = Path(adapter_dir) if adapter_dir else detect_adapter_dir(self.star)
-        self.growth_dir = self.star / 'growth'
-        self.journal_path = self.growth_dir / 'journal.jsonl'
-        self.state_path = self.growth_dir / 'replacement_state.json'
-        self.corpus_dir = self.base_dir / '数据'
-        self.log = log or (lambda *a, **k: None)
-        self.dry_run = dry_run
-        self.growth_dir.mkdir(parents=True, exist_ok=True)
-        self.adapter_dir.mkdir(parents=True, exist_ok=True)
-        self._store = None
-        self._lifecycle = None
-        self._throttle = None
 
-    # ------------------------------------------------------------------ 配置
-    def config(self) -> dict:
-        cfg = dict(GROWTH_DEFAULTS)
-        p = self.star / 'xiaoling_config.json'
-        if p.exists():
+def prompt_hash(text: str) -> str:
+    return hashlib.sha256(normalize_text(text).encode("utf-8")).hexdigest()[:32]
+
+
+def embed_hash(text: str, dim: int = EMB_DIM) -> list:
+    vec = [0.0] * dim
+    s = normalize_text(text)
+    if not s:
+        return vec
+    for n in (1, 2, 3):
+        for i in range(max(len(s) - n + 1, 0)):
+            gram = s[i:i + n]
+            h = hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest()
+            idx = int.from_bytes(h[:4], "little") % dim
+            sign = 1.0 if h[4] & 1 else -1.0
+            vec[idx] += sign / n
+    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+    return [v / norm for v in vec]
+
+
+def cosine(a: list, b: list) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    return float(sum(x * y for x, y in zip(a, b)))
+
+
+def pack_vec(v: list) -> bytes:
+    return struct.pack(f"<{len(v)}f", *v)
+
+
+def unpack_vec(b: bytes) -> list:
+    if not b:
+        return []
+    n = len(b) // 4
+    return list(struct.unpack(f"<{n}f", b[:n * 4]))
+
+
+def xor_encrypt(data: bytes, key: str) -> bytes:
+    kb = hashlib.sha256(key.encode("utf-8")).digest() * (len(data) // 32 + 1)
+    return bytes(a ^ b for a, b in zip(data, kb[:len(data)]))
+
+
+def score_quality(user_input: str = "", answer: str = "", teacher: str = "",
+                  feedback: str = "", tags=None, corrected: str = "") -> tuple:
+    tags = tags or []
+    answer = answer or corrected or ""
+    len_score = min(len(answer) / 200.0, 1.0)
+    base_part = 1.0 if (teacher and teacher.strip()) else 0.5
+    fb = {"like": 1.0, "correct": 0.95, "dislike": 0.1, "": 0.6}.get(feedback, 0.6)
+    tag_part = 1.0 if tags else 0.5
+    q_part = 1.0 if (user_input or "").strip() else 0.4
+    detail = {"len": round(len_score, 3), "teacher": base_part, "feedback": fb,
+              "tags": tag_part, "question": q_part}
+    score = (0.25 * len_score + 0.20 * base_part + 0.25 * fb
+             + 0.15 * tag_part + 0.15 * q_part)
+    return round(min(max(score, 0.0), 1.0), 4), detail
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS records (
+    id TEXT PRIMARY KEY,
+    ts INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    user_input TEXT NOT NULL,
+    base_model_output TEXT DEFAULT '',
+    deepseek_output TEXT DEFAULT '',
+    user_feedback TEXT DEFAULT '',
+    corrected_output TEXT DEFAULT '',
+    memory_tags TEXT DEFAULT '[]',
+    quality_score REAL DEFAULT 0,
+    score_detail TEXT DEFAULT '{}',
+    used_in_training INTEGER DEFAULT 0,
+    training_round INTEGER DEFAULT NULL,
+    prompt_hash TEXT DEFAULT '',
+    embedding BLOB,
+    dup_of TEXT DEFAULT '',
+    source TEXT DEFAULT 'chat',
+    topic TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_records_hash ON records(prompt_hash);
+CREATE INDEX IF NOT EXISTS idx_records_quality ON records(quality_score);
+CREATE INDEX IF NOT EXISTS idx_records_used ON records(used_in_training);
+CREATE INDEX IF NOT EXISTS idx_records_round ON records(training_round);
+CREATE INDEX IF NOT EXISTS idx_records_dup ON records(dup_of);
+CREATE TABLE IF NOT EXISTS dpo_pairs (
+    id TEXT PRIMARY KEY,
+    ts INTEGER NOT NULL,
+    prompt TEXT NOT NULL,
+    chosen TEXT NOT NULL,
+    rejected TEXT NOT NULL,
+    source_record TEXT DEFAULT '',
+    used_in_training INTEGER DEFAULT 0,
+    training_round INTEGER DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dpo_used ON dpo_pairs(used_in_training);
+CREATE TABLE IF NOT EXISTS train_rounds (
+    round INTEGER PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    finished_at TEXT DEFAULT '',
+    samples INTEGER DEFAULT 0,
+    base_mix INTEGER DEFAULT 0,
+    avg_loss REAL DEFAULT NULL,
+    adapter_before INTEGER DEFAULT 0,
+    adapter_after INTEGER DEFAULT 0,
+    note TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS kv (
+    k TEXT PRIMARY KEY,
+    v TEXT
+);
+"""
+
+
+class GrowthStore:
+    _COLS = ("id", "ts", "created_at", "user_input", "base_model_output",
+             "deepseek_output", "user_feedback", "corrected_output", "memory_tags",
+             "quality_score", "score_detail", "used_in_training", "training_round",
+             "prompt_hash", "dup_of", "source", "topic")
+
+    def __init__(self, db_path: str | None = None, archive: bool = True):
+        self.db_path = Path(db_path) if db_path else RECORDS_DB
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.archive = archive
+        self.archive_dir = RECORDS_ARCHIVE
+        self._lock = threading.RLock()
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript(_SCHEMA)
+        self.conn.commit()
+
+    def close(self):
+        with self._lock:
             try:
-                data = json.loads(p.read_text(encoding='utf-8'))
-                g = data.get('growth') or {}
-                for k, v in g.items():
-                    if v is not None:
-                        cfg[k] = v
-                cfg['paused'] = bool(g.get('paused', data.get('paused', cfg['paused'])))
-            except Exception:                                        # noqa: BLE001
+                self.conn.close()
+            except Exception:
                 pass
-        return cfg
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
+    def _archive(self, row: dict):
+        if not self.archive:
+            return
+        try:
+            self.archive_dir.mkdir(parents=True, exist_ok=True)
+            month = datetime.now().strftime("%Y-%m")
+            with open(self.archive_dir / f"{month}.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
+    def add(self, user_input: str, base_output: str = "", teacher_output: str = "",
+            feedback: str = "", corrected: str = "", tags=None, topic: str = "",
+            source: str = "chat", dedupe: bool = True) -> dict:
+        tags = list(tags or [])
+        ts = int(time.time())
+        rid = str(uuid.uuid4())
+        ph = prompt_hash(user_input)
+        vec = embed_hash(user_input)
+        dup_of = ""
+        with self._lock:
+            if dedupe:
+                same = self.conn.execute(
+                    "SELECT id, quality_score, embedding FROM records "
+                    "WHERE prompt_hash=? AND dup_of='' "
+                    "ORDER BY quality_score DESC LIMIT 5", (ph,)).fetchall()
+                for r in same:
+                    if cosine(vec, unpack_vec(r["embedding"])) >= DEDUP_THRESHOLD:
+                        dup_of = r["id"]
+                        break
+            score, detail = score_quality(user_input, base_output, teacher_output,
+                                          feedback, tags, corrected)
+            self.conn.execute(
+                "INSERT INTO records(id, ts, created_at, user_input, base_model_output,"
+                " deepseek_output, user_feedback, corrected_output, memory_tags,"
+                " quality_score, score_detail, used_in_training, training_round,"
+                " prompt_hash, embedding, dup_of, source, topic)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (rid, ts, now_iso(), user_input, base_output, teacher_output,
+                 feedback, corrected, json.dumps(tags, ensure_ascii=False),
+                 score, json.dumps(detail, ensure_ascii=False), 0, None,
+                 ph, pack_vec(vec), dup_of, source, topic))
+            if feedback == "dislike":
+                chosen = corrected or teacher_output
+                if chosen and base_output and chosen.strip() != base_output.strip():
+                    self._add_dpo_locked(user_input, chosen, base_output, rid)
+            self.conn.commit()
+        row = {"id": rid, "ts": ts, "user_input": user_input,
+               "base_model_output": base_output, "deepseek_output": teacher_output,
+               "user_feedback": feedback, "corrected_output": corrected,
+               "memory_tags": tags, "quality_score": score, "score_detail": detail,
+               "used_in_training": False, "training_round": None,
+               "prompt_hash": ph, "dup_of": dup_of, "source": source, "topic": topic}
+        self._archive(row)
+        row["dup"] = bool(dup_of)
+        return row
+
+    def _add_dpo_locked(self, prompt: str, chosen: str, rejected: str, source_record: str) -> str:
+        did = str(uuid.uuid4())
+        self.conn.execute(
+            "INSERT INTO dpo_pairs(id, ts, prompt, chosen, rejected, source_record,"
+            " used_in_training, training_round) VALUES(?,?,?,?,?,?,0,NULL)",
+            (did, int(time.time()), prompt, chosen, rejected, source_record))
+        return did
+
+    def add_dpo(self, prompt: str, chosen: str, rejected: str, source_record: str = "") -> str:
+        with self._lock:
+            did = self._add_dpo_locked(prompt, chosen, rejected, source_record)
+            self.conn.commit()
+        return did
+
+    @staticmethod
+    def _row(r) -> dict:
+        d = {k: r[k] for k in GrowthStore._COLS if k in r.keys()}
+        try:
+            d["memory_tags"] = json.loads(d.get("memory_tags") or "[]")
+        except Exception:
+            d["memory_tags"] = []
+        try:
+            d["score_detail"] = json.loads(d.get("score_detail") or "{}")
+        except Exception:
+            d["score_detail"] = {}
+        d["used_in_training"] = bool(d.get("used_in_training"))
+        return d
+
+    def get(self, rid: str) -> dict | None:
+        with self._lock:
+            r = self.conn.execute("SELECT * FROM records WHERE id=?", (rid,)).fetchone()
+        return self._row(r) if r else None
+
+    def list_records(self, limit: int = 50, offset: int = 0, feedback: str = "",
+                     used: int | None = None, min_quality: float | None = None,
+                     include_dup: bool = True) -> list:
+        sql, args = "SELECT * FROM records WHERE 1=1", []
+        if feedback:
+            sql += " AND user_feedback=?"
+            args.append(feedback)
+        if used is not None:
+            sql += " AND used_in_training=?"
+            args.append(1 if used else 0)
+        if min_quality is not None:
+            sql += " AND quality_score>=?"
+            args.append(float(min_quality))
+        if not include_dup:
+            sql += " AND dup_of=''"
+        sql += " ORDER BY ts DESC LIMIT ? OFFSET ?"
+        args += [int(limit), int(offset)]
+        with self._lock:
+            rows = self.conn.execute(sql, args).fetchall()
+        return [self._row(r) for r in rows]
+
+    def pending(self, min_quality: float = 0.5, include_dislike: bool = False,
+                include_dups: bool = False) -> list:
+        sql = "SELECT * FROM records WHERE used_in_training=0 AND quality_score>=?"
+        args = [float(min_quality)]
+        if not include_dislike:
+            sql += " AND user_feedback<>'dislike'"
+        if not include_dups:
+            sql += " AND dup_of=''"
+        sql += " ORDER BY quality_score DESC, ts DESC"
+        with self._lock:
+            rows = self.conn.execute(sql, args).fetchall()
+        return [self._row(r) for r in rows]
+
+    def distill_samples(self, include_trained: bool = False) -> list:
+        sql = "SELECT * FROM records WHERE deepseek_output<>'' AND quality_score>=? AND dup_of=''"
+        if not include_trained:
+            sql += " AND used_in_training=0"
+        sql += " ORDER BY quality_score DESC, ts DESC"
+        with self._lock:
+            rows = self.conn.execute(sql, [0.5]).fetchall()
+        return [self._row(r) for r in rows]
+
+    def dpo_pairs(self, untrained_only: bool = True) -> list:
+        sql = "SELECT * FROM dpo_pairs"
+        if untrained_only:
+            sql += " WHERE used_in_training=0"
+        sql += " ORDER BY ts DESC"
+        with self._lock:
+            return [dict(r) for r in self.conn.execute(sql).fetchall()]
+
+    def set_feedback(self, rid: str, feedback: str, corrected: str | None = None) -> dict:
+        row = self.get(rid)
+        if not row:
+            return {"ok": False, "error": f"记录不存在：{rid}"}
+        corrected = row["corrected_output"] if corrected is None else corrected
+        score, detail = score_quality(row["user_input"], row["base_model_output"],
+                                      row["deepseek_output"], feedback,
+                                      row["memory_tags"], corrected)
+        with self._lock:
+            self.conn.execute(
+                "UPDATE records SET user_feedback=?, corrected_output=?, quality_score=?,"
+                " score_detail=? WHERE id=?",
+                (feedback, corrected, score,
+                 json.dumps(detail, ensure_ascii=False), rid))
+            if feedback == "dislike":
+                chosen = corrected or row["deepseek_output"]
+                if chosen and row["base_model_output"] and chosen.strip() != row["base_model_output"].strip():
+                    self._add_dpo_locked(row["user_input"], chosen,
+                                         row["base_model_output"], rid)
+            self.conn.commit()
+        return {"ok": True, "id": rid, "feedback": feedback, "quality_score": score}
+
+    def recompute_quality(self, rid: str | None = None) -> int:
+        with self._lock:
+            rows = self.conn.execute("SELECT * FROM records" + (" WHERE id=?" if rid else ""),
+                                     ((rid,) if rid else ())).fetchall()
+            n = 0
+            for r in rows:
+                score, detail = score_quality(
+                    r["user_input"], r["base_model_output"], r["deepseek_output"],
+                    r["user_feedback"], json.loads(r["memory_tags"] or "[]"),
+                    r["corrected_output"])
+                self.conn.execute(
+                    "UPDATE records SET quality_score=?, score_detail=? WHERE id=?",
+                    (score, json.dumps(detail, ensure_ascii=False), r["id"]))
+                n += 1
+            self.conn.commit()
+        return n
+
+    def mark_trained(self, ids, round_no: int) -> int:
+        ids = list(ids or [])
+        if not ids:
+            return 0
+        with self._lock:
+            self.conn.executemany(
+                "UPDATE records SET used_in_training=1, training_round=? WHERE id=?",
+                [(round_no, i) for i in ids])
+            self.conn.commit()
+        return len(ids)
+
+    def mark_dpo_trained(self, ids, round_no: int) -> int:
+        ids = list(ids or [])
+        if not ids:
+            return 0
+        with self._lock:
+            self.conn.executemany(
+                "UPDATE dpo_pairs SET used_in_training=1, training_round=? WHERE id=?",
+                [(round_no, i) for i in ids])
+            self.conn.commit()
+        return len(ids)
+
+    def delete(self, rid: str) -> bool:
+        with self._lock:
+            cur = self.conn.execute("DELETE FROM records WHERE id=?", (rid,))
+            self.conn.commit()
+        return cur.rowcount > 0
+
+    def stats(self) -> dict:
+        with self._lock:
+            c = self.conn.execute
+            total = c("SELECT COUNT(*) n FROM records").fetchone()["n"]
+            dup = c("SELECT COUNT(*) n FROM records WHERE dup_of<>''").fetchone()["n"]
+            trained = c("SELECT COUNT(*) n FROM records WHERE used_in_training=1").fetchone()["n"]
+            avg = c("SELECT AVG(quality_score) a FROM records WHERE dup_of=''").fetchone()["a"] or 0
+            fbs = {r["user_feedback"] or "none": r["n"] for r in
+                   c("SELECT user_feedback, COUNT(*) n FROM records GROUP BY user_feedback").fetchall()}
+            dpo = c("SELECT COUNT(*) n FROM dpo_pairs").fetchone()["n"]
+            dpo_used = c("SELECT COUNT(*) n FROM dpo_pairs WHERE used_in_training=1").fetchone()["n"]
+            teacher = c("SELECT COUNT(*) n FROM records WHERE deepseek_output<>''").fetchone()["n"]
+            rounds = c("SELECT COUNT(*) n FROM train_rounds").fetchone()["n"]
+        pend = len(self.pending())
+        return {"total": total, "duplicates": dup, "unique": total - dup,
+                "used_in_training": trained, "pending": pend,
+                "avg_quality": round(float(avg), 4),
+                "feedback": {"like": fbs.get("like", 0), "dislike": fbs.get("dislike", 0),
+                             "correct": fbs.get("correct", 0), "none": fbs.get("none", 0)},
+                "with_teacher": teacher, "dpo_pairs": dpo, "dpo_used": dpo_used,
+                "train_rounds": rounds, "db": str(self.db_path)}
+
+    def sample_for_training(self, limit: int = 500, min_quality: float = 0.5,
+                            base_mix_ratio: float = 0.15,
+                            base_corpus: Path | None = None) -> dict:
+        rows = self.pending(min_quality=min_quality)
+        picked = rows[:int(limit)]
+        samples, ids = [], []
+        for r in picked:
+            a = (r["corrected_output"] or r["deepseek_output"]
+                 or r["base_model_output"] or "").strip()
+            if not a:
+                continue
+            samples.append({"question": r["user_input"], "answer": a,
+                            "topic": r.get("topic", ""), "record_id": r["id"]})
+            ids.append(r["id"])
+        base_mix = []
+        corpus = Path(base_corpus) if base_corpus else BASE_CORPUS
+        ratio = max(0.0, min(float(base_mix_ratio or 0.0), 0.5))
+        want = int(len(samples) * ratio / max(1e-6, 1 - ratio))
+        if samples and ratio > 0:
+            want = max(want, 1)
+        if want > 0 and corpus.exists():
+            lines = [l.strip() for l in corpus.read_text(encoding="utf-8",
+                                                         errors="ignore").splitlines()
+                     if l.strip()]
+            if lines:
+                step = max(len(lines) // max(want, 1), 1)
+                for i in range(0, min(len(lines), want * step), step):
+                    base_mix.append({"question": "", "answer": lines[i],
+                                     "topic": "base_mix"})
+                    if len(base_mix) >= want:
+                        break
+        total = len(samples) + len(base_mix)
+        return {"samples": samples + base_mix, "records": ids,
+                "base_mix": len(base_mix),
+                "ratio": round(len(base_mix) / max(total, 1), 3)}
+
+    def write_corpus(self, path: Path | str, limit: int = 500, min_quality: float = 0.5,
+                     base_mix_ratio: float = 0.15) -> dict:
+        pack = self.sample_for_training(limit=limit, min_quality=min_quality,
+                                        base_mix_ratio=base_mix_ratio)
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            for s in pack["samples"]:
+                row = {"question": s["question"], "answer": s["answer"]}
+                if s.get("topic"):
+                    row["topic"] = s["topic"]
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return {"path": str(p), "written": len(pack["samples"]),
+                "base_mix": pack["base_mix"], "ratio": pack["ratio"],
+                "records": pack["records"]}
+
+    def begin_round(self, round_no: int, samples: int, base_mix: int,
+                    adapter_before: int = 0, note: str = ""):
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO train_rounds(round, started_at, samples, base_mix,"
+                " adapter_before, note) VALUES(?,?,?,?,?,?)"
+                " ON CONFLICT(round) DO UPDATE SET samples=excluded.samples,"
+                " base_mix=excluded.base_mix, adapter_before=excluded.adapter_before",
+                (int(round_no), now_iso(), int(samples), int(base_mix),
+                 int(adapter_before), note))
+            self.conn.commit()
+
+    def finish_round(self, round_no: int, avg_loss=None, adapter_after: int = 0,
+                     note: str = ""):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE train_rounds SET finished_at=?, avg_loss=?, adapter_after=?,"
+                " note=? WHERE round=?",
+                (now_iso(), avg_loss, int(adapter_after), note, int(round_no)))
+            self.conn.commit()
+
+    def rounds(self, limit: int = 50) -> list:
+        with self._lock:
+            return [dict(r) for r in self.conn.execute(
+                "SELECT * FROM train_rounds ORDER BY round DESC LIMIT ?",
+                (int(limit),)).fetchall()]
+
+    def loss_curve(self, limit: int = 100) -> list:
+        with self._lock:
+            return [{"round": r["round"], "avg_loss": r["avg_loss"],
+                     "samples": r["samples"]}
+                    for r in self.conn.execute(
+                        "SELECT round, avg_loss, samples FROM train_rounds"
+                        " WHERE avg_loss IS NOT NULL ORDER BY round ASC LIMIT ?",
+                        (int(limit),)).fetchall()]
+
+    def dedupe(self, threshold: float = DEDUP_THRESHOLD, dry_run: bool = False) -> dict:
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM records ORDER BY quality_score DESC, ts ASC").fetchall()
+            kept, marked = [], 0
+            for r in rows:
+                if r["dup_of"]:
+                    continue
+                vec = unpack_vec(r["embedding"])
+                hit = None
+                for k in kept:
+                    if cosine(vec, k["vec"]) >= threshold:
+                        hit = k
+                        break
+                if hit:
+                    marked += 1
+                    if not dry_run:
+                        self.conn.execute("UPDATE records SET dup_of=? WHERE id=?",
+                                          (hit["id"], r["id"]))
+                else:
+                    kept.append({"id": r["id"], "vec": vec})
+            if not dry_run:
+                self.conn.commit()
+        return {"scanned": len(rows), "kept": len(kept), "marked_dup": marked,
+                "threshold": threshold, "dry_run": dry_run}
+
+    def export_jsonl(self, path: Path | str, only_untrained: bool = False,
+                     include_dpo: bool = True, encrypt_key: str = "") -> dict:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        sql = "SELECT * FROM records" + (" WHERE used_in_training=0" if only_untrained else "")
+        with self._lock:
+            rows = [self._row(r) for r in self.conn.execute(sql).fetchall()]
+        payload = {"kind": "xiaoling-growth-export", "version": 1,
+                   "exported_at": now_iso(), "records": rows,
+                   "dpo": self.dpo_pairs(untrained_only=False) if include_dpo else []}
+        raw = json.dumps(payload, ensure_ascii=False, indent=1).encode("utf-8")
+        if encrypt_key:
+            raw = xor_encrypt(raw, encrypt_key)
+            p = p.with_suffix(p.suffix + ".enc")
+        p.write_bytes(raw)
+        return {"path": str(p), "records": len(rows), "dpo": len(payload["dpo"]),
+                "encrypted": bool(encrypt_key), "bytes": len(raw)}
+
+    def import_jsonl(self, path: Path | str, encrypt_key: str = "") -> dict:
+        p = Path(path)
+        raw = p.read_bytes()
+        if raw[:1] not in (b"{", b"["):
+            if not encrypt_key:
+                return {"ok": False, "error": "文件是加密的，请提供 key"}
+            raw = xor_encrypt(raw, encrypt_key)
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": f"解析失败：{e}"}
+        rows = data.get("records", data if isinstance(data, list) else [])
+        n = 0
+        for r in rows:
+            self.add(r.get("user_input", ""), r.get("base_model_output", ""),
+                     r.get("deepseek_output", ""), r.get("user_feedback", ""),
+                     r.get("corrected_output", ""), r.get("memory_tags") or [],
+                     r.get("topic", ""), source="import", dedupe=True)
+            n += 1
+        dpo_n = 0
+        if isinstance(data, dict):
+            for d in data.get("dpo", []):
+                self.add_dpo(d.get("prompt", ""), d.get("chosen", ""),
+                             d.get("rejected", ""))
+                dpo_n += 1
+        return {"ok": True, "imported": n, "dpo": dpo_n}
+
+    def purge(self, scope: str = "all") -> dict:
+        before = self.stats()
+        with self._lock:
+            if scope == "all":
+                self.conn.execute("DELETE FROM records")
+                self.conn.execute("DELETE FROM dpo_pairs")
+            elif scope == "trained":
+                self.conn.execute("DELETE FROM records WHERE used_in_training=1")
+            elif scope == "disliked":
+                self.conn.execute("DELETE FROM records WHERE user_feedback='dislike'")
+            elif scope == "dpo":
+                self.conn.execute("DELETE FROM dpo_pairs")
+            else:
+                return {"ok": False, "error": f"未知 scope：{scope}"}
+            self.conn.commit()
+        after = self.stats()
+        return {"ok": True, "scope": scope,
+                "removed": before["total"] - after["total"],
+                "remaining": after["total"]}
+
+
+class DistillThrottle:
+    DEFAULT_LIMIT = 200
+
+    def __init__(self, enabled: bool = True, daily_limit: int = DEFAULT_LIMIT,
+                 price_in: float = 1.0, price_out: float = 2.0):
+        self.enabled = enabled
+        self.daily_limit = int(daily_limit)
+        self.price_in = float(price_in)
+        self.price_out = float(price_out)
+        self._lock = threading.RLock()
+        GROWTH_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _read(self, path: Path, default):
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return default
+
+    def _write(self, path: Path, data):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=1),
+                            encoding="utf-8")
+        except OSError:
+            pass
+
+    @staticmethod
+    def cache_key(prompt: str, model: str = "") -> str:
+        norm = " ".join((prompt or "").strip().split())
+        return hashlib.sha256(f"{model}\x00{norm}".encode("utf-8")).hexdigest()[:40]
+
+    def cached(self, prompt: str, model: str = "") -> str | None:
+        with self._lock:
+            return self._read(THROTTLE_CACHE, {}).get(self.cache_key(prompt, model))
+
+    def used_today(self) -> int:
+        with self._lock:
+            u = self._read(THROTTLE_USAGE, {})
+        return int((u.get("days") or {}).get(date.today().isoformat(), {}).get("calls", 0))
+
+    def remaining(self) -> int:
+        if self.daily_limit <= 0:
+            return 10 ** 9
+        return max(self.daily_limit - self.used_today(), 0)
+
+    def check(self, prompt: str, model: str = "") -> dict:
+        if not self.enabled:
+            return {"ok": False, "reason": "disabled",
+                    "message": "API 蒸馏已关闭"}
+        hit = self.cached(prompt, model)
+        if hit is not None:
+            self._bump("cache_hits")
+            return {"ok": True, "reason": "cache", "cached": hit,
+                    "message": "命中缓存"}
+        if self.remaining() <= 0:
+            self._bump("blocked")
+            return {"ok": False, "reason": "quota",
+                    "message": f"今日配额已用完（{self.used_today()}/{self.daily_limit}）"}
+        return {"ok": True, "reason": "live",
+                "message": f"可调用（今日 {self.used_today()}/{self.daily_limit}）"}
+
+    def _bump(self, field: str, n: int = 1):
+        with self._lock:
+            u = self._read(THROTTLE_USAGE, {})
+            u.setdefault("total", {})
+            u["total"][field] = int(u["total"].get(field, 0)) + n
+            self._write(THROTTLE_USAGE, u)
+
+    def record(self, prompt: str, response: str = "", model: str = "",
+               tokens_in: int = 0, tokens_out: int = 0,
+               from_cache: bool = False) -> dict:
+        today = date.today().isoformat()
+        month = datetime.now().strftime("%Y-%m")
+        with self._lock:
+            u = self._read(THROTTLE_USAGE, {})
+            u.setdefault("days", {})
+            u.setdefault("months", {})
+            u.setdefault("total", {})
+            d = u["days"].setdefault(today, {"calls": 0, "cache_hits": 0,
+                                              "tokens_in": 0, "tokens_out": 0})
+            m = u["months"].setdefault(month, {"calls": 0, "cache_hits": 0,
+                                                "tokens_in": 0, "tokens_out": 0})
+            key = "cache_hits" if from_cache else "calls"
+            for bucket in (d, m, u["total"]):
+                bucket[key] = int(bucket.get(key, 0)) + 1
+                if not from_cache:
+                    bucket["tokens_in"] = int(bucket.get("tokens_in", 0)) + int(tokens_in)
+                    bucket["tokens_out"] = int(bucket.get("tokens_out", 0)) + int(tokens_out)
+            if response and not from_cache:
+                cache = self._read(THROTTLE_CACHE, {})
+                cache[self.cache_key(prompt, model)] = response
+                if len(cache) > 5000:
+                    for k in list(cache.keys())[:len(cache) - 5000]:
+                        cache.pop(k, None)
+                self._write(THROTTLE_CACHE, cache)
+            self._write(THROTTLE_USAGE, u)
+        return self.cost()
+
+    def cost_of(self, tokens_in: int, tokens_out: int) -> float:
+        return round(tokens_in / 1e6 * self.price_in
+                     + tokens_out / 1e6 * self.price_out, 6)
+
+    def cost(self, scope: str = "month") -> dict:
+        with self._lock:
+            u = self._read(THROTTLE_USAGE, {})
+        if scope == "today":
+            b = (u.get("days") or {}).get(date.today().isoformat(), {})
+        elif scope == "total":
+            b = u.get("total", {})
+        else:
+            b = (u.get("months") or {}).get(datetime.now().strftime("%Y-%m"), {})
+        ti, to = int(b.get("tokens_in", 0)), int(b.get("tokens_out", 0))
+        return {"scope": scope, "calls": int(b.get("calls", 0)),
+                "cache_hits": int(b.get("cache_hits", 0)),
+                "tokens_in": ti, "tokens_out": to,
+                "cost_yuan": self.cost_of(ti, to)}
+
+    def usage_report(self) -> dict:
+        with self._lock:
+            u = self._read(THROTTLE_USAGE, {})
+            cache = self._read(THROTTLE_CACHE, {})
+        return {"enabled": self.enabled, "daily_limit": self.daily_limit,
+                "used_today": self.used_today(), "remaining_today": self.remaining(),
+                "cache_entries": len(cache), "total": dict(u.get("total", {})),
+                "today": self.cost("today"), "month": self.cost("month"),
+                "all_time": self.cost("total")}
+
+    def set_enabled(self, on: bool):
+        self.enabled = bool(on)
+
+    def set_daily_limit(self, n: int):
+        self.daily_limit = int(n)
+
+    def reset_today(self):
+        with self._lock:
+            u = self._read(THROTTLE_USAGE, {})
+            (u.get("days") or {}).pop(date.today().isoformat(), None)
+            self._write(THROTTLE_USAGE, u)
+
+    def clear_cache(self) -> int:
+        with self._lock:
+            n = len(self._read(THROTTLE_CACHE, {}))
+            self._write(THROTTLE_CACHE, {})
+        return n
+
+
+class RankManager:
+    def __init__(self, adapter_dir: Path | str | None = None,
+                 max_rank: int = 256, init_rank: int = 8):
+        self.adapter_dir = Path(adapter_dir) if adapter_dir else ADAPTER_DIR
+        self.max_rank = int(max_rank)
+        self.init_rank = int(init_rank)
+        self._lock = threading.RLock()
+
+    @property
+    def config_path(self) -> Path:
+        return self.adapter_dir / "adapter_config.json"
+
+    def status(self) -> dict:
+        with self._lock:
+            if not self.config_path.exists():
+                return {"rank": 0, "exists": False, "max_rank": self.max_rank}
+            try:
+                d = json.loads(self.config_path.read_text(encoding="utf-8"))
+                r = int(d.get("r", 0))
+                return {"rank": r, "exists": True, "max_rank": self.max_rank,
+                        "at_limit": r >= self.max_rank,
+                        "alpha": int(d.get("lora_alpha", r * 2))}
+            except Exception as e:
+                return {"rank": 0, "exists": False, "max_rank": self.max_rank,
+                        "error": f"{type(e).__name__}: {e}"}
+
+    def grow(self, new_rank: int | None = None, dry_run: bool = False) -> dict:
+        with self._lock:
+            if not self.config_path.exists():
+                return {"ok": False, "reason": f"适配器不存在：{self.config_path}"}
+            try:
+                d = json.loads(self.config_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                return {"ok": False, "reason": f"配置损坏：{type(e).__name__}: {e}"}
+            cur = int(d.get("r", self.init_rank))
+            nxt = int(new_rank) if new_rank else min(cur * 2, self.max_rank)
+            if nxt <= cur:
+                return {"ok": False, "reason": f"rank 已为 {cur}，上限 {self.max_rank}",
+                        "at_max_rank": cur >= self.max_rank}
+            if dry_run:
+                return {"ok": True, "dry_run": True, "old_rank": cur, "new_rank": nxt}
+            d["r"] = nxt
+            d["lora_alpha"] = nxt * 2
+            try:
+                self.config_path.write_text(
+                    json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+            except OSError as e:
+                return {"ok": False, "reason": f"写入失败：{e}"}
+        return {"ok": True, "old_rank": cur, "new_rank": nxt,
+                "message": f"rank {cur} → {nxt}"}
+
+
+class ModelLifecycle:
+    def __init__(self, keep_generations: int = 2, max_generations: int = 5,
+                 max_total_bytes: int = 10 * 1024 ** 3,
+                 stability_hours: float = 24.0, stability_rounds: int = 100):
+        self.keep_generations = int(keep_generations)
+        self.max_generations = int(max_generations)
+        self.max_total_bytes = int(max_total_bytes)
+        self.stability_hours = float(stability_hours)
+        self.stability_rounds = int(stability_rounds)
+        self._lock = threading.RLock()
+        GROWTH_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _read(self, path: Path, default):
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return default
+
+    def _write(self, path: Path, data):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=1),
+                            encoding="utf-8")
+        except OSError:
+            pass
+
+    def registry(self) -> dict:
+        reg = self._read(REGISTRY_PATH, {"generations": []})
+        reg.setdefault("generations", [])
+        return reg
+
+    def generations(self) -> list:
+        return self.registry().get("generations", [])
+
+    def generation(self, gen: int) -> dict | None:
+        for g in self.generations():
+            if int(g.get("gen", -1)) == int(gen):
+                return g
+        return None
+
+    def active(self) -> dict | None:
+        for g in self.generations():
+            if g.get("status") == "active":
+                return g
+        return None
+
+    def register(self, gen: int, label: str, path: Path, status: str = "active",
+                 stamp: str = "", note: str = "") -> dict:
+        with self._lock:
+            reg = self.registry()
+            for g in reg["generations"]:
+                if int(g.get("gen", -1)) == int(gen) and g.get("status") in ("trash", "active"):
+                    g.update({"label": label, "dir": str(path), "status": status,
+                              "bytes": dir_bytes(path), "stamp": stamp, "note": note})
+                    self._write(REGISTRY_PATH, reg)
+                    return g
+            entry = {"gen": int(gen), "label": label, "dir": str(path),
+                     "status": status, "bytes": dir_bytes(path),
+                     "stamp": stamp, "note": note,
+                     "created_at": now_iso(), "retired_at": "", "kept": False}
+            reg["generations"].append(entry)
+            reg["generations"].sort(key=lambda x: int(x.get("gen", 0)))
+            reg["updated_at"] = now_iso()
+            self._write(REGISTRY_PATH, reg)
+            return entry
+
+    def retire(self, old_base: Path, gen: int, mode: str = "trash",
+               stamp: str = "") -> dict:
+        stamp = stamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+        TRASH_DIR.mkdir(parents=True, exist_ok=True)
+        dest = TRASH_DIR / f"gen{gen}_{stamp}"
+        size = dir_bytes(old_base)
+        try:
+            if old_base.exists():
+                shutil.move(str(old_base), str(dest))
+        except OSError as e:
+            return {"ok": False, "message": f"退役失败：{e}"}
+        entry = self.register(gen, f"第 {gen} 代（{mode}）", dest,
+                              status="trash" if mode != "delete" else "deleted",
+                              stamp=stamp, note=f"退役方式 {mode}")
+        entry["retired_at"] = now_iso()
+        entry["kept"] = (mode == "archive")
+        with self._lock:
+            reg = self.registry()
+            for g in reg["generations"]:
+                if int(g.get("gen", -1)) == int(gen) and g.get("dir") == str(dest):
+                    g.update({"retired_at": entry["retired_at"],
+                              "kept": entry["kept"], "status": entry["status"]})
+            self._write(REGISTRY_PATH, reg)
+        if mode == "delete":
+            shutil.rmtree(dest, ignore_errors=True)
+        st = self._read(LIFECYCLE_STATE, {})
+        st.update({"promoted_at": now_iso(), "dialogue_turns_since_promote": 0,
+                   "retired_gen": gen, "updated_at": now_iso()})
+        self._write(LIFECYCLE_STATE, st)
+        return {"ok": True, "dir": str(dest), "bytes": size, "mode": mode}
+
+    def bump_dialogue(self, n: int = 1) -> int:
+        with self._lock:
+            st = self._read(LIFECYCLE_STATE, {})
+            total = int(st.get("dialogue_turns_since_promote", 0)) + int(n)
+            st["dialogue_turns_since_promote"] = total
+            st["updated_at"] = now_iso()
+            self._write(LIFECYCLE_STATE, st)
+        return total
+
+    def stability(self) -> dict:
+        st = self._read(LIFECYCLE_STATE, {})
+        promoted = st.get("promoted_at", "")
+        hours = 0.0
+        if promoted:
+            try:
+                dt = datetime.fromisoformat(promoted)
+                hours = (datetime.now(dt.tzinfo) - dt).total_seconds() / 3600.0
+            except Exception:
+                hours = 0.0
+        turns = int(st.get("dialogue_turns_since_promote", 0))
+        ok = (hours >= self.stability_hours) or (turns >= self.stability_rounds)
+        return {"promoted_at": promoted, "hours_elapsed": round(hours, 2),
+                "dialogue_turns": turns,
+                "need_hours": self.stability_hours,
+                "need_turns": self.stability_rounds,
+                "stable": bool(ok),
+                "detail": f"已观察 {hours:.1f} 小时 / {turns} 轮"}
+
+    def disk_report(self) -> dict:
+        used = {"base": dir_bytes(BASE_MODEL_DIR),
+                "adapter": dir_bytes(ADAPTER_DIR, ADAPTER_WEIGHT_EXTS),
+                "trash": dir_bytes(TRASH_DIR),
+                "seeds": dir_bytes(ADAPTER_SEEDS),
+                "legacy_retired": dir_bytes(LEGACY_RETIRED)}
+        used["total"] = sum(used.values())
+        return {"used": used,
+                "used_human": {k: human_bytes(v) for k, v in used.items()},
+                "max_total_bytes": self.max_total_bytes,
+                "max_total_human": human_bytes(self.max_total_bytes),
+                "keep_generations": self.keep_generations,
+                "max_generations": self.max_generations,
+                "generations": len(self.generations())}
+
+    def cap_check(self, override: bool = False) -> dict:
+        reg = self.registry()
+        gens = [g for g in reg.get("generations", []) if g.get("status") != "deleted"]
+        d = self.disk_report()
+        reasons = []
+        if len(gens) >= self.max_generations:
+            reasons.append(f"已达代数上限（{len(gens)}/{self.max_generations}）")
+        if d["used"]["total"] >= self.max_total_bytes:
+            reasons.append(f"总体积 {human_bytes(d['used']['total'])} 已达上限")
+        blocked = bool(reasons) and not override
+        return {"ok": not blocked, "blocked": blocked, "override": override,
+                "reasons": reasons, "generations": len(gens),
+                "max_generations": self.max_generations,
+                "total_bytes": d["used"]["total"],
+                "max_total_bytes": self.max_total_bytes,
+                "message": "；".join(reasons) if blocked else "未触及增长上限"}
+
+    def gc(self, keep: int | None = None, dry_run: bool = False,
+           force: bool = False) -> dict:
+        keep = int(keep if keep is not None else self.keep_generations)
+        reg = self.registry()
+        gens = [g for g in reg.get("generations", []) if g.get("status") == "trash"]
+        gens.sort(key=lambda x: int(x.get("gen", 0)), reverse=True)
+        keepers = gens[:max(keep - 1, 0)]
+        candidates = [g for g in gens[len(keepers):] if not g.get("kept")]
+        stab = self.stability()
+        d = self.disk_report()
+        allowed = bool(force or stab["stable"]
+                       or d["used"]["total"] >= self.max_total_bytes)
+        deletable, freed = [], 0
+        for g in candidates:
+            p = Path(g.get("dir", ""))
+            b = g.get("bytes") or dir_bytes(p)
+            deletable.append({"gen": g.get("gen"), "dir": str(p),
+                              "bytes": b, "human": human_bytes(b)})
+            freed += b
+        result = {"keep_generations": keep, "trash_generations": len(gens),
+                  "keepers": [g.get("gen") for g in keepers],
+                  "deletable": deletable, "freed_bytes": freed,
+                  "freed_human": human_bytes(freed),
+                  "stability": stab, "allowed": allowed, "deleted": [],
+                  "dry_run": dry_run}
+        if not allowed:
+            result["message"] = f"稳定期未达标（{stab['detail']}），暂不删除"
+            return result
+        if dry_run:
+            result["message"] = f"演练：将删除 {len(deletable)} 个旧代"
+            return result
+        for item in deletable:
+            p = Path(item["dir"])
+            if p.exists():
+                shutil.rmtree(p, ignore_errors=True)
+            result["deleted"].append(item["gen"])
+        if result["deleted"]:
+            for g in reg["generations"]:
+                if g.get("gen") in result["deleted"] and g.get("status") == "trash":
+                    g["status"] = "deleted"
+                    g["bytes"] = 0
+            self._write(REGISTRY_PATH, reg)
+        if LEGACY_RETIRED.exists() and allowed:
+            shutil.rmtree(LEGACY_RETIRED, ignore_errors=True)
+        result["message"] = (f"已删除 {len(result['deleted'])} 个旧代，"
+                             f"释放 {human_bytes(freed)}")
+        return result
+
+    def rollback(self, gen: int | None = None, dry_run: bool = False) -> dict:
+        reg = self.registry()
+        act = self.active()
+        gens = [g for g in reg.get("generations", []) if g.get("status") == "trash"]
+        gens.sort(key=lambda x: int(x.get("gen", 0)), reverse=True)
+        target = None
+        if gen is None:
+            target = gens[0] if gens else None
+        else:
+            for g in gens:
+                if int(g.get("gen", -1)) == int(gen):
+                    target = g
+                    break
+        if target is None:
+            return {"ok": False, "message": "回收区里没有可回滚的代数"}
+        tdir = Path(target.get("dir", ""))
+        if not tdir.exists():
+            return {"ok": False, "message": f"第 {target.get('gen')} 代文件不存在"}
+        cur_gen = int(act.get("gen", 0)) if act else 0
+        if dry_run:
+            return {"ok": True, "dry_run": True, "target_gen": target.get("gen"),
+                    "from_gen": cur_gen,
+                    "message": f"演练：从 {cur_gen} 回滚到 {target.get('gen')}"}
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        back = TRASH_DIR / f"rollback_gen{cur_gen}_{stamp}"
+        try:
+            if BASE_MODEL_DIR.exists():
+                TRASH_DIR.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(BASE_MODEL_DIR), str(back))
+            shutil.move(str(tdir), str(BASE_MODEL_DIR))
+        except OSError as e:
+            if not BASE_MODEL_DIR.exists() and back.exists():
+                shutil.move(str(back), str(BASE_MODEL_DIR))
+            return {"ok": False, "message": f"回滚失败：{e}"}
+        for g in reg["generations"]:
+            if int(g.get("gen", -1)) == int(target.get("gen", -2)):
+                g.update({"status": "active", "dir": str(BASE_MODEL_DIR),
+                          "kept": False, "bytes": dir_bytes(BASE_MODEL_DIR),
+                          "rolled_back_at": now_iso()})
+            elif int(g.get("gen", -1)) == cur_gen:
+                g.update({"status": "trash", "dir": str(back),
+                          "bytes": dir_bytes(back),
+                          "retired_at": now_iso()})
+        self._write(REGISTRY_PATH, reg)
+        st = self._read(LIFECYCLE_STATE, {})
+        st.update({"promoted_at": now_iso(), "dialogue_turns_since_promote": 0,
+                   "rolled_back_to": target.get("gen"), "updated_at": now_iso()})
+        self._write(LIFECYCLE_STATE, st)
+        return {"ok": True, "from_gen": cur_gen, "target_gen": target.get("gen"),
+                "dir": str(BASE_MODEL_DIR),
+                "message": f"已回滚到第 {target.get('gen')} 代"}
+
+    def export(self, dest: Path | str, include_adapter: bool = True,
+               include_meta: bool = True) -> dict:
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        n_files = 0
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+            for src, prefix in ((BASE_MODEL_DIR, "XLmodel"),
+                                (ADAPTER_DIR, "adapter")):
+                if not src.exists():
+                    continue
+                if src == ADAPTER_DIR and not include_adapter:
+                    continue
+                for p in src.rglob("*"):
+                    if p.is_file():
+                        z.write(p, f"{prefix}/{p.relative_to(src)}")
+                        n_files += 1
+            if include_meta:
+                for p in (REGISTRY_PATH, LIFECYCLE_STATE, JOURNAL, STATE_PATH):
+                    if p.exists():
+                        z.write(p, f"meta/{p.name}")
+                        n_files += 1
+                z.writestr("meta/README.txt",
+                           f"小凌成长模型导出包\n导出时间：{now_iso()}\n")
+        size = dest.stat().st_size
+        return {"ok": True, "path": str(dest), "files": n_files,
+                "bytes": size, "human": human_bytes(size)}
+
+    def report(self) -> str:
+        d = self.disk_report()
+        stab = self.stability()
+        act = self.active()
+        lines = ["小凌 · 模型生命周期",
+                 f"  当前代：第 {act.get('gen') if act else 0} 代"]
+        lines.append(f"  磁盘：基底 {d['used_human']['base']}｜"
+                     f"适配器 {d['used_human']['adapter']}｜"
+                     f"回收区 {d['used_human']['trash']}｜"
+                     f"合计 {d['used_human']['total']}")
+        lines.append(f"  稳定期：{stab['detail']}")
+        lines.append(f"  增长上限：{self.cap_check()['message']}")
+        return "\n".join(lines)
+
+
+class LoRATrainer:
+    def __init__(self, base_dir: Path | str | None = None,
+                 adapter_dir: Path | str | None = None):
+        self.base_dir = Path(base_dir) if base_dir else BASE_MODEL_DIR
+        self.adapter_dir = Path(adapter_dir) if adapter_dir else ADAPTER_DIR
+
+    def _load_corpus(self, corpus) -> list:
+        if corpus is None:
+            return list(DEFAULT_TEMPLATES)
+        if isinstance(corpus, (list, tuple)):
+            return list(corpus)
+        p = Path(corpus)
+        if not p.exists():
+            return list(DEFAULT_TEMPLATES)
+        samples = []
+        try:
+            for line in p.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                u = obj.get("user") or obj.get("q") or obj.get("question") or obj.get("input")
+                a = obj.get("assistant") or obj.get("a") or obj.get("answer") or obj.get("output")
+                if u and a:
+                    samples.append({"user": str(u), "assistant": str(a)})
+        except Exception:
+            return list(DEFAULT_TEMPLATES)
+        return samples or list(DEFAULT_TEMPLATES)
+
+    def train(self, corpus=None, epochs: int = 1, batch_size: int = 1,
+              lr: float = 1e-4, grad_accum: int = 1, quant: str = "none",
+              lora_r: int = 8, target_modules=None, max_length: int = 256) -> dict:
+        if not self.base_dir.exists():
+            return {"ok": False, "reason": f"基底目录不存在：{self.base_dir}"}
+        try:
+            import torch
+            from peft import LoraConfig, get_peft_model, TaskType
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+        except ImportError as e:
+            return {"ok": False, "reason": f"依赖缺失：{e}"}
+        device = best_device()
+        load_kwargs = device_kwargs(device)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                str(self.base_dir), trust_remote_code=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                str(self.base_dir), trust_remote_code=True, **load_kwargs)
+        except Exception as e:
+            return {"ok": False, "reason": f"加载模型失败：{type(e).__name__}: {e}"}
+        targets = target_modules or ["q_proj", "v_proj"]
+        try:
+            config = LoraConfig(task_type=TaskType.CAUSAL_LM, r=int(lora_r),
+                                lora_alpha=int(lora_r) * 2, lora_dropout=0.05,
+                                target_modules=targets)
+            model = get_peft_model(model, config)
+            try:
+                model.print_trainable_parameters()
+            except Exception:
+                pass
+        except Exception as e:
+            return {"ok": False, "reason": f"LoRA 包装失败：{type(e).__name__}: {e}"}
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+        try:
+            model.train()
+        except AttributeError:
+            pass
+        samples = self._load_corpus(corpus)
+        losses = []
+        step = 0
+        epochs = max(1, int(epochs))
+        for epoch in range(epochs):
+            for sample in samples:
+                messages = [
+                    {"role": "system", "content": "你是小凌，住在用户电脑里的AI女孩。"},
+                    {"role": "user", "content": sample["user"]},
+                    {"role": "assistant", "content": sample["assistant"]},
+                ]
+                try:
+                    text = tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=False)
+                except Exception:
+                    text = f"{sample['user']}\n{sample['assistant']}"
+                enc = tokenizer(text, return_tensors="pt", truncation=True,
+                                max_length=max_length)
+                ids = enc["input_ids"]
+                if device != "cpu":
+                    try:
+                        ids = ids.to(device)
+                    except Exception:
+                        pass
+                optimizer.zero_grad()
+                try:
+                    out = model(input_ids=ids, labels=ids)
+                    out.loss.backward()
+                    optimizer.step()
+                    losses.append(float(out.loss.item()))
+                    step += 1
+                except Exception:
+                    continue
+        self.adapter_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            model.save_pretrained(str(self.adapter_dir))
+            tokenizer.save_pretrained(str(self.adapter_dir))
+        except Exception as e:
+            return {"ok": False, "reason": f"保存失败：{e}", "steps": step}
+        avg = sum(losses) / len(losses) if losses else None
+        return {"ok": True, "steps": step, "final_loss": losses[-1] if losses else None,
+                "avg_loss": round(avg, 4) if avg is not None else None,
+                "adapter_dir": str(self.adapter_dir), "device": device}
+
+    def simulate(self, growth: float = 0.12, epochs: int = 2) -> dict:
+        adp = self.adapter_dir / "adapter_model.safetensors"
+        cur = adp.stat().st_size if adp.exists() else 0
+        base = dir_bytes(BASE_MODEL_DIR)
+        add = max(int(base * growth * max(epochs, 1) / 2), 4096)
+        self.adapter_dir.mkdir(parents=True, exist_ok=True)
+        with open(adp, "ab") as f:
+            f.write(b"\0" * add)
+        cfg = self.adapter_dir / "adapter_config.json"
+        if not cfg.exists():
+            cfg.write_text(json.dumps(
+                {"r": 8, "lora_alpha": 16,
+                 "target_modules": ["q_proj", "v_proj"]},
+                ensure_ascii=False), encoding="utf-8")
+        return {"ok": True, "simulated": True, "avg_loss": 1.18,
+                "summary": f"演练：+{human_bytes(add)}"}
+
+
+class GrowthEngine:
+    CONFIG_KEYS = ("auto_train", "auto_check_after_train", "retire_mode",
+                   "keep_backup", "train_epochs", "train_batch", "train_lr",
+                   "min_samples", "manual_min_samples", "min_interval_hours",
+                   "require_device_idle", "require_power_ok", "allow_train_on_cpu",
+                   "base_mix_ratio", "init_rank", "max_rank", "min_quality",
+                   "keep_generations", "max_generations", "max_total_bytes",
+                   "stability_hours", "stability_rounds", "distill_enabled",
+                   "distill_daily_limit", "teacher_price_in", "teacher_price_out",
+                   "paused")
+
+    def __init__(self, dry_run: bool = False):
+        self.dry_run = dry_run
+        self._lock = threading.RLock()
+        GROWTH_DIR.mkdir(parents=True, exist_ok=True)
+        ADAPTER_DIR.mkdir(parents=True, exist_ok=True)
+        self._store: GrowthStore | None = None
+        self._lifecycle: ModelLifecycle | None = None
+        self._throttle: DistillThrottle | None = None
+        self._rank: RankManager | None = None
+        self._trainer: LoRATrainer | None = None
+        self.adapter_dir = detect_adapter_dir(STAR_DIR)
+
+    def config(self) -> dict:
+        cfg = load_config()
+        return cfg.get("growth", {}) or {}
 
     def cfg(self, key, default=None):
-        return self.config().get(key, GROWTH_DEFAULTS.get(key, default))
+        return self.config().get(key, default)
 
-    # ------------------------------------------------------- 子模块（延迟建）
     @property
-    def store(self):
+    def store(self) -> GrowthStore:
         if self._store is None:
-            from core.growth_store import GrowthStore
-            self._store = GrowthStore(self.base_dir)
+            self._store = GrowthStore()
         return self._store
 
     @property
-    def lifecycle(self):
+    def lifecycle(self) -> ModelLifecycle:
         if self._lifecycle is None:
-            from core.lifecycle import ModelLifecycle
             self._lifecycle = ModelLifecycle(
-                self.base_dir, log=self.log,
-                keep_generations=int(self.cfg('keep_generations')),
-                max_generations=int(self.cfg('max_generations')),
-                max_total_bytes=int(self.cfg('max_total_bytes')),
-                stability_hours=float(self.cfg('stability_hours')),
-                stability_rounds=int(self.cfg('stability_rounds')))
+                keep_generations=int(self.cfg("keep_generations", 2)),
+                max_generations=int(self.cfg("max_generations", 5)),
+                max_total_bytes=int(self.cfg("max_total_bytes", 10 * 1024 ** 3)),
+                stability_hours=float(self.cfg("stability_hours", 24)),
+                stability_rounds=int(self.cfg("stability_rounds", 100)))
         return self._lifecycle
 
     @property
-    def throttle(self):
+    def throttle(self) -> DistillThrottle:
         if self._throttle is None:
-            from core.throttle import DistillThrottle
             self._throttle = DistillThrottle(
-                self.base_dir, enabled=bool(self.cfg('distill_enabled')),
-                daily_limit=int(self.cfg('distill_daily_limit')),
-                price_in=float(self.cfg('teacher_price_in')),
-                price_out=float(self.cfg('teacher_price_out')))
+                enabled=bool(self.cfg("distill_enabled", True)),
+                daily_limit=int(self.cfg("distill_daily_limit", 200)),
+                price_in=float(self.cfg("teacher_price_in", 1.0)),
+                price_out=float(self.cfg("teacher_price_out", 2.0)))
         return self._throttle
 
-    # ------------------------------------------------------------------ 量测
-    @staticmethod
-    def _dir_weight_bytes(d: Path, exts=MODEL_WEIGHT_EXT, exclude_adapter: bool = False) -> int:
-        if not d or not d.exists():
-            return 0
-        total = 0
-        for p in d.rglob('*'):
-            try:
-                if not p.is_file():
-                    continue
-                if exts and p.suffix.lower() not in exts:
-                    continue
-                # 统计"基底"体积时必须排除 adapter*：否则 .star_core/XLmodel/ 里
-                # 一旦混入适配器文件，base_bytes 会被撑大，界面显示成
-                # 「基底 17.6MB（100%）」这种假象，还会让人误以为基底已就位。
-                if exclude_adapter and p.name.lower().startswith('adapter'):
-                    continue
-                total += p.stat().st_size
-            except OSError:
-                pass
-        return total
+    @property
+    def rank(self) -> RankManager:
+        if self._rank is None:
+            self._rank = RankManager(
+                adapter_dir=self.adapter_dir,
+                max_rank=int(self.cfg("max_rank", 256)),
+                init_rank=int(self.cfg("init_rank", 8)))
+        return self._rank
+
+    @property
+    def trainer(self) -> LoRATrainer:
+        if self._trainer is None:
+            self._trainer = LoRATrainer(adapter_dir=self.adapter_dir)
+        return self._trainer
 
     @property
     def base_bytes(self) -> int:
-        return self._dir_weight_bytes(self.base_model_dir, exclude_adapter=True)
+        return dir_bytes(BASE_MODEL_DIR, exclude_adapter=True)
 
     @property
     def adapter_bytes(self) -> int:
-        return self._dir_weight_bytes(self.adapter_dir, ADAPTER_WEIGHT_EXT)
+        return dir_bytes(self.adapter_dir, ADAPTER_WEIGHT_EXTS)
 
     def progress_percent(self) -> float:
-        """适配器体积 / 基底体积 × 100。无基底时无法度量进度，返回 0。"""
         b = self.base_bytes
         if b <= 0:
             return 0.0
@@ -234,725 +1372,580 @@ class GrowthEngine:
 
     def corpus_items(self) -> int:
         n = 0
-        for p in self.corpus_dir.glob('*.jsonl'):
+        for p in DATA_DIR.glob("*.jsonl"):
             try:
-                with open(p, 'r', encoding='utf-8') as f:
+                with open(p, "r", encoding="utf-8") as f:
                     n += sum(1 for line in f if line.strip())
             except OSError:
                 continue
         return n
 
     def state(self) -> dict:
-        if self.state_path.exists():
+        if STATE_PATH.exists():
             try:
-                return json.loads(self.state_path.read_text(encoding='utf-8'))
+                return json.loads(STATE_PATH.read_text(encoding="utf-8"))
             except Exception:
                 return {}
         return {}
 
-    def is_self_research(self) -> bool:
-        return bool(self.state().get('self_research')) or self.base_bytes == 0
-
     def is_paused(self) -> bool:
-        return bool(self.state().get('paused', self.cfg('paused')))
+        return bool(self.state().get("paused", self.cfg("paused", False)))
 
-    def status(self) -> dict:
-        st = self.state()
-        trainable = self.should_train(manual=True)
-        return {
-            'base_bytes': self.base_bytes,
-            'base_human': human(self.base_bytes),
-            'adapter_bytes': self.adapter_bytes,
-            'adapter_human': human(self.adapter_bytes),
-            'progress_percent': round(self.progress_percent(), 2),
-            'rounds': int(st.get('rounds', 0)),
-            'self_research': bool(st.get('self_research', False)),
-            'promotions': int(st.get('promotions', 0)),
-            'corpus_items': self.corpus_items(),
-            'base_model_dir': str(self.base_model_dir),
-            'adapter_dir': str(self.adapter_dir),
-            'stage': self.stage_text(),
-            'paused': self.is_paused(),
-            'rank': self.rank_status().get('rank', 0),
-            'auto_train': bool(self.cfg('auto_train')),
-            'can_train_now': bool(trainable.get('ok')),
-            'train_blockers': trainable.get('reasons', []),
-            'config': {k: self.cfg(k) for k in ('min_samples', 'min_interval_hours', 'base_mix_ratio',
-                                                'require_eval', 'pass_threshold', 'keep_generations',
-                                                'max_generations', 'retire_mode')},
-        }
+    def is_self_research(self) -> bool:
+        return bool(self.state().get("self_research")) or self.base_bytes == 0
 
     def stage_text(self) -> str:
         p = self.progress_percent()
         if self.is_paused():
-            return '成长已暂停（用户手动暂停，可随时恢复）'
-        if self.state().get('self_research'):
-            return (f"纯自研模型（第 {self.state().get('promotions', 1)} 代·已脱离原基底）"
-                    f"，当前适配器为自研基底的 {p:.1f}%")
+            return "成长已暂停"
+        if self.state().get("self_research"):
+            return f"纯自研模型（第 {self.state().get('promotions', 1)} 代），当前 {p:.1f}%"
         if self.base_bytes == 0 and self.adapter_bytes == 0:
-            return '尚未安装基底模型'
+            return "尚未安装基底模型"
         if self.base_bytes == 0:
-            return f'无基底权重，适配器 {human(self.adapter_bytes)} 独自积累中'
+            return f"无基底，适配器 {human_bytes(self.adapter_bytes)} 独自积累"
         if p >= 100:
-            return '适配器体积已达基底（进入三条件评估）'
-        return f'成长中：适配器为基底的 {p:.1f}%'
+            return "适配器已达基底，待评估"
+        return f"成长中：{p:.1f}%"
 
-    def report(self) -> str:
-        s = self.status()
-        bar_len = 28
-        filled = int(bar_len * s['progress_percent'] / 100)
-        bar = '█' * filled + '░' * (bar_len - filled)
-        st = self.state()
-        lines = [
-            '小凌成长报告',
-            f"  阶段：{s['stage']}",
-            f"  基底：{s['base_human']}   适配器：{s['adapter_human']}   LoRA rank：r={s['rank']}",
-            f"  进度：[{bar}] {s['progress_percent']:.1f}%",
-            f"  训练轮次：{s['rounds']}   晋升次数：{s['promotions']}   语料：{s['corpus_items']} 条",
-            f"  触发策略：样本 ≥ {s['config']['min_samples']}｜间隔 ≥ {s['config']['min_interval_hours']}h"
-            f"｜{'需' if self.cfg('require_device_idle') else '不校验'}设备空闲"
-            f"｜防遗忘混入 {float(s['config']['base_mix_ratio']) * 100:.0f}%",
-            f"  晋升评估：{'开启' if s['config']['require_eval'] else '关闭'}"
-            f"（通用基准阈值 {float(s['config']['pass_threshold']) * 100:.0f}%）",
-            f"  当前可否训练：{'可以' if s['can_train_now'] else '暂不可 —— ' + '；'.join(s['train_blockers'])}",
-        ]
-        if st.get('last_train_at'):
-            lines.append(f"  上次训练：{st['last_train_at']}")
+    def journal(self, event: str, **data):
+        rec = {"time": now_iso(), "event": event, **data}
         try:
-            ds = self.store.stats()
-            lines.append(f"  数据仓库：{ds['total']} 条记录（去重后 {ds['unique']}）"
-                         f"｜待训练 {ds['pending']}｜已训练 {ds['used_in_training']}"
-                         f"｜DPO 偏好对 {ds['dpo_pairs']}｜平均质量分 {ds['avg_quality']}")
-        except Exception as e:                                       # noqa: BLE001
-            lines.append(f"  数据仓库：读取失败（{type(e).__name__}）")
-        return '\n'.join(lines)
-
-    # ------------------------------------------------------------------ 日志
-    def _journal(self, event: str, **data):
-        rec = {'time': datetime.now().isoformat(timespec='seconds'), 'event': event, **data}
-        try:
-            self.growth_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.journal_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+            GROWTH_DIR.mkdir(parents=True, exist_ok=True)
+            with open(JOURNAL, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         except OSError:
             pass
         return rec
 
+    def recent_journal(self, limit: int = 30) -> list:
+        if not JOURNAL.exists():
+            return []
+        try:
+            lines = JOURNAL.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        out = []
+        for line in lines[-limit:]:
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return out
+
     def _save_state(self, **patch):
-        st = self.state()
-        st.update(patch)
-        st['updated_at'] = datetime.now().isoformat(timespec='seconds')
-        self.state_path.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding='utf-8')
+        with self._lock:
+            st = self.state()
+            st.update(patch)
+            st["updated_at"] = now_iso()
+            STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            STATE_PATH.write_text(json.dumps(st, ensure_ascii=False, indent=1),
+                                  encoding="utf-8")
         return st
 
-    # -------------------------------------------------------------- 用户控制
-    def pause(self, reason: str = '用户手动暂停') -> dict:
-        self._save_state(paused=True, pause_reason=reason,
-                         paused_at=datetime.now().isoformat(timespec='seconds'))
-        self._journal('pause', reason=reason)
-        self.log('  [成长] 已暂停（桌宠照常聊天，训练调度器不再触发）')
-        return {'ok': True, 'paused': True, 'reason': reason}
+    def pause(self, reason: str = "用户手动暂停") -> dict:
+        self._save_state(paused=True, pause_reason=reason, paused_at=now_iso())
+        self.journal("pause", reason=reason)
+        return {"ok": True, "paused": True, "reason": reason}
 
     def resume(self) -> dict:
-        self._save_state(paused=False, resumed_at=datetime.now().isoformat(timespec='seconds'))
-        self._journal('resume')
-        self.log('  [成长] 已恢复')
-        return {'ok': True, 'paused': False}
+        self._save_state(paused=False, resumed_at=now_iso())
+        self.journal("resume")
+        return {"ok": True, "paused": False}
 
     def bump_dialogue(self, n: int = 1) -> int:
-        """对话轮次计数（稳定期观察 100 轮用；由桌宠每次对话调用）。"""
         return self.lifecycle.bump_dialogue(n)
 
-    # ------------------------------------------------------- 触发条件（文档 2.3）
     def _device_idle(self) -> tuple:
-        """设备是否空闲：负载 + 全屏应用/游戏进程（有 psutil 更准，没有则看负载）。"""
-        note = ''
         try:
             load = os.getloadavg()[0]
             ncpu = os.cpu_count() or 1
             if load > ncpu * 0.7:
-                return False, f'系统负载偏高（{load:.2f} / {ncpu} 核）'
+                return False, f"系统负载偏高（{load:.2f}/{ncpu}）"
         except (OSError, AttributeError):
-            note = '（本平台不支持负载查询，按空闲处理）'
-        try:
-            import psutil                                          # type: ignore
-        except Exception:                                            # noqa: BLE001
-            return True, '未安装 psutil，跳过进程级检测' + note
-        heavy = ('steam', 'league of legends', 'genshin', 'valorant', 'zoom', 'teams',
-                 'obs', 'blender', 'premiere', 'davinci', 'unity', 'unreal', 'blender')
-        try:
-            for p in psutil.process_iter(['name']):
-                name = (p.info.get('name') or '').lower()
-                if any(h in name for h in heavy):
-                    return False, f'检测到占用设备的重负载程序：{p.info.get("name")}'
-            with psutil.virtual_memory() as vm:                       # noqa: F841
-                pass
-        except Exception:                                            # noqa: BLE001
             pass
-        return True, '设备空闲' + note
+        try:
+            import psutil
+        except ImportError:
+            return True, "未安装 psutil，跳过进程检测"
+        heavy = ("steam", "league of legends", "genshin", "valorant",
+                 "zoom", "teams", "obs", "blender", "premiere",
+                 "davinci", "unity", "unreal")
+        try:
+            for p in psutil.process_iter(["name"]):
+                name = (p.info.get("name") or "").lower()
+                if any(h in name for h in heavy):
+                    return False, f"检测到重负载程序：{p.info.get('name')}"
+        except Exception:
+            pass
+        return True, "设备空闲"
 
     def _power_ok(self) -> tuple:
-        """电量/温度是否允许（文档 2.3）。查不到就按允许处理并说明。"""
         try:
-            import psutil                                          # type: ignore
-        except Exception:                                            # noqa: BLE001
-            return True, '未安装 psutil，跳过电量/温度检测'
+            import psutil
+        except ImportError:
+            return True, "未安装 psutil，跳过电量检测"
         try:
             bat = psutil.sensors_battery()
-            if bat is not None and not bat.power_plugged and bat.percent is not None and bat.percent < 20:
-                return False, f'电量偏低（{bat.percent:.0f}%）且未接电源'
-        except Exception:                                            # noqa: BLE001
+            if bat and not bat.power_plugged and bat.percent < 20:
+                return False, f"电量偏低（{bat.percent:.0f}%）"
+        except Exception:
             pass
         try:
             temps = psutil.sensors_temperatures() or {}
             for name, entries in temps.items():
                 for e in entries:
                     if e.current and e.current >= 85:
-                        return False, f'温度偏高：{name} {e.current:.0f}°C'
-        except Exception:                                            # noqa: BLE001
+                        return False, f"温度偏高：{name} {e.current:.0f}°C"
+        except Exception:
             pass
-        return True, '电量/温度正常'
+        return True, "电量/温度正常"
 
     def should_train(self, manual: bool = False, force: bool = False) -> dict:
-        """五条同时满足才触发（文档 2.3）。返回可解释的判定结果。"""
-        cfg_need = int(self.cfg('manual_min_samples') if manual else self.cfg('min_samples'))
+        need = int(self.cfg("manual_min_samples", 20) if manual
+                   else self.cfg("min_samples", 500))
         details, reasons = {}, []
         if force:
-            return {'ok': True, 'forced': True, 'reasons': [], 'need_samples': cfg_need,
-                    'details': {'note': '强制模式：跳过触发条件校验'}}
+            return {"ok": True, "forced": True, "reasons": [],
+                    "need_samples": need,
+                    "details": {"note": "强制模式：跳过条件校验"}}
         if self.is_paused():
-            reasons.append('成长已暂停')
-        # 样本量：优先看数据仓库待训练样本，其次看语料文件
-        pending = 0
+            reasons.append("成长已暂停")
         try:
-            pending = len(self.store.pending(min_quality=float(self.cfg('min_quality'))))
-        except Exception:                                            # noqa: BLE001
+            pending = len(self.store.pending(min_quality=float(self.cfg("min_quality", 0.5))))
+        except Exception:
             pending = 0
         corpus = self.corpus_items()
         samples = pending if pending else corpus
-        details['pending_samples'] = pending
-        details['corpus_items'] = corpus
-        details['mode'] = '数据仓库' if pending else '语料文件'
-        if samples < cfg_need:
-            reasons.append(f'样本不足（{samples}/{cfg_need}）')
-        # 间隔
-        last = self.state().get('last_train_at', '')
+        details["pending_samples"] = pending
+        details["corpus_items"] = corpus
+        details["mode"] = "数据仓库" if pending else "语料文件"
+        if samples < need:
+            reasons.append(f"样本不足（{samples}/{need}）")
+        last = self.state().get("last_train_at", "")
         hours = None
         if last:
             try:
                 hours = (datetime.now() - datetime.fromisoformat(last)).total_seconds() / 3600.0
-            except Exception:                                        # noqa: BLE001
+            except Exception:
                 hours = None
-        need_h = float(self.cfg('min_interval_hours'))
-        details['hours_since_last'] = round(hours, 2) if hours is not None else None
+        need_h = float(self.cfg("min_interval_hours", 24))
+        details["hours_since_last"] = round(hours, 2) if hours is not None else None
         if hours is not None and hours < need_h:
-            reasons.append(f'距上次训练仅 {hours:.1f}h（需 ≥ {need_h:.0f}h）')
-        # 设备空闲
-        if self.cfg('require_device_idle'):
+            reasons.append(f"距上次训练仅 {hours:.1f}h（需 ≥ {need_h:.0f}h）")
+        if self.cfg("require_device_idle", True):
             idle, note = self._device_idle()
-            details['device_idle'] = idle
-            details['device_note'] = note
+            details["device_idle"] = idle
+            details["device_note"] = note
             if not idle:
                 reasons.append(note)
-        # 电量 / 温度
-        if self.cfg('require_power_ok'):
+        if self.cfg("require_power_ok", True):
             ok, note = self._power_ok()
-            details['power_ok'] = ok
-            details['power_note'] = note
+            details["power_ok"] = ok
+            details["power_note"] = note
             if not ok:
                 reasons.append(note)
-        # 算力档位（文档 6.6：训练调度器读取显存探测结果）
         try:
-            from core.device import plan as dev_plan, train_plan
-            p = dev_plan()
-            details['compute'] = {'tier': p['tier'], 'note': p['note']}
-            can = p['can_train'] or bool(self.cfg('allow_train_on_cpu'))
-            if not can:
-                reasons.append(f"算力档位 {p['tier']} 不支持训练（{p['note']}）")
-            else:
-                details['train_plan'] = train_plan(p['tier'])[0]
-        except Exception as e:                                       # noqa: BLE001
-            details['compute'] = {'error': f'{type(e).__name__}: {e}'}
+            plan = train_plan(best_device())[0]
+            details["train_plan"] = plan
+        except Exception as e:
+            details["train_plan"] = {"error": str(e)}
         ok = not reasons
-        return {'ok': ok, 'reasons': reasons, 'need_samples': cfg_need, 'samples': samples,
-                'manual': manual, 'details': details,
-                'message': '可以训练' if ok else '；'.join(reasons)}
+        return {"ok": ok, "reasons": reasons, "need_samples": need,
+                "samples": samples, "manual": manual, "details": details,
+                "message": "可以训练" if ok else "；".join(reasons)}
 
-    # ------------------------------------------------------- 训练（蒸馏）入口
-    def _round_corpus_from_store(self, min_quality: float) -> dict | None:
-        """从数据仓库取本轮语料（含防遗忘混入），返回 write_corpus 的结果。"""
+    def _round_corpus(self, min_quality: float) -> dict | None:
         try:
-            if not self.store.stats()['pending']:
+            if not self.store.stats()["pending"]:
                 return None
-            out = self.growth_dir / 'round_corpus.jsonl'
-            pack = self.store.write_corpus(out, limit=int(self.cfg('min_samples')),
-                                          min_quality=min_quality,
-                                          base_mix_ratio=float(self.cfg('base_mix_ratio')))
-            return pack if pack.get('written') else None
-        except Exception as e:                                       # noqa: BLE001
-            self.log(f'  [训练] 数据仓库取样失败，改用语料文件：{type(e).__name__}: {e}')
+            pack = self.store.write_corpus(
+                CORPUS_PATH, limit=int(self.cfg("min_samples", 500)),
+                min_quality=min_quality,
+                base_mix_ratio=float(self.cfg("base_mix_ratio", 0.15)))
+            return pack if pack.get("written") else None
+        except Exception:
             return None
 
-    def train_round(self, epochs: int = 2, batch_size: int = 2, lr: float = 1e-4,
-                    corpus: Path | None = None, trainer=None, min_quality: float | None = None) -> dict:
-        """一轮 LoRA 蒸馏训练。
-
-        trainer: 可注入的训练函数 `trainer(epochs, batch_size, lr, corpus) -> dict`，
-                 默认使用 `self._peft_train`（依赖 torch/transformers/peft）。
-        """
-        # 暂停必须真正拦住训练：此前只有 should_train() 检查 paused，
-        # 而工作台「开始蒸馏训练」直接调本方法，可以绕过暂停照常训练。
+    def train_round(self, epochs: int | None = None, batch_size: int | None = None,
+                    lr: float | None = None, corpus: Path | None = None,
+                    min_quality: float | None = None) -> dict:
         if self.is_paused():
-            msg = '成长已暂停（用户手动暂停，恢复后再训练）'
-            self.log(f'  [训练] {msg}')
-            return {'ok': False, 'skipped': True, 'paused': True,
-                    'message': msg, 'reason': msg,
-                    'progress_percent': self.progress_percent()}
+            msg = "成长已暂停"
+            return {"ok": False, "skipped": True, "paused": True,
+                    "message": msg, "reason": msg,
+                    "progress_percent": self.progress_percent()}
         t0 = time.time()
-        min_quality = float(self.cfg('min_quality') if min_quality is None else min_quality)
-        pack = None if self.dry_run else self._round_corpus_from_store(min_quality)
+        min_quality = float(self.cfg("min_quality", 0.5) if min_quality is None else min_quality)
+        pack = None if self.dry_run else self._round_corpus(min_quality)
         if corpus is not None:
             corpus_path = Path(corpus)
         elif pack:
-            corpus_path = Path(pack['path'])
+            corpus_path = Path(pack["path"])
         else:
-            corpus_path = self.corpus_dir / 'distill_corpus.jsonl'
+            corpus_path = CORPUS_PATH
         items = 0
         if corpus_path.exists():
-            with open(corpus_path, 'r', encoding='utf-8') as f:
+            with open(corpus_path, "r", encoding="utf-8") as f:
                 items = sum(1 for line in f if line.strip())
-        round_no = int(self.state().get('rounds', 0)) + 1
-        self.log(f'  [训练] 开始第 {round_no} 轮蒸馏训练：{items} 条语料 / {epochs} epoch'
-                 + (f"（其中通用防遗忘样本 {pack['base_mix']} 条，占 {pack['ratio'] * 100:.0f}%）"
-                    if pack else ''))
+        round_no = int(self.state().get("rounds", 0)) + 1
         before = self.adapter_bytes
         if pack:
             try:
-                self.store.begin_round(round_no, len(pack['records']), pack['base_mix'], before)
-            except Exception:                                        # noqa: BLE001
+                self.store.begin_round(round_no, len(pack["records"]),
+                                       pack["base_mix"], before)
+            except Exception:
                 pass
-        fn = trainer or (self._sim_train if self.dry_run else self._peft_train)
+        epochs = int(epochs if epochs is not None else self.cfg("train_epochs", 2))
+        batch = int(batch_size if batch_size is not None else self.cfg("train_batch", 2))
+        learn_rate = float(lr if lr is not None else self.cfg("train_lr", 1e-4))
         try:
-            result = fn(epochs=epochs, batch_size=batch_size, lr=lr, corpus=corpus_path) or {}
-        except Exception as e:                                    # noqa: BLE001
-            result = {'ok': False, 'error': f'{type(e).__name__}: {e}'}
-        if result.get('ok') is False and not self.dry_run:
-            self.log(f'  [训练] 失败：{result.get("error")}')
+            from .model import best_device as _bd
+            plan = train_plan(_bd())[0]
+            batch = plan.get("batch_size", batch)
+            grad_accum = plan.get("grad_accum", 1)
+            quant = plan.get("quant", "none")
+        except Exception:
+            grad_accum, quant = 1, "none"
+        if self.dry_run:
+            result = self.trainer.simulate(epochs=epochs)
+        else:
+            result = self.trainer.train(
+                corpus=corpus_path, epochs=epochs, batch_size=batch,
+                lr=learn_rate, grad_accum=grad_accum, quant=quant,
+                lora_r=int(self.rank.status().get("rank") or self.cfg("init_rank", 8)))
         after = self.adapter_bytes
-        st = self.state()
-        self._save_state(rounds=round_no,
-                         last_train_at=datetime.now().isoformat(timespec='seconds'))
+        self._save_state(rounds=round_no, last_train_at=now_iso())
         if pack:
             try:
-                self.store.mark_trained(pack['records'], round_no)
+                self.store.mark_trained(pack["records"], round_no)
                 dpo = self.store.dpo_pairs(untrained_only=True)
                 if dpo:
-                    self.store.mark_dpo_trained([d['id'] for d in dpo], round_no)
-                self.store.finish_round(round_no, result.get('avg_loss'), after,
-                                        note=result.get('summary', ''))
-            except Exception as e:                                   # noqa: BLE001
-                self.log(f'  [训练] 轮次记账失败：{type(e).__name__}')
-        self._journal('train', epochs=epochs, batch_size=batch_size, lr=lr, corpus_items=items,
-                      corpus_source=str(corpus_path), store_records=len(pack['records']) if pack else 0,
-                      base_mix=pack['base_mix'] if pack else 0,
-                      adapter_before=before, adapter_after=after,
-                      seconds=round(time.time() - t0, 1), result=result.get('summary', ''))
-        self.log(f'  [训练] 本轮完成，适配器 {human(before)} → {human(after)}'
-                 f'（{self.progress_percent():.1f}% / 基底）')
-        return {'ok': True, 'round': round_no, 'adapter_before': before, 'adapter_after': after,
-                'progress_percent': self.progress_percent(), 'epochs': epochs,
-                'store_records': len(pack['records']) if pack else 0,
-                'base_mix': pack['base_mix'] if pack else 0, **result}
+                    self.store.mark_dpo_trained([d["id"] for d in dpo], round_no)
+                self.store.finish_round(round_no, result.get("avg_loss"), after,
+                                        note=result.get("summary", ""))
+            except Exception:
+                pass
+        self.journal("train", epochs=epochs, batch_size=batch, lr=learn_rate,
+                     corpus_items=items, store_records=len(pack["records"]) if pack else 0,
+                     base_mix=pack["base_mix"] if pack else 0,
+                     adapter_before=before, adapter_after=after,
+                     seconds=round(time.time() - t0, 1),
+                     result=result.get("summary", ""))
+        return {"ok": True, "round": round_no, "adapter_before": before,
+                "adapter_after": after,
+                "progress_percent": self.progress_percent(), "epochs": epochs,
+                "store_records": len(pack["records"]) if pack else 0,
+                "base_mix": pack["base_mix"] if pack else 0, **result}
 
-    def _sim_train(self, epochs=2, batch_size=2, lr=1e-4, corpus=None, growth=0.12):
-        """dry-run 训练：只模拟"适配器继续长大"，用于演练流程 / 无 torch 环境 / 自检。"""
-        adp_w = self.adapter_dir / 'adapter_model.safetensors'
-        cur = adp_w.stat().st_size if adp_w.exists() else 0
-        add = max(int(self.base_bytes * growth * max(epochs, 1) / 2), 4096)
-        with open(adp_w, 'ab') as f:
-            f.write(b'\0' * add)
-        if not (self.adapter_dir / 'adapter_config.json').exists():
-            (self.adapter_dir / 'adapter_config.json').write_text(
-                json.dumps({'r': int(self.cfg('init_rank')), 'lora_alpha': int(self.cfg('init_rank')) * 2,
-                            'target_modules': ['q_proj', 'k_proj', 'v_proj', 'o_proj']},
-                           ensure_ascii=False), encoding='utf-8')
-        self.log(f'  [训练·演练] 适配器模拟增长 +{human(add)}')
-        return {'ok': True, 'simulated': True, 'avg_loss': 1.18,
-                'summary': f'演练：+{human(add)}'}
-
-    def _peft_train(self, epochs=2, batch_size=2, lr=1e-4, corpus=None):
-        """真正的 LoRA 训练（依赖 torch / transformers / peft）。按算力档位给参数。"""
-        from core.peft_train import train_lora        # 延迟导入，未装依赖时不影响主流程
-        plan_cfg = {}
-        try:
-            from core.device import plan as dev_plan, train_plan
-            p = dev_plan()
-            plan_cfg = train_plan(p['tier'])[0]
-            batch_size = plan_cfg.get('batch_size', batch_size)
-            self.log(f"  [训练] 算力档位 {p['tier']}：batch={batch_size} "
-                     f"accum={plan_cfg.get('grad_accum')} quant={plan_cfg.get('quant')}")
-        except Exception:                                            # noqa: BLE001
-            pass
-        return train_lora(base_dir=self.base_model_dir, adapter_dir=self.adapter_dir,
-                          corpus=Path(corpus) if corpus else None,
-                          epochs=epochs, batch_size=batch_size, lr=lr,
-                          grad_accum=int(plan_cfg.get('grad_accum', 1) or 1),
-                          quant=plan_cfg.get('quant', 'none'),
-                          lora_r=int(self.rank_status().get('rank') or self.cfg('init_rank')))
-
-    # -------------------------------------------------------- 每轮训练后检查
-    def after_training_round(self, **train_kwargs) -> dict:
-        """按触发策略判断 → 训练一轮 → 自动检查；达标则立刻合并晋升。"""
-        manual = bool(train_kwargs.pop('manual', False))
-        force = train_kwargs.pop('force', None)
-        force = self.dry_run if force is None else force
+    def after_training_round(self, manual: bool = False, force: bool | None = None,
+                             **kwargs) -> dict:
+        if force is None:
+            force = self.dry_run
         gate = self.should_train(manual=manual, force=force)
-        self._journal('trigger', ok=gate['ok'], reasons=gate.get('reasons'), manual=manual,
-                      details=gate.get('details'))
-        if not gate['ok']:
-            self.log(f"  [成长] 本轮不触发训练：{gate['message']}")
-            return {'train': {'ok': False, 'skipped': True, 'reason': gate['message']},
-                    'gate': gate, 'check': {'action': 'skip', 'message': gate['message']}}
-        train_kwargs.setdefault('epochs', int(self.cfg('train_epochs')))
-        train_kwargs.setdefault('batch_size', int(self.cfg('train_batch')))
-        train_kwargs.setdefault('lr', float(self.cfg('train_lr')))
-        train = self.train_round(**train_kwargs)
-        check = self.check_and_promote() if self.cfg('auto_check_after_train') \
-            else {'action': 'skip', 'message': '自动检查已关闭'}
-        return {'train': train, 'gate': gate, 'check': check}
+        self.journal("trigger", ok=gate["ok"], reasons=gate.get("reasons"),
+                     manual=manual, details=gate.get("details"))
+        if not gate["ok"]:
+            return {"train": {"ok": False, "skipped": True,
+                              "reason": gate["message"]},
+                    "gate": gate,
+                    "check": {"action": "skip", "message": gate["message"]}}
+        kwargs.setdefault("epochs", int(self.cfg("train_epochs", 2)))
+        kwargs.setdefault("batch_size", int(self.cfg("train_batch", 2)))
+        kwargs.setdefault("lr", float(self.cfg("train_lr", 1e-4)))
+        train = self.train_round(**kwargs)
+        check = (self.check_and_promote() if self.cfg("auto_check_after_train", True)
+                 else {"action": "skip", "message": "自动检查已关闭"})
+        return {"train": train, "gate": gate, "check": check}
 
     def check_and_promote(self, force: bool = False) -> dict:
-        """三条件评估：全过 → 晋升；仅 A 过而 B/C 未过 → 升 rank 继续成长。"""
-        # 暂停同样要拦住晋升检查，否则暂停期间仍可能把适配器合并晋升。
         if self.is_paused():
-            msg = '成长已暂停，跳过本轮晋升检查'
-            self._journal('check', action='skip', paused=True, note=msg)
-            return {'action': 'skip', 'message': msg,
-                    'progress_percent': self.progress_percent()}
+            msg = "成长已暂停，跳过晋升检查"
+            self.journal("check", action="skip", paused=True, note=msg)
+            return {"action": "skip", "message": msg,
+                    "progress_percent": self.progress_percent()}
         base, adp = self.base_bytes, self.adapter_bytes
         pct = self.progress_percent()
         if base == 0:
-            msg = '未安装基底权重，适配器继续积累（安装基底后即可进入合并晋升）'
-            self._journal('check', action='skip', progress_percent=pct, note=msg)
-            return {'action': 'skip', 'message': msg, 'progress_percent': pct}
-
-        cond_a_ok = adp >= base or force
-        if not cond_a_ok:
-            self._journal('check', action='grow', progress_percent=pct,
-                          base_bytes=base, adapter_bytes=adp)
-            return {'action': 'grow', 'progress_percent': pct,
-                    'message': f'继续成长（适配器 {human(adp)} / 基底 {human(base)}，{pct:.1f}%）'}
-
+            msg = "未安装基底权重，适配器继续积累"
+            self.journal("check", action="skip", progress_percent=pct, note=msg)
+            return {"action": "skip", "message": msg, "progress_percent": pct}
+        if not (adp >= base or force):
+            self.journal("check", action="grow", progress_percent=pct,
+                         base_bytes=base, adapter_bytes=adp)
+            return {"action": "grow", "progress_percent": pct,
+                    "message": f"继续成长（{human_bytes(adp)}/{human_bytes(base)}，{pct:.1f}%）"}
         cap = self.lifecycle.cap_check(override=self.dry_run)
-        if cap['blocked']:
-            self._journal('check', action='blocked', reasons=cap['reasons'])
-            return {'action': 'blocked', 'message': cap['message'], 'cap': cap}
-
-        # 评估模块（core.eval）已下线：晋升仅按条件 A（适配器体积≥基底）触发。
-        result = None
-
-        self.log(f'  [成长] 适配器 {human(adp)} ≥ 基底 {human(base)} → 触发合并晋升')
+        if cap["blocked"]:
+            self.journal("check", action="blocked", reasons=cap["reasons"])
+            return {"action": "blocked", "message": cap["message"], "cap": cap}
         res = self.merge_and_promote()
-        out = {'action': res.get('ok') and 'promoted' or 'promote_failed', **res}
-        if result is not None:
-            out['eval'] = result
-        return out
-
-    # ------------------------------------------------------------ 升 rank
-    def rank_status(self) -> dict:
-        try:
-            from core.rank import status as rank_status
-            return rank_status(self.adapter_dir, int(self.cfg('max_rank')))
-        except Exception as e:                                       # noqa: BLE001
-            return {'rank': 0, 'error': f'{type(e).__name__}: {e}'}
+        return {"action": "promoted" if res.get("ok") else "promote_failed", **res}
 
     def grow_rank(self, new_rank: int | None = None) -> dict:
-        """晋升条件不达标时升 rank（文档 7.1 / 7.5，上限默认 256）。"""
-        try:
-            from core.rank import grow_lora_rank
-        except Exception as e:                                       # noqa: BLE001
-            return {'ok': False, 'error': f'{type(e).__name__}: {e}'}
-        try:
-            res = grow_lora_rank(self.adapter_dir, new_rank, max_rank=int(self.cfg('max_rank')),
-                                 dry_run=self.dry_run, log=self.log)
-        except Exception as e:                                       # noqa: BLE001
-            # 适配器文件损坏 / 不是合法 safetensors（占位文件、写坏的权重、
-            # 或误把别的文件放进适配器目录）时，绝不能让整个成长流程崩掉——
-            # 只报告这一轮升 rank 失败，训练与晋升流程继续可用。
-            res = {'ok': False, 'error': f'{type(e).__name__}: {e}',
-                   'message': f'升 rank 失败（适配器可能损坏）：{type(e).__name__}: {e}'}
-        self._journal('rank_up', **{k: v for k, v in res.items() if k != 'message'})
-        if res.get('ok'):
-            self.log(f"  [成长] LoRA rank 提升到 {res.get('rank_to')}"
-                     f"（{res.get('message', '')}）")
-        elif res.get('reason') == 'at_max_rank':
-            self.log(f"  [成长] {res.get('message')}")
+        res = self.rank.grow(new_rank, dry_run=self.dry_run)
+        self.journal("rank_up", **{k: v for k, v in res.items() if k != "message"})
         return res
 
-    # ------------------------------------------------------------ 合并 & 晋升
-    def merge_and_promote(self, retire_mode: str | None = None, keep_backup: bool = False) -> dict:
-        """① merge_and_unload 合并 LoRA → ② 成为自研模型 → ③ 原基底退役(trash) → ④ 适配器晋升。"""
-        cfg = self.config()
-        retire_mode = retire_mode or cfg.get('retire_mode', 'trash')
-        keep_backup = keep_backup or bool(cfg.get('keep_backup'))
-        if keep_backup and retire_mode == 'trash':
-            retire_mode = 'archive'
-        gen = int(self.state().get('promotions', 0)) + 1
+    def merge_and_promote(self, retire_mode: str | None = None,
+                          keep_backup: bool = False) -> dict:
+        retire_mode = retire_mode or self.cfg("retire_mode", "trash")
+        keep_backup = keep_backup or bool(self.cfg("keep_backup", False))
+        if keep_backup and retire_mode == "trash":
+            retire_mode = "archive"
+        gen = int(self.state().get("promotions", 0)) + 1
         old_gen = gen - 1
-        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        merged_dir = self.star / f'_merge_tmp_{stamp}'
-        self.log('  [晋升] ① 合并 LoRA 进基底（peft merge_and_unload）…')
-        merge_ok, merge_msg = self._merge_adapter_into(merged_dir)
-        if not merge_ok:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        merged_dir = STAR_DIR / f"_merge_tmp_{stamp}"
+        ok, msg = self._merge_adapter(merged_dir)
+        if not ok:
             shutil.rmtree(merged_dir, ignore_errors=True)
-            self._journal('promote_failed', reason=merge_msg, progress_percent=self.progress_percent())
-            return {'ok': False, 'message': f'合并失败：{merge_msg}'}
-        self.log('  [晋升] ② 校验合并模型 …')
+            self.journal("promote_failed", reason=msg,
+                         progress_percent=self.progress_percent())
+            return {"ok": False, "message": f"合并失败：{msg}"}
         if not self._validate_model_dir(merged_dir):
             shutil.rmtree(merged_dir, ignore_errors=True)
-            self._journal('promote_failed', reason='校验未通过（config/权重缺失或体积异常）')
-            return {'ok': False, 'message': '合并后模型校验未通过，已回滚（原基底完好）'}
-
-        # ③ 原基底退役：移入 trash/（文档原则 2：删除改为退役，稳定期后才真删）
-        old_base = self.base_model_dir
-        old_bytes = self._dir_weight_bytes(old_base)
-        self.log(f'  [晋升] ③ 原基底退役（{retire_mode}）…')
+            self.journal("promote_failed", reason="校验未通过")
+            return {"ok": False, "message": "合并后模型校验未通过，已回滚"}
+        old_base = BASE_MODEL_DIR
+        old_bytes = dir_bytes(old_base)
         if gen == 1 and not self.lifecycle.generation(0):
-            self.lifecycle.register(0, '原始基底', old_base, status='active',
-                                    note='首次晋升前的原始基底（尚未退役时登记）')
+            self.lifecycle.register(0, "原始基底", old_base, status="active",
+                                    note="首次晋升前的原始基底")
         ret = self.lifecycle.retire(old_base, old_gen, mode=retire_mode, stamp=stamp)
-        if not ret.get('ok'):
-            # 退役失败 → 合并结果连同临时目录一起清理，原基底保留
+        if not ret.get("ok"):
             shutil.rmtree(merged_dir, ignore_errors=True)
-            return {'ok': False, 'message': f"基底退役失败：{ret.get('message')}"}
+            return {"ok": False, "message": f"基底退役失败：{ret.get('message')}"}
         try:
             shutil.move(str(merged_dir), str(old_base))
         except OSError as e:
-            # 尽力恢复：把刚退役的旧基底拉回来
             try:
                 if not old_base.exists():
-                    shutil.move(str(Path(ret['dir'])), str(old_base))
+                    shutil.move(str(Path(ret["dir"])), str(old_base))
             except OSError:
                 pass
-            return {'ok': False, 'message': f'替换基底失败（原基底已恢复）：{e}'}
-        new_bytes = self._dir_weight_bytes(old_base)
-        self.lifecycle.register(gen, f'第 {gen} 代自研模型', old_base, status='active', stamp=stamp,
-                                note=f'由第 {old_gen} 代合并 LoRA 而来（+{human(max(new_bytes - old_bytes, 0))}）')
-
-        # ④ 适配器晋升为新基底：归档旧适配器 + 在新基底上重建空适配器
-        seed = self.star / 'adapter_seeds'
-        seed.mkdir(parents=True, exist_ok=True)
-        dst = seed / f'adapter_seed_gen{gen}_{stamp}'
+            return {"ok": False, "message": f"替换失败（原基底已恢复）：{e}"}
+        new_bytes = dir_bytes(old_base)
+        self.lifecycle.register(
+            gen, f"第 {gen} 代自研模型", old_base, status="active", stamp=stamp,
+            note=f"由第 {old_gen} 代合并 LoRA（+{human_bytes(max(new_bytes - old_bytes, 0))}）")
+        ADAPTER_SEEDS.mkdir(parents=True, exist_ok=True)
+        seed = ADAPTER_SEEDS / f"adapter_seed_gen{gen}_{stamp}"
         has_adapter = self.adapter_dir.exists() and any(self.adapter_dir.iterdir())
         if has_adapter:
-            dst.mkdir(parents=True, exist_ok=True)
-            if self.adapter_dir.resolve() == self.star.resolve():          # 旧版布局：只搬适配器文件
+            seed.mkdir(parents=True, exist_ok=True)
+            if self.adapter_dir.resolve() == STAR_DIR.resolve():
                 for p in list(self.adapter_dir.iterdir()):
-                    if p.is_file() and (p.suffix.lower() in ADAPTER_WEIGHT_EXT
-                                        or p.name.startswith('adapter')
-                                        or p.name in ('chat_template.jinja',)):
-                        shutil.move(str(p), str(dst / p.name))
-                self.adapter_dir = self.star / 'adapter'      # 迁移到新版布局
+                    if p.is_file() and (p.suffix.lower() in ADAPTER_WEIGHT_EXTS
+                                        or p.name.startswith("adapter")
+                                        or p.name == "chat_template.jinja"):
+                        shutil.move(str(p), str(seed / p.name))
+                self.adapter_dir = ADAPTER_DIR
             else:
-                shutil.move(str(self.adapter_dir), str(dst))
+                shutil.move(str(self.adapter_dir), str(seed))
             self.adapter_dir.mkdir(parents=True, exist_ok=True)
-            self.log(f'  [晋升] ④ 适配器晋升：旧适配器归档为种子 {dst.name}，已在新基底上重建'
-                     f'（下一轮从 rank {self.cfg("init_rank")} 重新成长）')
         self._save_state(self_research=True, promotions=gen, rounds=0,
-                         promoted_at=datetime.now().isoformat(timespec='seconds'),
-                         base_bytes_at_promote=new_bytes, retire_mode=retire_mode,
-                         last_promote_adapter_bytes=self.adapter_bytes)
-        self._journal('promote', generation=gen, merged_from=merge_msg,
-                      new_base_bytes=new_bytes, retire_mode=retire_mode,
-                      retired_dir=ret.get('dir'), retired_bytes=ret.get('bytes'))
-        self.log(f'  [晋升] [OK] 小凌完成第 {gen} 次自我进化：现在她跑在完全属于'
-                 f'自己的模型上（{human(new_bytes)}）')
-        # 晋升后按磁盘策略做一次保守清理（稳定期未到则只报告、不删）
+                         promoted_at=now_iso(), base_bytes_at_promote=new_bytes,
+                         retire_mode=retire_mode)
+        self.journal("promote", generation=gen, merged_from=msg,
+                     new_base_bytes=new_bytes, retire_mode=retire_mode,
+                     retired_dir=ret.get("dir"), retired_bytes=ret.get("bytes"))
         try:
-            gc_res = self.lifecycle.gc()
-            self._journal('gc', **{k: v for k, v in gc_res.items() if k not in ('stability',)})
-        except Exception:                                            # noqa: BLE001
+            self.lifecycle.gc()
+        except Exception:
             pass
-        return {'ok': True, 'generation': gen, 'new_base_bytes': new_bytes,
-                'retired': {'dir': ret.get('dir'), 'bytes': ret.get('bytes'), 'mode': retire_mode},
-                'message': f'第 {gen} 代自研模型就绪'}
+        return {"ok": True, "generation": gen, "new_base_bytes": new_bytes,
+                "retired": {"dir": ret.get("dir"), "bytes": ret.get("bytes"),
+                            "mode": retire_mode},
+                "message": f"第 {gen} 代自研模型就绪"}
 
-    # -------------------------------------------------------------- 合并实现
-    def _merge_adapter_into(self, out_dir: Path):
+    def _merge_adapter(self, out_dir: Path) -> tuple:
         if self.dry_run:
             return True, self._simulate_merge(out_dir)
         try:
-            import torch                                            # noqa: F401
             from transformers import AutoModelForCausalLM, AutoTokenizer
             from peft import PeftModel
-        except Exception as e:                                      # noqa: BLE001
-            return False, (f'缺少依赖 {type(e).__name__}: {e}（pip install torch transformers peft）；'
-                           f'可用 dry_run 演练流程')
+        except ImportError as e:
+            return False, f"缺少依赖 {type(e).__name__}: {e}"
         try:
-            self.log('        加载基底 …')
-            from core.device import best_torch_device, device_kwargs
-            device = best_torch_device()
-            if device == 'cuda':
-                self.log('        算力检测：GPU 可用 → 合并也走 GPU（溢出自动回落 CPU）')
-            model = AutoModelForCausalLM.from_pretrained(str(self.base_model_dir),
-                                                         **device_kwargs(device))
-            tok = AutoTokenizer.from_pretrained(str(self.base_model_dir), trust_remote_code=True)
-            self.log('        挂载 LoRA 适配器 …')
+            device = best_device()
+            model = AutoModelForCausalLM.from_pretrained(
+                str(BASE_MODEL_DIR), trust_remote_code=True,
+                **device_kwargs(device))
+            tok = AutoTokenizer.from_pretrained(str(BASE_MODEL_DIR),
+                                                trust_remote_code=True)
             peft_model = PeftModel.from_pretrained(model, str(self.adapter_dir))
-            self.log('        merge_and_unload …')
             merged = peft_model.merge_and_unload()
             out_dir.mkdir(parents=True, exist_ok=True)
             merged.save_pretrained(str(out_dir), safe_serialization=True)
             tok.save_pretrained(str(out_dir))
-            # 复制非权重文件（config/chat template 等）
-            for p in self.base_model_dir.iterdir():
-                if p.is_file() and p.suffix.lower() not in MODEL_WEIGHT_EXT:
+            for p in BASE_MODEL_DIR.iterdir():
+                if p.is_file() and p.suffix.lower() not in MODEL_WEIGHT_EXTS:
                     shutil.copy2(p, out_dir / p.name)
-            size = self._dir_weight_bytes(out_dir)
-            return True, f'{human(size)} 已合并（LoRA → 基底）'
-        except Exception as e:                                      # noqa: BLE001
-            return False, f'合并异常 {type(e).__name__}: {e}'
+            size = dir_bytes(out_dir)
+            return True, f"{human_bytes(size)} 已合并"
+        except Exception as e:
+            return False, f"合并异常 {type(e).__name__}: {e}"
 
     def _simulate_merge(self, out_dir: Path) -> str:
-        """dry-run：按真实流程走一遍文件操作，用于演练/自检/无 torch 环境。"""
         out_dir.mkdir(parents=True, exist_ok=True)
-        if self.base_model_dir.exists():
-            for p in self.base_model_dir.iterdir():
+        if BASE_MODEL_DIR.exists():
+            for p in BASE_MODEL_DIR.iterdir():
                 if p.is_file():
                     shutil.copy2(p, out_dir / p.name)
-        cfg = out_dir / 'config.json'
+        cfg = out_dir / "config.json"
         if not cfg.exists():
-            cfg.write_text(json.dumps({'model_type': 'xiaoling-simulated', 'hidden_size': 2048},
-                                      ensure_ascii=False), encoding='utf-8')
-        # 模拟"适配器知识已并入基底"：新基底 = 旧基底 + 适配器体积
-        extra = out_dir / 'model.safetensors'
+            cfg.write_text(json.dumps(
+                {"model_type": "xiaoling-simulated", "hidden_size": 2048},
+                ensure_ascii=False), encoding="utf-8")
+        extra = out_dir / "model.safetensors"
         want = self.base_bytes + self.adapter_bytes
         if not extra.exists() or extra.stat().st_size < want:
-            with open(extra, 'wb') as f:
-                f.write(b'\0' * want)
-        return f'模拟合并完成（{human(want)}）'
+            with open(extra, "wb") as f:
+                f.write(b"\0" * want)
+        return f"模拟合并完成（{human_bytes(want)}）"
 
     def _validate_model_dir(self, d: Path) -> bool:
         if not d.exists():
             return False
-        has_cfg = (d / 'config.json').exists()
-        weights = self._dir_weight_bytes(d)
-        if not has_cfg or weights <= 0:
+        if not (d / "config.json").exists():
+            return False
+        weights = dir_bytes(d)
+        if weights <= 0:
             return False
         if not self.dry_run and self.base_bytes > 0:
-            # 合并后体积不应明显小于原基底（说明权重没写全）
             if weights < self.base_bytes * 0.5:
-                self.log(f'        体积异常：{human(weights)} < 基底 50%')
                 return False
         return True
 
-    # -------------------------------------------------------------- 便捷接口
-    def rollback(self, gen: int | None = None, dry_run: bool = False) -> dict:
-        res = self.lifecycle.rollback(gen, dry_run or self.dry_run)
-        if res.get('ok') and not res.get('dry_run'):
-            st = self.state()
-            self._save_state(promotions=int(res.get('target_gen') or 0),
-                             self_research=int(res.get('target_gen') or 0) > 0)
-            self._journal('rollback', **{k: v for k, v in res.items() if k != 'message'})
+    def rollback(self, gen: int | None = None) -> dict:
+        res = self.lifecycle.rollback(gen, self.dry_run)
+        if res.get("ok") and not res.get("dry_run"):
+            self._save_state(promotions=int(res.get("target_gen") or 0),
+                             self_research=int(res.get("target_gen") or 0) > 0)
+            self.journal("rollback", **{k: v for k, v in res.items() if k != "message"})
         return res
 
     def export(self, dest: Path | str) -> dict:
         return self.lifecycle.export(dest)
 
-    def gc(self, keep: int | None = None, dry_run: bool = False, force: bool = False) -> dict:
-        res = self.lifecycle.gc(keep, dry_run or self.dry_run, force)
-        self._journal('gc', **{k: v for k, v in res.items() if k != 'stability'})
+    def gc(self, keep: int | None = None, force: bool = False) -> dict:
+        res = self.lifecycle.gc(keep, self.dry_run, force)
+        self.journal("gc", **{k: v for k, v in res.items() if k != "stability"})
         return res
 
-    def evaluate(self, threshold: float | None = None) -> dict:
-        """评估模块（core.eval）已下线：返回占位结果，不做基准跑分。"""
-        return {'ok': False, 'pass': False, 'simulated': True,
-                'summary': '评估模块已下线，暂不支持基准评估'}
+    def status(self) -> dict:
+        st = self.state()
+        gate = self.should_train(manual=True)
+        rank = self.rank.status()
+        return {
+            "base_bytes": self.base_bytes,
+            "base_human": human_bytes(self.base_bytes),
+            "adapter_bytes": self.adapter_bytes,
+            "adapter_human": human_bytes(self.adapter_bytes),
+            "progress_percent": round(self.progress_percent(), 2),
+            "rounds": int(st.get("rounds", 0)),
+            "self_research": bool(st.get("self_research", False)),
+            "promotions": int(st.get("promotions", 0)),
+            "corpus_items": self.corpus_items(),
+            "base_model_dir": str(BASE_MODEL_DIR),
+            "adapter_dir": str(self.adapter_dir),
+            "stage": self.stage_text(),
+            "paused": self.is_paused(),
+            "rank": rank.get("rank", 0),
+            "rank_max": rank.get("max_rank", 256),
+            "auto_train": bool(self.cfg("auto_train", True)),
+            "can_train_now": bool(gate.get("ok")),
+            "train_blockers": gate.get("reasons", []),
+            "config": {k: self.cfg(k) for k in self.CONFIG_KEYS},
+            "last_train_at": st.get("last_train_at", ""),
+        }
+
+    def report(self) -> str:
+        s = self.status()
+        filled = int(28 * s["progress_percent"] / 100)
+        bar = "█" * filled + "░" * (28 - filled)
+        lines = [
+            "小凌成长报告",
+            f"  阶段：{s['stage']}",
+            f"  基底：{s['base_human']}   适配器：{s['adapter_human']}   rank：r={s['rank']}",
+            f"  进度：[{bar}] {s['progress_percent']:.1f}%",
+            f"  训练轮次：{s['rounds']}   晋升次数：{s['promotions']}   语料：{s['corpus_items']} 条",
+            f"  触发策略：样本≥{s['config'].get('min_samples')}｜间隔≥{s['config'].get('min_interval_hours')}h"
+            f"｜防遗忘混入 {float(s['config'].get('base_mix_ratio', 0.15)) * 100:.0f}%",
+            f"  当前可否训练：{'可以' if s['can_train_now'] else '暂不可 —— ' + '；'.join(s['train_blockers'])}",
+        ]
+        if s.get("last_train_at"):
+            lines.append(f"  上次训练：{s['last_train_at']}")
+        try:
+            ds = self.store.stats()
+            lines.append(f"  数据仓库：{ds['total']} 条（去重后 {ds['unique']}）"
+                         f"｜待训练 {ds['pending']}｜已训练 {ds['used_in_training']}"
+                         f"｜DPO {ds['dpo_pairs']}｜平均质量 {ds['avg_quality']}")
+        except Exception as e:
+            lines.append(f"  数据仓库：读取失败（{type(e).__name__}）")
+        return "\n".join(lines)
 
     def samples_report(self) -> str:
-        """样本 + 蒸馏节流 + 损失曲线 的一页式摘要（仪表盘也用这个口径）。"""
         try:
             s = self.store.stats()
-        except Exception as e:                                       # noqa: BLE001
-            return f'数据仓库不可用：{type(e).__name__}: {e}'
+        except Exception as e:
+            return f"数据仓库不可用：{type(e).__name__}: {e}"
         t = self.throttle.usage_report()
         curve = self.store.loss_curve(10)
         lines = [
-            '小凌 · 样本与蒸馏状态',
+            "小凌 · 样本与蒸馏状态",
             f"  记录 {s['total']} 条（唯一 {s['unique']}，重复 {s['duplicates']}）"
             f"｜待训练 {s['pending']}｜已训练 {s['used_in_training']}",
             f"  反馈：赞 {s['feedback']['like']}｜踩 {s['feedback']['dislike']}"
             f"｜纠正 {s['feedback']['correct']}｜未评 {s['feedback']['none']}",
-            f"  蒸馏样本 {s['with_teacher']} 条｜DPO 偏好对 {s['dpo_pairs']}（已用 {s['dpo_used']}）",
+            f"  蒸馏样本 {s['with_teacher']} 条｜DPO {s['dpo_pairs']}（已用 {s['dpo_used']}）",
             f"  平均质量分 {s['avg_quality']}｜训练轮次 {s['train_rounds']}",
             f"  蒸馏 API：{'开' if t['enabled'] else '关'}｜今日 {t['used_today']}/{t['daily_limit']}"
-            f"（缓存命中 {t['today']['cache_hits']}）｜本月预估 {t['month']['cost_yuan']:.4f} 元",
-            f"  损失曲线（最近 {len(curve)} 轮）：" + ('、'.join(f"r{c['round']}={c['avg_loss']}"
-                                                           for c in curve) if curve else '尚无记录'),
+            f"（缓存命中 {t['today']['cache_hits']}）｜本月 {t['month']['cost_yuan']:.4f} 元",
+            f"  损失曲线：" + ("、".join(f"r{c['round']}={c['avg_loss']}" for c in curve)
+                              if curve else "尚无记录"),
         ]
-        return '\n'.join(lines)
+        return "\n".join(lines)
+
+    def close(self):
+        try:
+            if self._store is not None:
+                self._store.close()
+        except Exception:
+            pass
 
 
-# ---------------------------------------------------------------------- CLI
-def main(argv=None):
-    ap = argparse.ArgumentParser(description='小凌成长闭环引擎 v2')
-    ap.add_argument('cmd', choices=['status', 'report', 'check', 'train', 'simulate', 'reset',
-                                    'trigger', 'pause', 'resume', 'rank', 'eval', 'rollback',
-                                    'gc', 'export', 'samples', 'lifecycle'])
-    ap.add_argument('--epochs', type=int, default=None)
-    ap.add_argument('--force', action='store_true')
-    ap.add_argument('--manual', action='store_true')
-    ap.add_argument('--dry-run', action='store_true')
-    ap.add_argument('--gen', type=int, default=None)
-    ap.add_argument('--keep', type=int, default=None)
-    ap.add_argument('--rank', type=int, default=None)
-    ap.add_argument('--path', default='')
-    ap.add_argument('--root', default=str(BASE_DIR))
-    a = ap.parse_args(argv)
-    eng = GrowthEngine(a.root, dry_run=a.dry_run)
-    if a.cmd in ('status', 'report'):
-        print(eng.report())
-        print(json.dumps(eng.status(), ensure_ascii=False, indent=1))
-    elif a.cmd == 'trigger':
-        print(json.dumps(eng.should_train(manual=a.manual, force=a.force), ensure_ascii=False, indent=1))
-    elif a.cmd == 'check':
-        print(json.dumps(eng.check_and_promote(force=a.force), ensure_ascii=False, indent=1))
-    elif a.cmd == 'train':
-        kw = {'manual': a.manual, 'force': a.force or None}
-        if a.epochs:
-            kw['epochs'] = a.epochs
-        print(json.dumps(eng.after_training_round(**kw), ensure_ascii=False, indent=1))
-    elif a.cmd == 'simulate':
-        eng.dry_run = True
-        print(json.dumps(eng.after_training_round(epochs=1, force=True), ensure_ascii=False, indent=1))
-    elif a.cmd == 'reset':
-        eng._save_state(self_research=False, promotions=0)
-        print('状态已重置')
-    elif a.cmd == 'pause':
-        print(json.dumps(eng.pause(), ensure_ascii=False, indent=1))
-    elif a.cmd == 'resume':
-        print(json.dumps(eng.resume(), ensure_ascii=False, indent=1))
-    elif a.cmd == 'rank':
-        if a.rank:
-            print(json.dumps(eng.grow_rank(a.rank), ensure_ascii=False, indent=1))
-        else:
-            print(json.dumps(eng.rank_status(), ensure_ascii=False, indent=1))
-    elif a.cmd == 'eval':
-        print(json.dumps(eng.evaluate(), ensure_ascii=False, indent=1))
-    elif a.cmd == 'rollback':
-        print(json.dumps(eng.rollback(a.gen), ensure_ascii=False, indent=1))
-    elif a.cmd == 'gc':
-        print(json.dumps(eng.gc(a.keep, force=a.force), ensure_ascii=False, indent=1))
-    elif a.cmd == 'export':
-        if not a.path:
-            print(json.dumps({'ok': False, 'error': '请用 --path 指定导出文件'}))
-        else:
-            print(json.dumps(eng.export(a.path), ensure_ascii=False, indent=1))
-    elif a.cmd == 'samples':
-        print(eng.samples_report())
-    elif a.cmd == 'lifecycle':
-        print(eng.lifecycle.report())
+def bootstrap_growth() -> dict:
+    eng = GrowthEngine()
+    try:
+        return {"status": eng.status(), "report": eng.report(),
+                "lifecycle": eng.lifecycle.disk_report(),
+                "state": eng.state()}
+    finally:
+        eng.close()
 
 
-if __name__ == '__main__':
-    main()
+def selftest() -> dict:
+    out = {}
+    try:
+        store = GrowthStore()
+        out["store"] = store.stats()
+        store.close()
+    except Exception as e:
+        out["store"] = f"error: {e}"
+    try:
+        life = ModelLifecycle()
+        out["lifecycle"] = life.disk_report()
+    except Exception as e:
+        out["lifecycle"] = f"error: {e}"
+    try:
+        th = DistillThrottle()
+        out["throttle"] = th.usage_report()
+    except Exception as e:
+        out["throttle"] = f"error: {e}"
+    try:
+        out["rank"] = RankManager().status()
+    except Exception as e:
+        out["rank"] = f"error: {e}"
+    return out

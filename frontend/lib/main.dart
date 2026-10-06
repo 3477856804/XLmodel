@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'theme/theme.dart';
 import 'pages/splash_page.dart';
 import 'pages/chat_page.dart';
@@ -7,38 +8,80 @@ import 'pages/dashboard_page.dart';
 import 'pages/training_page.dart';
 import 'pages/growth_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/model_store_page.dart';
+import 'pages/plugins_page.dart';
 
-/// 启动后端 gRPC 进程 —— 双击 xiaoling.exe 时自动拉起，不需要 bat
 Process? _backendProc;
 
 Future<void> _startBackend() async {
   if (Platform.environment['FLUTTER_TEST'] == '1') return;
-  final exeDir = File(Platform.resolvedExecutable).parent;
-  String backendPath;
-  if (Platform.isWindows) {
-    backendPath = '${exeDir.path}/backend.exe';
-  } else {
-    backendPath = '${exeDir.path}/backend';
-  }
-  final f = File(backendPath);
-  if (!await f.exists()) return;
   try {
+    final exeDir = File(Platform.resolvedExecutable).parent;
+    final backendPath = Platform.isWindows
+        ? '${exeDir.path}${Platform.pathSeparator}backend.exe'
+        : '${exeDir.path}${Platform.pathSeparator}backend';
+    final f = File(backendPath);
+    if (!await f.exists()) return;
     _backendProc = await Process.start(
-      backendPath, ['--port', '50051'],
+      backendPath,
+      ['--port', '50051'],
       workingDirectory: exeDir.path,
       mode: ProcessStartMode.detached,
     );
   } catch (_) {}
 }
 
+Future<void> _killBackend() async {
+  try {
+    _backendProc?.kill(ProcessSignal.sigterm);
+    await Future.delayed(const Duration(milliseconds: 200));
+    _backendProc?.kill(ProcessSignal.sigkill);
+  } catch (_) {}
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+  ));
   await _startBackend();
   runApp(const XiaoLingApp());
 }
 
-class XiaoLingApp extends StatelessWidget {
+class XiaoLingApp extends StatefulWidget {
   const XiaoLingApp({super.key});
+  @override
+  State<XiaoLingApp> createState() => _XiaoLingAppState();
+}
+
+class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
+  ThemeMode _mode = ThemeMode.dark;
+  int _bootIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() {}
+
+  void toggleTheme() {
+    setState(() {
+      _mode = _mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _bootIndex++;
+    });
+  }
+
+  bool get isDark => _mode == ThemeMode.dark;
 
   @override
   Widget build(BuildContext context) {
@@ -46,134 +89,889 @@ class XiaoLingApp extends StatelessWidget {
       title: '小凌',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: const SplashPage(),
-      routes: {'/home': (_) => const HomeShell()},
+      darkTheme: AppTheme.darkTheme,
+      themeMode: _mode,
+      themeAnimationDuration: XlDuration.slow,
+      themeAnimationCurve: XlCurve.standard,
+      home: SplashPage(onToggleTheme: toggleTheme, isDark: isDark),
+      routes: {
+        '/home': (_) => HomeShell(onToggleTheme: toggleTheme, isDark: isDark),
+      },
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(
+              MediaQuery.of(context).textScaler.scale(1.0).clamp(0.9, 1.3),
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
 
-/// 应用主壳：左侧边栏 + 内容区
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
-
+  final VoidCallback onToggleTheme;
+  final bool isDark;
+  const HomeShell({super.key, required this.onToggleTheme, required this.isDark});
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   int _index = 0;
+  bool _sidebarCollapsed = false;
+  bool _searchOpen = false;
+  final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
+  late AnimationController _glowCtrl;
+  late AnimationController _sidebarCtrl;
+  late Animation<double> _sidebarAnim;
+  final List<int> _history = [];
 
   static const _titles = ['聊天', '工作台', '训练', '成长', '设置'];
+  static const _subtitles = [
+    '和小凌说说话',
+    '一眼看全所有状态',
+    'LoRA 微调面板',
+    '她的成长轨迹',
+    '一切都可以调',
+  ];
   static const _icons = [
-    Icons.chat_bubble_outline,
-    Icons.dashboard_outlined,
-    Icons.bubble_chart_outlined,
-    Icons.favorite_outline,
-    Icons.settings_outlined,
+    Icons.chat_bubble_outline_rounded,
+    Icons.grid_view_outlined,
+    Icons.auto_graph_rounded,
+    Icons.favorite_outline_rounded,
+    Icons.tune_rounded,
   ];
   static const _iconsActive = [
-    Icons.chat_bubble,
-    Icons.dashboard_rounded,
-    Icons.bubble_chart_rounded,
+    Icons.chat_bubble_rounded,
+    Icons.grid_view_rounded,
+    Icons.auto_graph_rounded,
     Icons.favorite_rounded,
-    Icons.settings_rounded,
+    Icons.tune_rounded,
   ];
+  static const _iconColors = ['pink', 'gold', 'violet', 'green', 'pink'];
+  static const _keys = ['1', '2', '3', '4', '5'];
+
+  @override
+  void initState() {
+    super.initState();
+    _glowCtrl = AnimationController(
+      duration: const Duration(seconds: 20),
+      vsync: this,
+    )..repeat(reverse: true);
+    _sidebarCtrl = AnimationController(
+      duration: XlDuration.slow,
+      vsync: this,
+      value: 1.0,
+    );
+    _sidebarAnim = CurvedAnimation(
+      parent: _sidebarCtrl,
+      curve: XlCurve.springSoft,
+    );
+  }
+
+  @override
+  void dispose() {
+    _glowCtrl.dispose();
+    _sidebarCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
+  void _navigate(int i) {
+    if (i == _index) return;
+    _history.add(_index);
+    setState(() => _index = i);
+  }
+
+  void _toggleSidebar() {
+    setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+    if (_sidebarCollapsed) {
+      _sidebarCtrl.reverse();
+    } else {
+      _sidebarCtrl.forward();
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() => _searchOpen = !_searchOpen);
+    if (_searchOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _searchFocus.requestFocus();
+      });
+    }
+  }
+
+  Color _colorOf(XlPalette p, String name) {
+    switch (name) {
+      case 'pink':
+        return p.pink;
+      case 'gold':
+        return p.gold;
+      case 'violet':
+        return p.violet;
+      case 'green':
+        return p.green;
+      default:
+        return p.pink;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
+    final p = XlPalette.of(context);
+    final pages = <Widget>[
       const ChatPage(),
-      DashboardPage(onNavigate: (i) => setState(() => _index = i)),
+      DashboardPage(
+        onNavigate: _navigate,
+        onOpenModelStore: () => _navigate(5),
+        onOpenPlugins: () => _navigate(6),
+      ),
       const TrainingPage(),
       const GrowthPage(),
       const SettingsPage(),
+      const ModelStorePage(),
+      const PluginsPage(),
     ];
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFF5F8),
-      body: Row(
-        children: [
-          _buildSidebar(),
-          Expanded(child: pages[_index]),
-        ],
+
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        const SingleActivator(LogicalKeyboardKey.digit1, control: true): const _NavIntent(0),
+        const SingleActivator(LogicalKeyboardKey.digit2, control: true): const _NavIntent(1),
+        const SingleActivator(LogicalKeyboardKey.digit3, control: true): const _NavIntent(2),
+        const SingleActivator(LogicalKeyboardKey.digit4, control: true): const _NavIntent(3),
+        const SingleActivator(LogicalKeyboardKey.digit5, control: true): const _NavIntent(4),
+        const SingleActivator(LogicalKeyboardKey.keyB, control: true): const _ToggleSidebarIntent(),
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): const _SearchIntent(),
+        const SingleActivator(LogicalKeyboardKey.keyT, control: true): const _ThemeIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _NavIntent: CallbackAction<_NavIntent>(
+            onInvoke: (intent) {
+              _navigate(intent.index);
+              return null;
+            },
+          ),
+          _ToggleSidebarIntent: CallbackAction<_ToggleSidebarIntent>(
+            onInvoke: (_) {
+              _toggleSidebar();
+              return null;
+            },
+          ),
+          _SearchIntent: CallbackAction<_SearchIntent>(
+            onInvoke: (_) {
+              _toggleSearch();
+              return null;
+            },
+          ),
+          _ThemeIntent: CallbackAction<_ThemeIntent>(
+            onInvoke: (_) {
+              widget.onToggleTheme();
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            backgroundColor: p.bg,
+            body: Stack(
+              children: [
+                _ambientBackground(p),
+                Row(
+                  children: [
+                    AnimatedBuilder(
+                      animation: _sidebarAnim,
+                      builder: (context, _) => _sidebar(p, pages),
+                    ),
+                    Expanded(child: _mainArea(p, pages)),
+                  ],
+                ),
+                if (_searchOpen) _searchOverlay(p),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildSidebar() {
+  Widget _ambientBackground(XlPalette p) {
+    return AnimatedBuilder(
+      animation: _glowCtrl,
+      builder: (context, _) {
+        final t = _glowCtrl.value;
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _AmbientPainter(p: p, t: t),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _sidebar(XlPalette p, List<Widget> pages) {
+    final width = lerpDouble(220, 78, 1 - _sidebarAnim.value)!.toDouble();
     return Container(
-      width: 200,
+      width: width,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.5),
-        border: Border(
-          right: BorderSide(color: AppTheme.primaryPink.withOpacity(0.08), width: 1),
-        ),
+        gradient: p.sidebarFace,
+        border: Border(right: BorderSide(color: p.edge, width: 1)),
       ),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34, height: 34,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [AppTheme.primaryPink, AppTheme.gold]),
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: [BoxShadow(color: AppTheme.primaryPink.withOpacity(0.25), blurRadius: 12, offset: const Offset(0,3))],
-                    ),
-                    child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('小凌', style: TextStyle(color: Color(0xFF1a1a1a), fontWeight: FontWeight.w700, fontSize: 15)),
-                      Text('XIAOLING', style: TextStyle(color: AppTheme.gold, fontSize: 9, letterSpacing: 2, fontWeight: FontWeight.w500)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            for (int i = 0; i < 5; i++)
-              _navItem(i, _icons[i], _iconsActive[i], _titles[i]),
-            const Spacer(),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('v0.0.1 · Flutter+gRPC', style: TextStyle(color: Colors.black.withOpacity(0.25), fontSize: 10, letterSpacing: 1)),
-            ),
+            _sidebarHeader(p),
+            const SizedBox(height: 12),
+            _sidebarDivider(p),
+            const SizedBox(height: 12),
+            Expanded(child: _sidebarNav(p)),
+            const SizedBox(height: 12),
+            _sidebarDivider(p),
+            _sidebarFooter(p),
           ],
         ),
       ),
     );
   }
 
-  Widget _navItem(int i, IconData icon, IconData activeIcon, String label) {
-    final selected = _index == i;
+  Widget _sidebarHeader(XlPalette p) {
+    final collapsed = _sidebarAnim.value < 0.5;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      child: InkWell(
-        onTap: () => setState(() => _index = i),
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            gradient: selected
-                ? LinearGradient(colors: [AppTheme.primaryPink.withOpacity(0.12), AppTheme.gold.withOpacity(0.06)])
-                : null,
-            borderRadius: BorderRadius.circular(10),
-            border: selected ? Border.all(color: AppTheme.primaryPink.withOpacity(0.15)) : null,
+      padding: EdgeInsets.fromLTRB(collapsed ? 16 : 18, 22, collapsed ? 16 : 18, 12),
+      child: Row(
+        mainAxisAlignment: collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              gradient: p.gradBrand,
+              borderRadius: BorderRadius.circular(XlRadius.md),
+              border: Border.all(color: Colors.white.withOpacity(0.35), width: 1),
+              boxShadow: [...p.raisedXs, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 16, spreadRadius: -3)],
+            ),
+            child: Icon(Icons.auto_awesome_rounded, color: p.btnInk, size: 18),
           ),
+          if (!collapsed) ...[
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('小凌', style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
+                  const SizedBox(height: 2),
+                  Text('XIAOLING', style: TextStyle(fontSize: XlFont.micro, fontWeight: FontWeight.w700, color: p.gold, letterSpacing: XlLetterSpacing.mega)),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _sidebarDivider(XlPalette p) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(height: 1, decoration: BoxDecoration(gradient: p.dividerGrad)),
+    );
+  }
+
+  Widget _sidebarNav(XlPalette p) {
+    final collapsed = _sidebarAnim.value < 0.5;
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      children: [
+        for (int i = 0; i < _titles.length; i++) _navItem(p, i, collapsed),
+        const SizedBox(height: 8),
+        if (!collapsed) Padding(
+          padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
+          child: Text('MORE', style: TextStyle(fontSize: XlFont.micro, fontWeight: FontWeight.w800, color: p.decor, letterSpacing: XlLetterSpacing.ultra)),
+        ),
+        _extraNavItem(p, 5, Icons.shopping_bag_outlined, '模型商店', p.gold, collapsed),
+        _extraNavItem(p, 6, Icons.extension_outlined, '插件管理', p.green, collapsed),
+      ],
+    );
+  }
+
+  Widget _navItem(XlPalette p, int i, bool collapsed) {
+    final selected = _index == i;
+    final color = _colorOf(p, _iconColors[i]);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _navigate(i),
+          borderRadius: BorderRadius.circular(XlRadius.ml),
+          splashColor: p.pink.withOpacity(0.08),
+          highlightColor: p.pink.withOpacity(0.04),
+          child: AnimatedContainer(
+            duration: XlDuration.fast,
+            curve: XlCurve.standard,
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 14, vertical: 12),
+            decoration: selected
+                ? BoxDecoration(
+                    color: p.surfaceLo,
+                    borderRadius: BorderRadius.circular(XlRadius.ml),
+                    border: Border.all(color: p.shDark.withOpacity(p.dark ? 0.35 : 0.15), width: 1),
+                    boxShadow: p.sunkenSm,
+                  )
+                : const BoxDecoration(),
+            child: collapsed
+                ? Center(
+                    child: _navIcon(p, selected, i, color, 20),
+                  )
+                : Row(
+                    children: [
+                      _navIcon(p, selected, i, color, 18),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _titles[i],
+                          style: TextStyle(
+                            fontSize: XlFont.bodySm,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected ? color : p.text2,
+                            letterSpacing: XlLetterSpacing.wide,
+                          ),
+                        ),
+                      ),
+                      if (selected)
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 8, spreadRadius: -1)]),
+                        ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _navIcon(XlPalette p, bool selected, int i, Color color, double size) {
+    if (selected) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: size + 14,
+            height: size + 14,
+            decoration: BoxDecoration(
+              color: color.withOpacity(p.dark ? 0.14 : 0.12),
+              shape: BoxShape.circle,
+            ),
+          ),
+          Icon(_iconsActive[i], size: size, color: color),
+        ],
+      );
+    }
+    return SizedBox(
+      width: size + 14,
+      height: size + 14,
+      child: Icon(_icons[i], size: size, color: p.text2),
+    );
+  }
+
+  Widget _extraNavItem(XlPalette p, int i, IconData icon, String label, Color color, bool collapsed) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _navigate(i),
+          borderRadius: BorderRadius.circular(XlRadius.ml),
+          child: AnimatedContainer(
+            duration: XlDuration.fast,
+            padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 14, vertical: 11),
+            child: collapsed
+                ? Center(child: Icon(icon, size: 18, color: p.text3))
+                : Row(
+                    children: [
+                      SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: Icon(icon, size: 18, color: color.withOpacity(p.dark ? 0.85 : 0.75)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: TextStyle(fontSize: XlFont.caption, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sidebarFooter(XlPalette p) {
+    final collapsed = _sidebarAnim.value < 0.5;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(collapsed ? 12 : 16, 12, collapsed ? 12 : 16, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!collapsed) ...[
+            _sidebarThemeToggle(p),
+            const SizedBox(height: 10),
+          ],
+          if (collapsed)
+            Center(
+              child: GestureDetector(
+                onTap: widget.onToggleTheme,
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: AppTheme.neuXs(context, r: XlRadius.md),
+                  child: Icon(
+                    widget.isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                    size: 17,
+                    color: p.gold,
+                  ),
+                ),
+              ),
+            ),
+          if (!collapsed) ...[
+            _sidebarVersion(p),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _sidebarThemeToggle(XlPalette p) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: widget.onToggleTheme,
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        child: AnimatedContainer(
+          duration: XlDuration.fast,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: AppTheme.neuXs(context, r: XlRadius.md),
           child: Row(
             children: [
-              Icon(selected ? activeIcon : icon, size: 18, color: selected ? AppTheme.primaryPink : Colors.black.withOpacity(0.45)),
-              const SizedBox(width: 12),
-              Text(label, style: TextStyle(fontSize: 13.5, color: selected ? AppTheme.primaryPink : Colors.black.withOpacity(0.45), fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+              AnimatedSwitcher(
+                duration: XlDuration.fast,
+                transitionBuilder: (child, anim) => RotationTransition(
+                  turns: Tween<double>(begin: 0.75, end: 1.0).animate(anim),
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Icon(
+                  widget.isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                  key: ValueKey(widget.isDark),
+                  size: 16,
+                  color: p.gold,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.isDark ? '浅色主题' : '深色主题',
+                  style: TextStyle(fontSize: XlFont.captionSm, color: p.text2, fontWeight: FontWeight.w600),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 14, color: p.decor),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _sidebarVersion(XlPalette p) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: p.green, shape: BoxShape.circle, boxShadow: [BoxShadow(color: p.green.withOpacity(0.6), blurRadius: 8, spreadRadius: -1)]),
+          ),
+          const SizedBox(width: 8),
+          Text('v0.0.1 · Flutter+gRPC', style: TextStyle(fontSize: XlFont.micro, color: p.decor, letterSpacing: XlLetterSpacing.wider, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _mainArea(XlPalette p, List<Widget> pages) {
+    return Column(
+      children: [
+        _topBar(p),
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: XlDuration.slow,
+            switchInCurve: XlCurve.easeOut,
+            switchOutCurve: XlCurve.standard,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween<Offset>(begin: const Offset(0.02, 0), end: Offset.zero).animate(anim),
+                child: child,
+              ),
+            ),
+            child: KeyedSubtree(
+              key: ValueKey(_index),
+              child: pages[_index.clamp(0, pages.length - 1)],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _topBar(XlPalette p) {
+    return Container(
+      height: 76,
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+      child: Row(
+        children: [
+          _menuBtn(p),
+          const SizedBox(width: 12),
+          _breadcrumb(p),
+          const Spacer(),
+          _topSearch(p),
+          const SizedBox(width: 10),
+          _topNotif(p),
+          const SizedBox(width: 10),
+          _topAvatar(p),
+        ],
+      ),
+    );
+  }
+
+  Widget _menuBtn(XlPalette p) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _toggleSidebar,
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: AppTheme.neuXs(context, r: XlRadius.md),
+          child: AnimatedRotation(
+            turns: _sidebarCollapsed ? 0.5 : 0,
+            duration: XlDuration.normal,
+            curve: XlCurve.springSoft,
+            child: Icon(Icons.menu_rounded, size: 18, color: p.text2),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _breadcrumb(XlPalette p) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(_titles[_index.clamp(0, _titles.length - 1)], style: TextStyle(fontSize: XlFont.h4, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
+        const SizedBox(height: 2),
+        Text(_subtitles[_index.clamp(0, _subtitles.length - 1)], style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wider)),
+      ],
+    );
+  }
+
+  Widget _topSearch(XlPalette p) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _toggleSearch,
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: AppTheme.neuXs(context, r: XlRadius.md),
+          child: Icon(Icons.search_rounded, size: 18, color: p.text2),
+        ),
+      ),
+    );
+  }
+
+  Widget _topNotif(XlPalette p) {
+    return Stack(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {},
+            borderRadius: BorderRadius.circular(XlRadius.md),
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: AppTheme.neuXs(context, r: XlRadius.md),
+              child: Icon(Icons.notifications_none_rounded, size: 18, color: p.text2),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 10,
+          right: 10,
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: p.pink, shape: BoxShape.circle, boxShadow: [BoxShadow(color: p.pink.withOpacity(0.6), blurRadius: 8, spreadRadius: -1)]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _topAvatar(XlPalette p) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        gradient: p.gradBrand,
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        border: Border.all(color: Colors.white.withOpacity(p.dark ? 0.35 : 0.5), width: 1.5),
+        boxShadow: [...p.raisedXs, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 14, spreadRadius: -3)],
+      ),
+      child: Center(
+        child: Text('凌', style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.btnInk)),
+      ),
+    );
+  }
+
+  Widget _searchOverlay(XlPalette p) {
+    final items = <_SearchItem>[
+      _SearchItem('聊天', '和小凌说话', Icons.chat_bubble_outline_rounded, () => _navigate(0)),
+      _SearchItem('工作台', '状态总览', Icons.grid_view_outlined, () => _navigate(1)),
+      _SearchItem('训练', 'LoRA 微调', Icons.auto_graph_rounded, () => _navigate(2)),
+      _SearchItem('成长', '成长轨迹', Icons.favorite_outline_rounded, () => _navigate(3)),
+      _SearchItem('设置', '偏好调整', Icons.tune_rounded, () => _navigate(4)),
+      _SearchItem('模型商店', '推荐模型', Icons.shopping_bag_outlined, () => _navigate(5)),
+      _SearchItem('插件管理', '扩展功能', Icons.extension_outlined, () => _navigate(6)),
+      _SearchItem('切换主题', '深色 / 浅色', Icons.brightness_6_outlined, widget.onToggleTheme),
+      _SearchItem('折叠侧边栏', 'Ctrl + B', Icons.view_sidebar_outlined, _toggleSidebar),
+    ];
+    final q = _searchCtrl.text.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? items
+        : items.where((it) => it.title.toLowerCase().contains(q) || it.desc.toLowerCase().contains(q)).toList();
+
+    return Positioned.fill(
+      child: GestureDetector(
+        onTap: () => setState(() => _searchOpen = false),
+        child: Container(
+          color: p.scrim,
+          child: Center(
+            child: GestureDetector(
+              onTap: () {},
+              child: Container(
+                width: 520,
+                constraints: const BoxConstraints(maxHeight: 520),
+                margin: const EdgeInsets.all(24),
+                decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _searchField(p),
+                    AppTheme.divider(context),
+                    Flexible(
+                      child: filtered.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Text('没有匹配项', style: TextStyle(color: p.text3, fontSize: XlFont.caption)),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.all(8),
+                              itemCount: filtered.length,
+                              itemBuilder: (_, i) => _searchItemTile(p, filtered[i]),
+                            ),
+                    ),
+                    AppTheme.divider(context),
+                    _searchFooter(p),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _searchField(XlPalette p) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Icon(Icons.search_rounded, size: 20, color: p.pink),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              focusNode: _searchFocus,
+              onChanged: (_) => setState(() {}),
+              style: TextStyle(fontSize: XlFont.body, color: p.text1),
+              decoration: InputDecoration(
+                hintText: '搜索页面、功能或操作…',
+                hintStyle: TextStyle(color: p.decor, fontSize: XlFont.bodySm),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _searchOpen = false),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: p.surfaceLo,
+                borderRadius: BorderRadius.circular(XlRadius.xs),
+                border: Border.all(color: p.edge, width: 1),
+              ),
+              child: Text('ESC', style: TextStyle(fontSize: XlFont.micro, color: p.text3, fontWeight: FontWeight.w700, letterSpacing: XlLetterSpacing.wider)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _searchItemTile(XlPalette p, _SearchItem item) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          item.onTap();
+          setState(() => _searchOpen = false);
+        },
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: AppTheme.neuXxs(context, r: XlRadius.sm),
+                child: Icon(item.icon, size: 16, color: p.pink),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.title, style: TextStyle(fontSize: XlFont.bodySm, color: p.text1, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 1),
+                    Text(item.desc, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 16, color: p.decor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _searchFooter(XlPalette p) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          _kbd(p, '↑'),
+          const SizedBox(width: 4),
+          _kbd(p, '↓'),
+          const SizedBox(width: 8),
+          Text('选择', style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
+          const SizedBox(width: 16),
+          _kbd(p, '↵'),
+          const SizedBox(width: 8),
+          Text('执行', style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
+          const Spacer(),
+          Text('小凌 · v0.0.1', style: TextStyle(fontSize: XlFont.micro, color: p.decor, letterSpacing: XlLetterSpacing.wider)),
+        ],
+      ),
+    );
+  }
+
+  Widget _kbd(XlPalette p, String s) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: p.surfaceHi,
+        borderRadius: BorderRadius.circular(XlRadius.micro),
+        border: Border.all(color: p.edge, width: 1),
+        boxShadow: p.raisedHair,
+      ),
+      child: Text(s, style: TextStyle(fontSize: XlFont.micro, color: p.text2, fontWeight: FontWeight.w800)),
+    );
+  }
+}
+
+class _NavIntent extends Intent {
+  final int index;
+  const _NavIntent(this.index);
+}
+
+class _ToggleSidebarIntent extends Intent {
+  const _ToggleSidebarIntent();
+}
+
+class _SearchIntent extends Intent {
+  const _SearchIntent();
+}
+
+class _ThemeIntent extends Intent {
+  const _ThemeIntent();
+}
+
+class _SearchItem {
+  final String title;
+  final String desc;
+  final IconData icon;
+  final VoidCallback onTap;
+  _SearchItem(this.title, this.desc, this.icon, this.onTap);
+}
+
+class _AmbientPainter extends CustomPainter {
+  final XlPalette p;
+  final double t;
+  _AmbientPainter({required this.p, required this.t});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    _blob(canvas, Offset(w * (0.08 + t * 0.06), h * 0.08), w * 0.42, p.glow1);
+    _blob(canvas, Offset(w * (0.92 - t * 0.08), h * 0.22), w * 0.36, p.glow2);
+    _blob(canvas, Offset(w * (0.24 + t * 0.05), h * (0.94 - t * 0.04)), w * 0.46, p.glow3);
+    _blob(canvas, Offset(w * (0.76 - t * 0.06), h * 0.82), w * 0.32, p.glow4);
+    _blob(canvas, Offset(w * 0.52, h * (0.52 + t * 0.08)), w * 0.24, p.glow5);
+  }
+
+  void _blob(Canvas canvas, Offset center, double radius, Color color) {
+    final paint = Paint()
+      ..shader = RadialGradient(colors: [color, color.withOpacity(0)])
+          .createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AmbientPainter old) => old.t != t || old.p != p;
 }
