@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +48,15 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   StreamSubscription? _posSub;
   StreamSubscription? _durSub;
   StreamSubscription? _completeSub;
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _searchOpen = false;
+  String _query = '';
+  final List<String> _inputHistory = [];
+  int _historyIdx = -1;
+  bool _interruptRequested = false;
+  bool _showTimestamp = false;
+  String? _quotedText;
+  int _matchCount = 0;
 
   static const _quickReplies = <String>[
     '你好呀',
@@ -88,6 +98,16 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         });
       }
     });
+    _searchCtrl.addListener(() {
+      if (!mounted) return;
+      final q = _searchCtrl.text.trim();
+      setState(() {
+        _query = q;
+        _matchCount = q.isEmpty
+            ? 0
+            : _msgs.where((m) => m.text.toLowerCase().contains(q.toLowerCase())).length;
+      });
+    });
     _hello();
   }
 
@@ -108,6 +128,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _posSub?.cancel();
     _durSub?.cancel();
     _completeSub?.cancel();
+    _searchCtrl.dispose();
     _player.dispose();
     super.dispose();
   }
@@ -320,6 +341,270 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     });
   }
 
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) {
+        _searchCtrl.clear();
+        _query = '';
+        _matchCount = 0;
+      }
+    });
+    if (_searchOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _inputFocus.requestFocus());
+    }
+  }
+
+  Future<void> _exportChat() async {
+    final p = XlPalette.of(context);
+    if (_msgs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        content: Text('暂无对话可导出', style: TextStyle(color: p.text1, fontSize: XlFont.captionSm)),
+      ));
+      return;
+    }
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final txtPath = '${dir.path}/xiaoling_chat_$stamp.txt';
+      final jsonPath = '${dir.path}/xiaoling_chat_$stamp.json';
+      final buf = StringBuffer();
+      for (final m in _msgs) {
+        final who = m.who == 'me' ? '我' : '小凌';
+        buf.writeln('[$who] ${m.time.toIso8601String()}');
+        buf.writeln(m.text);
+        buf.writeln('');
+      }
+      await File(txtPath).writeAsString(buf.toString());
+      final payload = _msgs
+          .map((m) => {
+                'who': m.who,
+                'text': m.text,
+                'time': m.time.toIso8601String(),
+                'status': m.status.name,
+              })
+          .toList();
+      await File(jsonPath).writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+        content: Row(children: [
+          Icon(Icons.check_circle_rounded, color: p.green, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text('已导出 ${_msgs.length} 条对话',
+              style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700))),
+        ]),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        content: Text('导出失败: $e', style: TextStyle(color: p.red, fontSize: XlFont.captionSm)),
+      ));
+    }
+  }
+
+  void _interruptGeneration() {
+    if (!_busy || _interruptRequested) return;
+    setState(() {
+      _interruptRequested = true;
+      final idx = _msgs.indexWhere((m) => m.status == _MsgStatus.streaming);
+      if (idx >= 0) {
+        _msgs[idx] = _msgs[idx].copyWith(
+          text: _msgs[idx].text.isEmpty ? '（已手动中断）' : '${_msgs[idx].text}\n（已手动中断）',
+          status: _MsgStatus.done,
+        );
+      }
+      _busy = false;
+    });
+  }
+
+  void _navigateHistory(bool up) {
+    if (_inputHistory.isEmpty) return;
+    setState(() {
+      if (up) {
+        if (_historyIdx == -1) {
+          _historyIdx = _inputHistory.length - 1;
+        } else if (_historyIdx > 0) {
+          _historyIdx--;
+        }
+      } else {
+        if (_historyIdx < 0) return;
+        _historyIdx++;
+        if (_historyIdx >= _inputHistory.length) {
+          _historyIdx = -1;
+          _input.clear();
+          return;
+        }
+      }
+      _input.value = TextEditingValue(
+        text: _inputHistory[_historyIdx],
+        selection: TextSelection.collapsed(offset: _inputHistory[_historyIdx].length),
+      );
+    });
+  }
+
+  void _pushHistory(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    if (_inputHistory.isNotEmpty && _inputHistory.last == t) return;
+    _inputHistory.add(t);
+    if (_inputHistory.length > 30) _inputHistory.removeAt(0);
+    _historyIdx = -1;
+  }
+
+  void _requestQuote(String text) {
+    setState(() => _quotedText = text);
+    _inputFocus.requestFocus();
+  }
+
+  List<InlineSpan> _highlightSpans(String source, TextStyle base, Color hit) {
+    if (_query.isEmpty) return [TextSpan(text: source, style: base)];
+    final spans = <InlineSpan>[];
+    final q = _query.toLowerCase();
+    final lower = source.toLowerCase();
+    int i = 0;
+    while (i < source.length) {
+      final pos = lower.indexOf(q, i);
+      if (pos < 0) {
+        spans.add(TextSpan(text: source.substring(i), style: base));
+        break;
+      }
+      if (pos > i) spans.add(TextSpan(text: source.substring(i, pos), style: base));
+      spans.add(TextSpan(
+        text: source.substring(pos, pos + q.length),
+        style: base.copyWith(
+          backgroundColor: hit.withOpacity(0.32),
+          color: hit,
+          fontWeight: FontWeight.w800,
+        ),
+      ));
+      i = pos + q.length;
+    }
+    return spans;
+  }
+
+  Widget _searchBar(XlPalette p) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(26, 0, 26, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: AppTheme.screen(context, r: XlRadius.xl),
+      child: Row(children: [
+        Icon(Icons.search_rounded, size: 16, color: p.pink),
+        const SizedBox(width: 10),
+        Expanded(
+          child: TextField(
+            controller: _searchCtrl,
+            style: TextStyle(fontSize: XlFont.bodySm, color: p.text1, fontWeight: FontWeight.w600),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: '在对话历史中搜索…',
+              hintStyle: TextStyle(fontSize: XlFont.bodySm, color: p.decor),
+            ),
+          ),
+        ),
+        Text('$_matchCount 命中',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: _matchCount > 0 ? p.gold : p.decor,
+              fontWeight: FontWeight.w800,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+        const SizedBox(width: 8),
+        _Pressable(
+          scale: 0.9,
+          onTap: _toggleSearch,
+          child: Container(
+            width: 26,
+            height: 26,
+            decoration: AppTheme.neuXxs(context, r: XlRadius.sm),
+            child: Icon(Icons.close_rounded, size: 13, color: p.text2),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _msgText(XlPalette p, _Msg m) {
+    final base = TextStyle(
+      fontSize: XlFont.bodySm,
+      height: XlLineHeight.relaxed,
+      color: m.who == 'me' ? p.btnInk : p.text1,
+      fontWeight: m.who == 'me' ? FontWeight.w600 : FontWeight.w400,
+    );
+    return RichText(
+      text: TextSpan(
+        children: _highlightSpans(m.text, base, p.gold),
+      ),
+    );
+  }
+
+  Widget _interruptButton(XlPalette p) {
+    return _Pressable(
+      scale: 0.92,
+      onTap: _interruptGeneration,
+      child: Container(
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [p.red, p.red.withOpacity(0.82)]),
+          borderRadius: BorderRadius.circular(XlRadius.pill),
+          border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.3 : 0.2), width: 1),
+          boxShadow: [...p.raisedXs, BoxShadow(color: p.red.withOpacity(0.32), blurRadius: 12, spreadRadius: -2)],
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.stop_rounded, size: 14, color: p.btnInk),
+          const SizedBox(width: 6),
+          Text('中断',
+              style: TextStyle(
+                fontSize: XlFont.captionSm,
+                fontWeight: FontWeight.w800,
+                color: p.btnInk,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
+        ]),
+      ),
+    );
+  }
+
+  Widget _quoteBanner(XlPalette p) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: AppTheme.accentSoft(context, r: XlRadius.md),
+      child: Row(children: [
+        Icon(Icons.format_quote_rounded, size: 14, color: p.pink),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _quotedText!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: XlFont.captionSm,
+              color: p.text2,
+              fontWeight: FontWeight.w600,
+              height: XlLineHeight.snug,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _Pressable(
+          scale: 0.9,
+          onTap: () => setState(() => _quotedText = null),
+          child: Icon(Icons.close_rounded, size: 14, color: p.text3),
+        ),
+      ]),
+    );
+  }
+
   void _clearChat() {
     showDialog(
       context: context,
@@ -418,6 +703,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         Column(
           children: [
             _header(p),
+            if (_searchOpen) _searchBar(p),
             _statsRow(p),
             Expanded(child: _list(p)),
             _inputBar(p),
@@ -493,6 +779,22 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               _ttsOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
               _ttsOn ? p.pink : p.text3,
               () => setState(() => _ttsOn = !_ttsOn),
+            ),
+            const SizedBox(width: 8),
+            _headerBtn(
+              p,
+              _searchOpen ? Icons.filter_alt_rounded : Icons.search_rounded,
+              _searchOpen ? p.pink : p.text2,
+              _toggleSearch,
+            ),
+            const SizedBox(width: 8),
+            _headerBtn(p, Icons.ios_share_rounded, p.text2, _exportChat),
+            const SizedBox(width: 8),
+            _headerBtn(
+              p,
+              Icons.schedule_rounded,
+              _showTimestamp ? p.gold : p.text2,
+              () => setState(() => _showTimestamp = !_showTimestamp),
             ),
             const SizedBox(width: 8),
             _headerBtn(p, Icons.cleaning_services_outlined, p.text2, _clearChat),
@@ -830,15 +1132,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    m.text,
-                                    style: TextStyle(
-                                      fontSize: XlFont.bodySm,
-                                      height: XlLineHeight.relaxed,
-                                      color: isMe ? p.btnInk : p.text1,
-                                      fontWeight: isMe ? FontWeight.w600 : FontWeight.w400,
+                                  _msgText(p, m),
+                                  if (_showTimestamp && m.text.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        '${m.time.year}-${m.time.month.toString().padLeft(2, '0')}-${m.time.day.toString().padLeft(2, '0')} ${m.time.hour.toString().padLeft(2, '0')}:${m.time.minute.toString().padLeft(2, '0')}:${m.time.second.toString().padLeft(2, '0')}',
+                                        style: TextStyle(
+                                          fontSize: XlFont.micro,
+                                          color: (isMe ? p.btnInk : p.text3).withOpacity(0.7),
+                                          fontWeight: FontWeight.w600,
+                                          fontFeatures: const [FontFeature.tabularFigures()],
+                                        ),
+                                      ),
                                     ),
-                                  ),
                                   if (!isMe && m.status == _MsgStatus.done && m.text.isNotEmpty)
                                     _bubbleActions(p, m),
                                 ],
@@ -1070,6 +1377,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ));
           }),
           const SizedBox(width: 6),
+          _bubbleAction(p, Icons.format_quote_rounded, '引用', p.gold, () => _requestQuote(m.text)),
+          const SizedBox(width: 6),
           _bubbleAction(p, Icons.refresh_rounded, '重发', p.text2, () {
             final lastUser = _msgs.lastWhere(
               (it) => it.who == 'me',
@@ -1139,12 +1448,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         children: [
           _quickRepliesRow(p),
           if (_playing && _playingId != null) _nowPlayingBar(p),
+          if (_quotedText != null) _quoteBanner(p),
           const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(child: _inputField(p)),
               const SizedBox(width: 12),
+              if (_busy) _interruptButton(p),
               _sendButton(p),
             ],
           ),
@@ -1299,6 +1610,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               bindings: {
                 const SingleActivator(LogicalKeyboardKey.enter, control: true): () => _send(),
                 const SingleActivator(LogicalKeyboardKey.escape): () => _input.clear(),
+                const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () => _navigateHistory(true),
+                const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () => _navigateHistory(false),
               },
               child: TextField(
                 controller: _input,
@@ -1307,7 +1620,18 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 maxLines: 4,
                 minLines: 1,
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(),
+                onSubmitted: (_) {
+                  _pushHistory(_input.text);
+                  if (_quotedText != null) {
+                    final q = _quotedText!;
+                    final mine = _input.text;
+                    _quotedText = null;
+                    _input.clear();
+                    _send('引用自：$q\n$mine');
+                    return;
+                  }
+                  _send();
+                },
                 style: TextStyle(
                   fontSize: XlFont.bodySm,
                   color: p.text1,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
@@ -41,6 +42,15 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   late AnimationController _spinCtrl;
   late Animation<double> _actAnim;
   final List<_Activity> _activities = [];
+  Timer? _refreshTimer;
+  Timer? _resTimer;
+  double _cpuPct = 0.26;
+  double _memPct = 0.44;
+  double _diskPct = 0.61;
+  DateTime? _lastRefresh;
+  int _refreshCountdown = 30;
+  bool _autoRefresh = true;
+  int _refreshTick = 0;
 
   @override
   void initState() {
@@ -55,11 +65,38 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _spinCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
     _actAnim = CurvedAnimation(parent: _actCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
+    _lastRefresh = DateTime.now();
+    _resTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) => _tickResource());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickRefresh());
     _bootstrap();
+  }
+
+  void _tickResource() {
+    if (!mounted) return;
+    setState(() {
+      _cpuPct = (_cpuPct + (DateTime.now().millisecond % 7 - 3) / 40).clamp(0.05, 0.95);
+      _memPct = (_memPct + (DateTime.now().second % 5 - 2) / 60).clamp(0.1, 0.92);
+      _diskPct = (_diskPct + 0.001).clamp(0.2, 0.95);
+    });
+  }
+
+  void _tickRefresh() {
+    if (!mounted) return;
+    if (!_autoRefresh) return;
+    setState(() {
+      _refreshCountdown--;
+      if (_refreshCountdown <= 0) {
+        _refreshCountdown = 30;
+        _refreshTick++;
+        _lastRefresh = DateTime.now();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    _resTimer?.cancel();
     _enterCtrl.dispose();
     _pulseCtrl.dispose();
     _ringCtrl.dispose();
@@ -192,6 +229,9 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
           _wrapStagger(2, _middleRow(p)),
           const SizedBox(height: 22),
           _wrapStagger(3, _bottomRow(p)),
+          const SizedBox(height: 22),
+          _wrapStagger(4, _resourceRingCard(p)),
+          _autoRefreshBar(p),
         ],
       ),
     );
@@ -1043,6 +1083,142 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     );
   }
 
+  Widget _resourceRingCard(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text('资源占用',
+                style: TextStyle(
+                  fontSize: XlFont.h6,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.normal,
+                )),
+            const Spacer(),
+            _smallBadge(p, 'LIVE', p.green),
+          ]),
+          const SizedBox(height: 16),
+          Row(children: [
+            SizedBox(
+              width: 120,
+              height: 120,
+              child: CustomPaint(
+                painter: _ResourceRingPainter(
+                  cpu: _cpuPct,
+                  mem: _memPct,
+                  disk: _diskPct,
+                  palette: p,
+                ),
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                children: [
+                  _ringLegend(p, 'CPU', _cpuPct, p.pink),
+                  const SizedBox(height: 12),
+                  _ringLegend(p, '内存', _memPct, p.gold),
+                  const SizedBox(height: 12),
+                  _ringLegend(p, '磁盘', _diskPct, p.violet),
+                ],
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _ringLegend(XlPalette p, String label, double v, Color c) {
+    return Row(children: [
+      Container(width: 8, height: 8, decoration: AppTheme.glowDot(c, size: 8)),
+      const SizedBox(width: 8),
+      Text(label,
+          style: TextStyle(
+            fontSize: XlFont.captionSm,
+            color: p.text2,
+            fontWeight: FontWeight.w700,
+            letterSpacing: XlLetterSpacing.wider,
+          )),
+      const Spacer(),
+      Text('${(v * 100).toStringAsFixed(0)}%',
+          style: TextStyle(
+            fontSize: XlFont.captionSm,
+            color: c,
+            fontWeight: FontWeight.w800,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          )),
+    ]);
+  }
+
+  Widget _autoRefreshBar(XlPalette p) {
+    final last = _lastRefresh;
+    final lastLabel = last == null
+        ? '—'
+        : '${last.hour.toString().padLeft(2, '0')}:${last.minute.toString().padLeft(2, '0')}:${last.second.toString().padLeft(2, '0')}';
+    return Container(
+      margin: const EdgeInsets.only(top: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: AppTheme.sunkenSm(context, r: XlRadius.lg),
+      child: Row(children: [
+        Icon(_autoRefresh ? Icons.autorenew_rounded : Icons.pause_circle_outline_rounded,
+            size: 16, color: _autoRefresh ? p.green : p.gold),
+        const SizedBox(width: 10),
+        Text('自动刷新',
+            style: TextStyle(
+              fontSize: XlFont.captionSm,
+              color: p.text2,
+              fontWeight: FontWeight.w700,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+        const SizedBox(width: 10),
+        Text(_autoRefresh ? '${_refreshCountdown}s 后更新' : '已暂停',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: p.text3,
+              fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            )),
+        const SizedBox(width: 8),
+        Text('累计 $_refreshTick 次',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: p.decor,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            )),
+        const Spacer(),
+        Text('上次 $lastLabel',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: p.decor,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            )),
+        const SizedBox(width: 10),
+        _Pressable(
+          scale: 0.92,
+          onTap: () => setState(() => _autoRefresh = !_autoRefresh),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: AppTheme.pill(context, color: _autoRefresh ? p.green : p.gold, r: XlRadius.pill),
+            child: Text(_autoRefresh ? '开启中' : '已暂停',
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  color: _autoRefresh ? p.green : p.gold,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ),
+        ),
+      ]),
+    );
+  }
+
   Widget _smallBadge(XlPalette p, String text, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1335,5 +1511,72 @@ class _PressableState extends State<_Pressable> {
         child: widget.child,
       ),
     );
+  }
+}
+
+class _ResourceRingPainter extends CustomPainter {
+  final double cpu;
+  final double mem;
+  final double disk;
+  final XlPalette palette;
+  _ResourceRingPainter({
+    required this.cpu,
+    required this.mem,
+    required this.disk,
+    required this.palette,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    const stroke = 10.0;
+    final radii = [
+      size.width / 2 - 4,
+      size.width / 2 - 4 - stroke - 6,
+      size.width / 2 - 4 - (stroke + 6) * 2,
+    ];
+    final values = [disk, mem, cpu];
+    final colors = [palette.violet, palette.gold, palette.pink];
+    for (var i = 0; i < 3; i++) {
+      final track = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = palette.surfaceLo
+        ..strokeCap = StrokeCap.round;
+      canvas.drawCircle(center, radii[i], track);
+      final fg = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..shader = SweepGradient(
+          startAngle: -1.5708,
+          endAngle: 4.7124,
+          colors: [colors[i].withOpacity(0.55), colors[i]],
+        ).createShader(Rect.fromCircle(center: center, radius: radii[i]));
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radii[i]),
+        -1.5708,
+        2 * 3.14159265 * values[i].clamp(0.0, 1.0),
+        false,
+        fg,
+      );
+    }
+    final inner = Paint()
+      ..color = palette.screen
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, radii[2] - stroke, inner);
+    canvas.drawCircle(
+      center,
+      radii[2] - stroke,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = palette.edge,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ResourceRingPainter old) {
+    return old.cpu != cpu || old.mem != mem || old.disk != disk;
   }
 }

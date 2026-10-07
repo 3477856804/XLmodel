@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
@@ -36,6 +37,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   int _rtTotalSteps = 0;
   double _rtLoss = 0.0;
   List<pb.TrainingHistoryEntry> _history = [];
+  final List<_SavedPreset> _savedPresets = [];
+  final TextEditingController _presetNameCtrl = TextEditingController();
 
   static const _presets = <_Preset>[
     _Preset('轻量', 'r=4 · 3 epochs', 'pink', Icons.bolt_rounded, 0.30),
@@ -72,6 +75,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     _bsCtrl.dispose();
     _rankCtrl.dispose();
     _stepsCtrl.dispose();
+    _presetNameCtrl.dispose();
     super.dispose();
   }
 
@@ -167,7 +171,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           const SizedBox(height: 20),
           _stagger(2, _paramsCard(p)),
           const SizedBox(height: 20),
-          _stagger(3, LayoutBuilder(
+          _stagger(3, _savedPresetsCard(p)),
+          const SizedBox(height: 20),
+          _stagger(4, LayoutBuilder(
             builder: (context, c) {
               final stacked = c.maxWidth < 1000;
               if (stacked) {
@@ -449,6 +455,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           if (_trainingActive) ...[
             const SizedBox(height: 16),
             _rtProgress(p),
+            _liveLossPanel(p),
           ],
         ],
       ),
@@ -777,6 +784,254 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     setState(() => _stopRequested = true);
     _logs.add(_LogLine('[stop] 收到停止指令，结束当前轮次', _LogLevel.warn));
     _scrollLogBottom();
+  }
+
+  Future<void> _saveCurrentPreset() async {
+    _presetNameCtrl.text = '';
+    final p = XlPalette.of(context);
+    final name = await showDialog<String>(
+      context: context,
+      barrierColor: p.scrim,
+      builder: (ctx) {
+        final pp = XlPalette.of(ctx);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            width: 360,
+            padding: const EdgeInsets.all(22),
+            decoration: AppTheme.neuLg(ctx, r: XlRadius.xxxl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('保存参数预设',
+                    style: TextStyle(
+                      fontSize: XlFont.h6,
+                      fontWeight: FontWeight.w800,
+                      color: pp.text1,
+                    )),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: AppTheme.sunkenXs(ctx, r: XlRadius.md),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  child: TextField(
+                    controller: _presetNameCtrl,
+                    autofocus: true,
+                    style: TextStyle(fontSize: XlFont.bodySm, color: pp.text1, fontWeight: FontWeight.w700),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      hintText: '例如: 日常微调',
+                      hintStyle: TextStyle(fontSize: XlFont.bodySm, color: pp.decor),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(children: [
+                  Expanded(
+                    child: _Pressable(
+                      onTap: () => Navigator.pop(ctx),
+                      scale: 0.95,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        decoration: AppTheme.ghost(ctx, r: XlRadius.pill),
+                        child: Center(
+                          child: Text('取消',
+                              style: TextStyle(
+                                  fontSize: XlFont.captionSm,
+                                  fontWeight: FontWeight.w800,
+                                  color: pp.text1)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _Pressable(
+                      scale: 0.95,
+                      onTap: () => Navigator.pop(ctx, _presetNameCtrl.text.trim()),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        decoration: AppTheme.btn(ctx, r: XlRadius.pill),
+                        child: Center(
+                          child: Text('保存',
+                              style: TextStyle(
+                                  fontSize: XlFont.captionSm,
+                                  fontWeight: FontWeight.w800,
+                                  color: pp.btnInk)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (name == null || name.isEmpty) return;
+    setState(() {
+      _savedPresets.add(_SavedPreset(
+        name: name,
+        lr: double.tryParse(_lrCtrl.text.trim()) ?? 0.0002,
+        bs: int.tryParse(_bsCtrl.text.trim()) ?? 4,
+        rank: int.tryParse(_rankCtrl.text.trim()) ?? 8,
+        steps: int.tryParse(_stepsCtrl.text.trim()) ?? 100,
+      ));
+    });
+  }
+
+  void _applySavedPreset(_SavedPreset s) {
+    setState(() {
+      _lrCtrl.text = s.lr.toString();
+      _bsCtrl.text = s.bs.toString();
+      _rankCtrl.text = s.rank.toString();
+      _stepsCtrl.text = s.steps.toString();
+    });
+    final p = XlPalette.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: p.surface,
+      elevation: 0,
+      duration: const Duration(milliseconds: 1100),
+      content: Text('已载入预设: ${s.name}',
+          style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700)),
+    ));
+  }
+
+  Widget _savedPresetsCard(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text('我的参数预设',
+                style: TextStyle(
+                  fontSize: XlFont.h6,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.normal,
+                )),
+            const Spacer(),
+            _Pressable(
+              scale: 0.92,
+              onTap: _trainingActive ? null : _saveCurrentPreset,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: AppTheme.btn(context, r: XlRadius.pill),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.bookmark_add_rounded, size: 13, color: p.btnInk),
+                  const SizedBox(width: 6),
+                  Text('保存当前',
+                      style: TextStyle(
+                        fontSize: XlFont.label,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                ]),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          if (_savedPresets.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text('尚未保存预设，调整参数后点击"保存当前"',
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    color: p.decor,
+                    fontWeight: FontWeight.w500,
+                  )),
+            )
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: _savedPresets.map((s) {
+                return _Pressable(
+                  scale: 0.95,
+                  onTap: _trainingActive ? null : () => _applySavedPreset(s),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: AppTheme.accentSoft(context, r: XlRadius.lg),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.bookmark_rounded, size: 13, color: p.pink),
+                          const SizedBox(width: 6),
+                          Text(s.name,
+                              style: TextStyle(
+                                fontSize: XlFont.captionSm,
+                                color: p.text1,
+                                fontWeight: FontWeight.w800,
+                              )),
+                          const SizedBox(width: 8),
+                          _Pressable(
+                            scale: 0.9,
+                            onTap: () => setState(() => _savedPresets.remove(s)),
+                            child: Icon(Icons.close_rounded, size: 12, color: p.text3),
+                          ),
+                        ]),
+                        const SizedBox(height: 4),
+                        Text('lr=${s.lr} bs=${s.bs} r=${s.rank} steps=${s.steps}',
+                            style: TextStyle(
+                              fontSize: XlFont.micro,
+                              color: p.gold,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              letterSpacing: XlLetterSpacing.wider,
+                            )),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _liveLossPanel(XlPalette p) {
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.screen(context, r: XlRadius.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text('Loss 实时曲线',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.text3,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+            const Spacer(),
+            _LiveLossEta(step: _rtStep, total: _rtTotalSteps, active: _trainingActive, palette: p),
+          ]),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 72,
+            child: _LiveLossChart(
+              step: _rtStep,
+              loss: _rtLoss,
+              active: _trainingActive,
+              palette: p,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _scrollLogBottom() {
@@ -2044,6 +2299,155 @@ class _AnimatedLossCurveState extends State<_AnimatedLossCurve> with SingleTicke
         ),
       ),
     );
+  }
+}
+
+class _SavedPreset {
+  final String name;
+  final double lr;
+  final int bs;
+  final int rank;
+  final int steps;
+  const _SavedPreset({
+    required this.name,
+    required this.lr,
+    required this.bs,
+    required this.rank,
+    required this.steps,
+  });
+}
+
+class _LiveLossChart extends StatefulWidget {
+  final int step;
+  final double loss;
+  final bool active;
+  final XlPalette palette;
+  const _LiveLossChart({
+    required this.step,
+    required this.loss,
+    required this.active,
+    required this.palette,
+  });
+  @override
+  State<_LiveLossChart> createState() => _LiveLossChartState();
+}
+
+class _LiveLossChartState extends State<_LiveLossChart> {
+  final List<double> _series = [];
+  int _lastStep = -1;
+
+  @override
+  void didUpdateWidget(_LiveLossChart old) {
+    super.didUpdateWidget(old);
+    if (!widget.active) {
+      _lastStep = -1;
+      return;
+    }
+    if (widget.step != _lastStep) {
+      _lastStep = widget.step;
+      if (widget.loss > 0) {
+        _series.add(widget.loss);
+        if (_series.length > 60) _series.removeAt(0);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_series.length < 2) {
+      return Center(
+        child: Text('采集 Loss 数据中…',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: widget.palette.decor,
+              fontWeight: FontWeight.w600,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+      );
+    }
+    return CustomPaint(
+      painter: _LossCurvePainter(
+        points: _series,
+        palette: widget.palette,
+        progress: 1.0,
+      ),
+      size: Size.infinite,
+    );
+  }
+}
+
+class _LiveLossEta extends StatefulWidget {
+  final int step;
+  final int total;
+  final bool active;
+  final XlPalette palette;
+  const _LiveLossEta({
+    required this.step,
+    required this.total,
+    required this.active,
+    required this.palette,
+  });
+  @override
+  State<_LiveLossEta> createState() => _LiveLossEtaState();
+}
+
+class _LiveLossEtaState extends State<_LiveLossEta> {
+  DateTime? _startAt;
+  int _baseStep = 0;
+  Duration _remaining = Duration.zero;
+  Timer? _ticker;
+
+  @override
+  void didUpdateWidget(_LiveLossEta old) {
+    super.didUpdateWidget(old);
+    if (widget.active && _startAt == null) {
+      _startAt = DateTime.now();
+      _baseStep = widget.step;
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _recalc());
+    }
+    if (!widget.active && _startAt != null) {
+      _ticker?.cancel();
+      _ticker = null;
+      _startAt = null;
+      _remaining = Duration.zero;
+    }
+  }
+
+  void _recalc() {
+    if (!mounted || _startAt == null) return;
+    final elapsed = DateTime.now().difference(_startAt!);
+    final done = (widget.step - _baseStep).clamp(1, 1 << 30);
+    final perStep = elapsed.inMilliseconds / done;
+    final left = (widget.total - widget.step).clamp(0, 1 << 30);
+    setState(() => _remaining = Duration(milliseconds: (perStep * left).round()));
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  String _fmt(Duration d) {
+    if (d.inHours > 0) return '${d.inHours}h ${d.inMinutes % 60}m';
+    if (d.inMinutes > 0) return '${d.inMinutes}m ${d.inSeconds % 60}s';
+    return '${d.inSeconds}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.timelapse_rounded, size: 12, color: widget.palette.gold),
+      const SizedBox(width: 5),
+      Text(widget.active ? '预计剩余 ${_fmt(_remaining)}' : '待开始',
+          style: TextStyle(
+            fontSize: XlFont.micro,
+            color: widget.palette.gold,
+            fontWeight: FontWeight.w800,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            letterSpacing: XlLetterSpacing.wider,
+          )),
+    ]);
   }
 }
 
