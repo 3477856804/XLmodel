@@ -1304,21 +1304,36 @@ class LoRATrainer:
                 "adapter_dir": str(self.adapter_dir), "device": device}
 
     def simulate(self, growth: float = 0.12, epochs: int = 2) -> dict:
-        adp = self.adapter_dir / "adapter_model.safetensors"
-        cur = adp.stat().st_size if adp.exists() else 0
+        """模拟训练（演练）模式。
+
+        仅用于走通训练流程，**不要写入真实 adapter 目录**：产出的权重写到
+        独立的 ``simulated/`` 子目录，并在 ``adapter_config.json`` 中标注
+        ``simulated: true``。该目录下的权重是零字节占位，**不可用于真实推理**；
+        要得到可用适配器，请执行真实训练（见 :meth:`train`）。
+        """
+        sim_dir = self.adapter_dir / "simulated"
+        adp = sim_dir / "adapter_model.safetensors"
         base = dir_bytes(BASE_MODEL_DIR)
         add = max(int(base * growth * max(epochs, 1) / 2), 4096)
-        self.adapter_dir.mkdir(parents=True, exist_ok=True)
-        with open(adp, "ab") as f:
-            f.write(b"\0" * add)
-        cfg = self.adapter_dir / "adapter_config.json"
-        if not cfg.exists():
+        try:
+            sim_dir.mkdir(parents=True, exist_ok=True)
+            with open(adp, "ab") as f:
+                f.write(b"\0" * add)
+        except OSError as e:
+            return {"ok": False, "reason": f"模拟权重写入失败：{e}",
+                    "simulated": True, "avg_loss": 1.18, "loss_simulated": True}
+        cfg = sim_dir / "adapter_config.json"
+        try:
             cfg.write_text(json.dumps(
-                {"r": 8, "lora_alpha": 16,
+                {"r": 8, "lora_alpha": 16, "simulated": True,
                  "target_modules": ["q_proj", "v_proj"]},
                 ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            return {"ok": False, "reason": f"模拟配置写入失败：{e}",
+                    "simulated": True, "avg_loss": 1.18, "loss_simulated": True}
         return {"ok": True, "simulated": True, "avg_loss": 1.18,
-                "summary": f"演练：+{human_bytes(add)}"}
+                "loss_simulated": True, "adapter_dir": str(sim_dir),
+                "summary": f"演练（模拟值，不可用于推理）：+{human_bytes(add)}"}
 
 
 class GrowthEngine:
@@ -1825,22 +1840,30 @@ class GrowthEngine:
             return False, f"合并异常 {type(e).__name__}: {e}"
 
     def _simulate_merge(self, out_dir: Path) -> str:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        if BASE_MODEL_DIR.exists():
-            for p in BASE_MODEL_DIR.iterdir():
-                if p.is_file():
-                    shutil.copy2(p, out_dir / p.name)
-        cfg = out_dir / "config.json"
-        if not cfg.exists():
-            cfg.write_text(json.dumps(
-                {"model_type": "xiaoling-simulated", "hidden_size": 2048},
-                ensure_ascii=False), encoding="utf-8")
-        extra = out_dir / "model.safetensors"
-        want = self.base_bytes + self.adapter_bytes
-        if not extra.exists() or extra.stat().st_size < want:
-            with open(extra, "wb") as f:
-                f.write(b"\0" * want)
-        return f"模拟合并完成（{human_bytes(want)}）"
+        # 模拟合并仅用于走通测试流程：产出写入带 _simulated 后缀的独立目录，
+        # 避免与真实模型混淆；config 标注 model_type=xiaoling-simulated，
+        # 加载入口（model.py LocalModel.load）会拒绝加载此类目录。
+        out_dir = Path(str(out_dir) + "_simulated")
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if BASE_MODEL_DIR.exists():
+                for p in BASE_MODEL_DIR.iterdir():
+                    if p.is_file():
+                        shutil.copy2(p, out_dir / p.name)
+            cfg = out_dir / "config.json"
+            if not cfg.exists():
+                cfg.write_text(json.dumps(
+                    {"model_type": "xiaoling-simulated", "simulated": True,
+                     "hidden_size": 2048},
+                    ensure_ascii=False), encoding="utf-8")
+            extra = out_dir / "model.safetensors"
+            want = self.base_bytes + self.adapter_bytes
+            if not extra.exists() or extra.stat().st_size < want:
+                with open(extra, "wb") as f:
+                    f.write(b"\0" * want)
+            return f"模拟合并完成（写入 {out_dir.name}，{human_bytes(want)}，不可用于推理）"
+        except OSError as e:
+            return f"模拟合并写入失败：{type(e).__name__}: {e}"
 
     def _validate_model_dir(self, d: Path) -> bool:
         if not d.exists():

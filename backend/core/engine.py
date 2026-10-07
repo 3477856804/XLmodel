@@ -621,9 +621,9 @@ class XiaoLing:
                      dataset_name: str = ""):
         """训练生成器：逐步 yield dict(step,total_steps,loss,status)。
 
-        优先对已加载模型做真实一步前向；不可用时退化为合理的 loss
-        指数衰减曲线（初始 ~2.0 → 收敛 ~0.3，加少量噪声），保证训练
-        流程始终可跑通。结束后自动追加一条历史记录。
+        仅在已加载真实模型且 torch 可用时执行真实一步前向；若没有可用
+        模型，则不伪造任何 loss 曲线，而是先提示初始化训练环境，再输出
+        一条 error 事件并结束。use_real=True 时保持原有真实训练逻辑。
         """
         steps = max(1, int(steps or 100))
         samples = self.load_training_dataset(dataset_name)
@@ -659,7 +659,17 @@ class XiaoLing:
                 model = None
                 optimizer = None
 
-        import math
+        if not use_real:
+            # 无真实模型 / torch 不可用：绝不伪造 loss 曲线。
+            # 先给出初始化训练环境提示，再输出 error 事件并结束。
+            for init_step in range(1, 4):
+                yield {"step": init_step, "total_steps": 3, "loss": 0.0,
+                       "status": "正在初始化训练环境..."}
+                time.sleep(0.05)
+            yield {"type": "error",
+                   "message": "未检测到可用模型或torch，无法执行真实训练。请先在模型商店下载模型。"}
+            return
+
         for step in range(1, steps + 1):
             loss = 0.0
             if use_real and model is not None:
@@ -679,9 +689,8 @@ class XiaoLing:
                     use_real = False
                     loss = 0.0
             if not use_real:
-                # 指数衰减：2.0 -> 0.3，叠加高斯噪声
-                base = 0.3 + (2.0 - 0.3) * math.exp(-3.0 * step / steps)
-                loss = max(0.15, base + random.gauss(0, 0.05))
+                # 真实训练中途失败：停止本轮，不再伪造任何 loss 数值
+                break
             loss = round(loss, 4)
             loss_curve.append(loss)
             final_loss = loss
@@ -773,7 +782,7 @@ class XiaoLing:
         if INTENT_TIME.search(t):
             return time.strftime("现在是 %Y-%m-%d %H:%M:%S。"), "time"
         if INTENT_DANCE.search(t):
-            return self._route_dance(), "dance"
+            return self._route_dance_reply(), "dance"
         if INTENT_VIEW_IMG.search(t):
             return self._route_vision(t), "vision"
         if INTENT_TRAIN.search(t):
@@ -850,7 +859,8 @@ class XiaoLing:
         ]
         return random.choice(jokes)
 
-    def _route_dance(self) -> str:
+    def _route_dance_reply(self) -> str:
+        """舞蹈意图的文字回复（仅文字回复，不触发 VRM 跳舞动作）。"""
         try:
             if self.voice is not None:
                 pass

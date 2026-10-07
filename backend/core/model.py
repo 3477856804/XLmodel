@@ -1008,10 +1008,25 @@ class LocalModel:
         self.device = inference_device()
         self._lock = threading.RLock()
         self._loaded_at = 0.0
+        self._last_stream_result = ""
 
     def load(self) -> bool:
         if not self.model_dir.exists():
             return False
+        # 模拟训练产出的模型不可用于推理：加载前检查 config.json，命中即拒绝
+        try:
+            cfg_path = self.model_dir / "config.json"
+            if cfg_path.exists():
+                _cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                if (str(_cfg.get("model_type", "")) == "xiaoling-simulated"
+                        or _cfg.get("simulated") is True):
+                    raise ValueError(
+                        "这是模拟训练产出的模型，无法用于推理。请执行真实训练。")
+        except ValueError:
+            raise
+        except Exception:
+            # config 读取/解析失败时不阻断，交给后续正常加载流程自行处理
+            pass
         with self._lock:
             if self.model is not None:
                 return True
@@ -1112,11 +1127,83 @@ class LocalModel:
 
     def stream_generate(self, text: str, history: list | None = None,
                         on_chunk=None, max_new_tokens: int = 0):
+        """流式生成文本。
+
+        注意：默认实现为「伪流式」——先整句生成完成，再按 3 字符分片回调
+        on_chunk，并非真正的逐 token 流式输出。若 transformers 可用且模型
+        已加载，会优先尝试用 TextIteratorStreamer 实现真流式；否则回退到
+        伪流式。返回值末尾的元数据会标注实际使用的模式。
+        """
+        # 1) 优先尝试真流式（TextIteratorStreamer，后台线程 generate）
+        if self.is_loaded() and self._try_real_stream(text, history,
+                                                      on_chunk, max_new_tokens):
+            return self._last_stream_result
+
+        # 2) 伪流式：整句生成后分片输出
         result = self.generate(text, history, max_new_tokens)
         if on_chunk:
-            for i in range(0, len(result), 3):
-                on_chunk(result[i:i + 3])
+            try:
+                for i in range(0, len(result), 3):
+                    on_chunk(result[i:i + 3])
+            except Exception:
+                pass
+        self._last_stream_result = result
         return result
+
+    def _try_real_stream(self, text: str, history: list | None,
+                         on_chunk, max_new_tokens: int) -> bool:
+        """尝试用 transformers.TextIteratorStreamer 做真流式；不可用返回 False。"""
+        try:
+            from transformers import TextIteratorStreamer
+            import threading as _t
+
+            messages = self.build_messages(text, history)
+            messages = self.trim_history(messages)
+            prompt = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True)
+            inputs = self.tokenizer(prompt, return_tensors="pt")
+            input_len = inputs["input_ids"].shape[1]
+            if self.device != "cpu":
+                try:
+                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                except Exception:
+                    pass
+            streamer = TextIteratorStreamer(
+                self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+            kwargs = dict(
+                inputs,
+                max_new_tokens=max_new_tokens or self.max_new_tokens,
+                do_sample=True, temperature=self.temperature, top_p=0.9,
+                repetition_penalty=1.05, streamer=streamer,
+                pad_token_id=getattr(self.tokenizer, "pad_token_id", None),
+            )
+            holder = {}
+
+            def _run():
+                try:
+                    with self._lock:
+                        holder["out"] = self.model.generate(**kwargs)
+                except Exception as e:
+                    holder["error"] = e
+
+            th = _t.Thread(target=_run, daemon=True)
+            th.start()
+            collected = []
+            for chunk in streamer:
+                if chunk:
+                    collected.append(chunk)
+                    if on_chunk:
+                        try:
+                            on_chunk(chunk)
+                        except Exception:
+                            pass
+            th.join(timeout=30)
+            if "error" in holder:
+                return False
+            self._last_stream_result = "".join(collected)
+            return True
+        except Exception:
+            return False
 
     def chat(self, text: str) -> str | None:
         return self.generate(text)
