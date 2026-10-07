@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
 
 class McpPanel extends StatefulWidget {
   const McpPanel({super.key});
@@ -49,6 +52,30 @@ class _McpPanelState extends State<McpPanel> with TickerProviderStateMixin {
     super.initState();
     _enterCtrl = AnimationController(duration: const Duration(milliseconds: 400), vsync: this);
     _enterCtrl.forward();
+    _loadServers();
+  }
+
+  Future<void> _loadServers() async {
+    try {
+      final reply = await XlClient.stub.command('mcp:list');
+      final decoded = jsonDecode(reply.output);
+      final servers = (decoded['servers'] as List?) ?? [];
+      if (!mounted) return;
+      setState(() {
+        _servers
+          ..clear()
+          ..addAll(servers.map((s) {
+            final m = (s is Map) ? s : {};
+            return _McpServerItem(
+              name: (m['name'] ?? '').toString(),
+              type: (m['type'] ?? 'stdio').toString(),
+              command: (m['command'] ?? '').toString(),
+              url: (m['url'] ?? '').toString(),
+              connected: m['connected'] == true,
+            );
+          }));
+      });
+    } catch (_) {}
   }
 
   @override
@@ -111,21 +138,22 @@ class _McpPanelState extends State<McpPanel> with TickerProviderStateMixin {
                 child: Text('取消', style: TextStyle(color: p.text3, fontWeight: FontWeight.w700)),
               ),
               _Pressable(
-                onTap: () {
+                onTap: () async {
                   final name = nameCtrl.text.trim();
                   if (name.isEmpty) return;
-                  setState(() {
-                    _servers.add(_McpServerItem(
-                      name: name,
-                      type: type,
-                      command: commandCtrl.text.trim(),
-                      url: urlCtrl.text.trim(),
-                      args: argsCtrl.text.trim().isEmpty
-                          ? []
-                          : argsCtrl.text.trim().split(RegExp(r'\s+')),
-                    ));
-                  });
+                  final spec = {
+                    'name': name,
+                    'type': type,
+                    'command': commandCtrl.text.trim(),
+                    'url': urlCtrl.text.trim(),
+                    'args': argsCtrl.text.trim().isEmpty
+                        ? []
+                        : argsCtrl.text.trim().split(RegExp(r'\s+')),
+                  };
                   Navigator.pop(ctx);
+                  await XlClient.stub.safe(() =>
+                      XlClient.stub.command('mcp:add ${jsonEncode(spec)}'));
+                  _loadServers();
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
@@ -188,10 +216,12 @@ class _McpPanelState extends State<McpPanel> with TickerProviderStateMixin {
     );
   }
 
-  void _toggleConnect(int index) {
+  Future<void> _toggleConnect(int index) async {
     final s = _servers[index];
     if (s.connecting) return;
     if (s.connected) {
+      await XlClient.stub.safe(() => XlClient.stub.command('mcp:disconnect ${s.name}'));
+      if (!mounted) return;
       setState(() {
         s.connected = false;
         s.tools.clear();
@@ -203,25 +233,38 @@ class _McpPanelState extends State<McpPanel> with TickerProviderStateMixin {
       s.connecting = true;
       s.error = '';
     });
-    Future.delayed(const Duration(milliseconds: 1200), () {
+    try {
+      await XlClient.stub.command('mcp:connect ${s.name}');
+      final toolsReply = await XlClient.stub.command('mcp:tools');
+      final decoded = jsonDecode(toolsReply.output);
+      final tools = (decoded['tools'] as List?) ?? [];
       if (!mounted) return;
       setState(() {
         s.connecting = false;
         s.connected = true;
-        s.toolCount = 3;
-        s.tools = [
-          _McpToolItem(name: 'read_file', description: '读取文件内容'),
-          _McpToolItem(name: 'write_file', description: '写入文件内容'),
-          _McpToolItem(name: 'list_dir', description: '列出目录内容'),
-        ];
+        s.tools = tools
+            .map((t) => _McpToolItem(
+                  name: (t['name'] ?? '').toString(),
+                  description: (t['description'] ?? '').toString(),
+                ))
+            .toList();
+        s.toolCount = s.tools.length;
       });
-    });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        s.connecting = false;
+        s.error = e.toString();
+      });
+    }
   }
 
-  void _deleteServer(int index) {
+  Future<void> _deleteServer(int index) async {
+    final name = _servers[index].name;
     setState(() {
       _servers.removeAt(index);
     });
+    await XlClient.stub.safe(() => XlClient.stub.command('mcp:remove $name'));
   }
 
   @override

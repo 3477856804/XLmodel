@@ -7,6 +7,7 @@ import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 import '../services/sandbox.dart';
+import '../services/local_store.dart';
 
 class ModelStorePage extends StatefulWidget {
   const ModelStorePage({super.key});
@@ -88,6 +89,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     _scanCtrl = AnimationController(duration: const Duration(seconds: 3), vsync: this)..repeat();
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
+    _loadFavorites();
     _load();
   }
 
@@ -1567,16 +1569,29 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     );
   }
 
+  Future<void> _loadFavorites() async {
+    final saved = await LocalStore.readStringList('favorites.json');
+    if (!mounted) return;
+    setState(() => _favorites.addAll(saved));
+  }
+
+  Future<void> _persistFavorites() async {
+    await LocalStore.writeStringList('favorites.json', _favorites.toList());
+  }
+
   Widget _favHeart(XlPalette p, _ModelItem m) {
     final fav = _favorites.contains(m.name);
     return _Pressable(
-      onTap: () => setState(() {
-        if (fav) {
-          _favorites.remove(m.name);
-        } else {
-          _favorites.add(m.name);
-        }
-      }),
+      onTap: () {
+        setState(() {
+          if (fav) {
+            _favorites.remove(m.name);
+          } else {
+            _favorites.add(m.name);
+          }
+        });
+        _persistFavorites();
+      },
       child: Padding(
         padding: const EdgeInsets.only(left: 8),
         child: Icon(

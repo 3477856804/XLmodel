@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
+import '../services/local_store.dart';
 
 class CommunityPlugin {
   final String name;
@@ -108,10 +113,38 @@ class _PluginStoreState extends State<PluginStore> {
   void initState() {
     super.initState();
     _category = widget.initialCategory ?? '全部';
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (!mounted) return;
-      setState(() => _loading = false);
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final saved = await LocalStore.readStringList('installed_plugins.json');
+    if (!mounted) return;
+    setState(() {
+      _installed.addAll(saved);
+      _loading = false;
     });
+    _syncWithBackend();
+  }
+
+  Future<void> _syncWithBackend() async {
+    try {
+      final reply = await XlClient.stub.command('plugin:list');
+      final decoded = jsonDecode(reply.output);
+      final plugins = (decoded['plugins'] as List?) ?? [];
+      if (!mounted) return;
+      setState(() {
+        for (final p in plugins) {
+          final name = (p['name'] ?? '').toString();
+          final enabled = p['enabled'] == true;
+          if (name.isNotEmpty && enabled) _installed.add(name);
+        }
+      });
+      _persistInstalled();
+    } catch (_) {}
+  }
+
+  Future<void> _persistInstalled() async {
+    await LocalStore.writeStringList('installed_plugins.json', _installed.toList());
   }
 
   @override
@@ -493,14 +526,32 @@ class _PluginStoreState extends State<PluginStore> {
 
   Future<void> _install(CommunityPlugin plugin) async {
     setState(() => _installing.add(plugin.name));
-    _showSnack('正在安装 ${plugin.title}…', XlPalette.of(context).pink);
-    await Future.delayed(const Duration(milliseconds: 900));
+    final pink = XlPalette.of(context).pink;
+    final green = XlPalette.of(context).green;
+    final red = XlPalette.of(context).red;
+    _showSnack('正在下载 ${plugin.title}…', pink);
+    String? error;
+    try {
+      final reply = await XlClient.stub.command('plugin:install ${plugin.name}');
+      final decoded = jsonDecode(reply.output);
+      if (decoded['ok'] != true) {
+        error = (decoded['error'] ?? '安装失败').toString();
+      }
+    } catch (e) {
+      error = e.toString();
+    }
     if (!mounted) return;
-    setState(() {
-      _installed.add(plugin.name);
-      _installing.remove(plugin.name);
-    });
-    _showSnack('${plugin.title} 安装成功', XlPalette.of(context).green);
+    if (error == null) {
+      setState(() {
+        _installed.add(plugin.name);
+        _installing.remove(plugin.name);
+      });
+      _persistInstalled();
+      _showSnack('${plugin.title} 安装成功并已启用', green);
+    } else {
+      setState(() => _installing.remove(plugin.name));
+      _showSnack('安装失败：$error', red);
+    }
   }
 
   void _showSnack(String message, Color color) {

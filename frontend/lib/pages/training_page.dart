@@ -6,6 +6,7 @@ import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
+import '../services/local_store.dart';
 
 class TrainingPage extends StatefulWidget {
   const TrainingPage({super.key});
@@ -62,6 +63,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _radarAnim = CurvedAnimation(parent: _radarCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
+    _loadPresets();
     _load();
   }
 
@@ -104,6 +106,36 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         _loading = false;
       });
     }
+  }
+
+  void _loadPresets() async {
+    final data = await LocalStore.readJson('training_presets.json');
+    final list = data['presets'];
+    if (!mounted) return;
+    if (list is List) {
+      setState(() {
+        _savedPresets.clear();
+        for (final e in list) {
+          if (e is Map) {
+            _savedPresets.add(_SavedPreset(
+              name: (e['name'] ?? '').toString(),
+              lr: (e['lr'] is num) ? (e['lr'] as num).toDouble() : 0.0002,
+              bs: (e['bs'] is num) ? (e['bs'] as num).toInt() : 4,
+              rank: (e['rank'] is num) ? (e['rank'] as num).toInt() : 8,
+              steps: (e['steps'] is num) ? (e['steps'] as num).toInt() : 100,
+            ));
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> _persistPresets() async {
+    await LocalStore.writeJson('training_presets.json', {
+      'presets': _savedPresets
+          .map((s) => {'name': s.name, 'lr': s.lr, 'bs': s.bs, 'rank': s.rank, 'steps': s.steps})
+          .toList(),
+    });
   }
 
   void _seedLogs(pb.TrainingStatusReply r) {
@@ -882,6 +914,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         steps: int.tryParse(_stepsCtrl.text.trim()) ?? 100,
       ));
     });
+    _persistPresets();
   }
 
   void _applySavedPreset(_SavedPreset s) {

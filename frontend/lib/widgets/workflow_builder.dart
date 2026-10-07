@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
 
 class WorkflowBuilder extends StatefulWidget {
   const WorkflowBuilder({super.key});
@@ -141,7 +144,7 @@ class _WorkflowBuilderState extends State<WorkflowBuilder> {
     });
   }
 
-  void _runWorkflow() {
+  Future<void> _runWorkflow() async {
     setState(() {
       _running = true;
       _runResults = [];
@@ -154,44 +157,56 @@ class _WorkflowBuilderState extends State<WorkflowBuilder> {
       });
       return;
     }
-    final visited = <String>{};
-    final nodeMap = {for (final n in _nodes) n.id: n};
-    void walk(String id) {
-      if (visited.contains(id)) return;
-      visited.add(id);
-      final node = nodeMap[id];
-      if (node == null) return;
-      String line;
-      if (node.type == 'action') {
-        final action = node.config['action'] ?? 'log';
-        if (action == 'log') {
-          line = '动作[log]: ${node.config['message'] ?? ''}';
-        } else if (action == 'delay') {
-          line = '动作[delay]: 等待 ${node.config['seconds'] ?? '1'} 秒';
-        } else if (action == 'set_var') {
-          line = '动作[set_var]: ${node.config['key'] ?? ''} = ${node.config['value'] ?? ''}';
-        } else {
-          line = '动作[$action]: 已执行';
-        }
-      } else if (node.type == 'llm') {
-        final p = node.config['prompt'] ?? '';
-        line = 'LLM: ${p.length > 50 ? '${p.substring(0, 50)}...' : p}';
-      } else if (node.type == 'condition') {
-        line = '条件: ${node.config['expression'] ?? ''}';
-      } else if (node.type == 'trigger') {
-        line = '触发[${node.config['triggerType'] ?? 'manual'}]';
-      } else {
-        line = '执行 ${node.type}';
+    final spec = {
+      'name': 'ui_workflow',
+      'description': '前端搭建的工作流',
+      'nodes': _nodes
+          .map((n) => {
+                'id': n.id,
+                'type': n.type,
+                'config': Map<String, dynamic>.from(n.config),
+                'next': n.nextId ?? '',
+              })
+          .toList(),
+      'context': <String, dynamic>{},
+    };
+    try {
+      final reply = await XlClient.stub.command('workflow:run ${jsonEncode(spec)}');
+      final decoded = jsonDecode(reply.output);
+      if (decoded is Map && decoded['ok'] == false) {
+        if (!mounted) return;
+        setState(() {
+          _runResults = ['执行失败: ${decoded['error'] ?? ''}'];
+          _running = false;
+        });
+        return;
       }
-      setState(() => _runResults.add(line));
-      final next = node.nextId;
-      if (next != null && next.isNotEmpty) walk(next);
+      final results = decoded['results'];
+      final lines = <String>[];
+      if (results is List) {
+        for (final r in results) {
+          if (r is Map) {
+            final node = (r['node'] ?? '').toString();
+            final res = (r['result'] ?? '').toString();
+            lines.add('$node -> $res');
+          }
+        }
+      }
+      if (lines.isEmpty) {
+        lines.add('工作流已执行，共 ${_nodes.length} 个节点');
+      }
+      if (!mounted) return;
+      setState(() {
+        _runResults = lines;
+        _running = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _runResults = ['执行失败: $e'];
+        _running = false;
+      });
     }
-
-    Future.delayed(const Duration(milliseconds: 300), () {
-      walk(trigger.first.id);
-      setState(() => _running = false);
-    });
   }
 
   void _showAddDialog() {

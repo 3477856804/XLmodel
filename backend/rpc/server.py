@@ -164,8 +164,7 @@ def _handle_ext_command(cmd: str) -> str:
                 if not name:
                     return _err("插件名不能为空")
                 import os as _os
-                from core.config import PLUGINS_DIR
-                pdir = _os.path.join(str(PLUGINS_DIR), name)
+                pdir = _os.path.join(str(pmgr.plugins_dir), name)
                 _os.makedirs(pdir, exist_ok=True)
                 manifest = {
                     "name": name,

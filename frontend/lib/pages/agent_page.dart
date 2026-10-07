@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../widgets/agent_panel.dart';
 import '../widgets/code_search_panel.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling.pb.dart';
 
 class AgentPage extends StatefulWidget {
   const AgentPage({super.key});
@@ -117,9 +119,24 @@ class _SubTask {
   final String id;
   final String description;
   String status = 'pending';
-  double progress = 0;
+  final List<AgentEvent> events = [];
+  int step = 0;
+  int totalSteps = 0;
   String result = '';
+  StreamSubscription<AgentEvent>? sub;
   _SubTask({required this.id, required this.description});
+
+  double get progress {
+    if (status == 'completed') return 100;
+    if (status == 'failed') return 100;
+    if (totalSteps > 0) return (step / totalSteps * 100).clamp(0.0, 100.0);
+    return status == 'running' ? 35 : 0;
+  }
+
+  void dispose() {
+    sub?.cancel();
+    sub = null;
+  }
 }
 
 class _SubAgent {
@@ -137,43 +154,67 @@ class SubAgentPanel extends StatefulWidget {
 
 class _SubAgentPanelState extends State<SubAgentPanel> {
   final List<_SubAgent> _agents = [];
-  Timer? _timer;
   final Set<String> _expanded = {};
   int _seq = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(milliseconds: 450), (_) => _tick());
-  }
-
-  @override
   void dispose() {
-    _timer?.cancel();
+    for (final a in _agents) {
+      for (final t in a.tasks) {
+        t.dispose();
+      }
+    }
     super.dispose();
   }
 
-  void _tick() {
+  void _runTask(_SubTask task) {
+    task.status = 'running';
     if (!mounted) return;
-    var changed = false;
-    for (final agent in _agents) {
-      for (final task in agent.tasks) {
-        if (task.status == 'pending') {
-          task.status = 'running';
-          task.progress = 12;
-          changed = true;
-        } else if (task.status == 'running') {
-          task.progress += 18;
-          changed = true;
-          if (task.progress >= 100) {
-            task.progress = 100;
-            task.status = 'completed';
-            task.result = '子 Agent 完成任务: ${task.description}';
+    setState(() {});
+    try {
+      final stream = XlClient.stub.agentStart(AgentRequest(
+        task: task.description,
+        autonomous: false,
+        maxSteps: 12,
+      ));
+      task.sub = stream.listen(
+        (ev) {
+          if (!mounted) return;
+          setState(() {
+            task.events.add(ev);
+            if (ev.step > 0) task.step = ev.step;
+            if (ev.totalSteps > 0) task.totalSteps = ev.totalSteps;
+            if (ev.type == 'done') {
+              task.status = 'completed';
+              task.result = ev.content;
+            }
+            if (ev.type == 'error' || (ev.done && ev.error.isNotEmpty && ev.type != 'done')) {
+              task.status = 'failed';
+              if (ev.error.isNotEmpty) task.result = ev.error;
+            }
+          });
+        },
+        onError: (e) {
+          if (!mounted) return;
+          setState(() {
+            task.status = 'failed';
+            task.result = e.toString();
+          });
+        },
+        onDone: () {
+          if (!mounted) return;
+          if (task.status == 'running') {
+            setState(() => task.status = 'completed');
           }
-        }
-      }
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        task.status = 'failed';
+        task.result = e.toString();
+      });
     }
-    if (changed) setState(() {});
   }
 
   Future<void> _createAgent() async {
@@ -260,6 +301,7 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
         _seq++;
         agent.tasks.add(_SubTask(id: 't$_seq', description: desc));
       });
+      _runTask(agent.tasks.last);
     }
   }
 
@@ -462,7 +504,7 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
                       height: XlLineHeight.normal,
                     )),
               ),
-              Text(task.status,
+              Text(_statusLabel(task.status),
                   style: TextStyle(
                     fontSize: XlFont.micro,
                     color: statusColor,
@@ -473,7 +515,7 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
           ),
           const SizedBox(height: 8),
           _neuProgress(p, task.progress),
-          if (task.status == 'completed' && task.result.isNotEmpty) ...[
+          if (task.events.isNotEmpty) ...[
             const SizedBox(height: 8),
             _PressableMini(
               onTap: () => setState(() {
@@ -491,7 +533,7 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
                   children: [
                     Icon(expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 12, color: p.pink),
                     const SizedBox(width: 4),
-                    Text(expanded ? '收起结果' : '查看结果',
+                    Text(expanded ? '收起事件' : '${task.events.length} 条事件',
                         style: TextStyle(
                           fontSize: XlFont.micro,
                           fontWeight: FontWeight.w800,
@@ -504,17 +546,107 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
             ),
             if (expanded) ...[
               const SizedBox(height: 6),
-              Text(task.result,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    height: XlLineHeight.relaxed,
-                    color: p.text2,
-                  )),
+              ...task.events.map((e) => _eventLine(p, e)),
             ],
           ],
         ],
       ),
     );
+  }
+
+  Widget _eventLine(XlPalette p, AgentEvent e) {
+    IconData icon;
+    Color color;
+    String label;
+    String body;
+    switch (e.type) {
+      case 'plan':
+        icon = Icons.auto_awesome_rounded;
+        color = p.pink;
+        label = '计划';
+        body = e.content;
+        break;
+      case 'thought':
+        icon = Icons.lightbulb_rounded;
+        color = p.gold;
+        label = '思考';
+        body = e.content;
+        break;
+      case 'tool_call':
+        icon = Icons.build_rounded;
+        color = p.blue;
+        label = '调用 ${e.toolName.isEmpty ? 'tool' : e.toolName}';
+        body = e.toolArgs;
+        break;
+      case 'tool_result':
+        icon = Icons.check_circle_rounded;
+        color = p.green;
+        label = '结果';
+        body = e.toolResult;
+        break;
+      case 'done':
+        icon = Icons.flag_rounded;
+        color = p.green;
+        label = '完成';
+        body = e.content;
+        break;
+      case 'error':
+        icon = Icons.error_rounded;
+        color = p.red;
+        label = '错误';
+        body = e.error.isNotEmpty ? e.error : e.content;
+        break;
+      default:
+        icon = Icons.bubble_chart_rounded;
+        color = p.text3;
+        label = e.type.isEmpty ? '消息' : e.type;
+        body = e.content;
+    }
+    final shown = body.length > 200 ? '${body.substring(0, 200)}…' : body;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+                if (shown.trim().isNotEmpty)
+                  Text(shown,
+                      style: TextStyle(
+                        fontSize: XlFont.micro,
+                        height: XlLineHeight.normal,
+                        color: p.text2,
+                      )),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'running':
+        return '执行中';
+      case 'completed':
+        return '完成';
+      case 'failed':
+        return '失败';
+      default:
+        return '排队';
+    }
   }
 
   Widget _neuProgress(XlPalette p, double ratio) {

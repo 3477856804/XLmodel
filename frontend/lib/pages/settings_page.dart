@@ -10,6 +10,7 @@ import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 import '../widgets/mcp_panel.dart';
 import '../widgets/security_panel.dart';
+import '../services/local_store.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -94,6 +95,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _pulseCtrl = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat();
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
+    _restoreLocal();
     _loadSettings();
     _calcCache();
   }
@@ -383,10 +385,36 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Future<void> _toggleChannel(String name, bool current) async {
-    setState(() => _channels[name] = !current);
-    await XlClient.stub.safe(() => XlClient.stub.updateSettings(pb.SettingsRequest()));
+    final next = !current;
+    setState(() => _channels[name] = next);
+    await _persistChannels();
     if (!mounted) return;
-    _showSnack('$name ${!current ? '已启用' : '已禁用'}');
+    _showSnack('$name ${next ? '已启用' : '已禁用'}');
+  }
+
+  Future<void> _persistChannels() async {
+    await LocalStore.writeJson('channels.json', {
+      'channels': Map<String, bool>.from(_channels),
+      'toggles': Map<String, bool>.from(_toggles),
+      'theme': _theme,
+    });
+  }
+
+  Future<void> _restoreLocal() async {
+    final data = await LocalStore.readJson('channels.json');
+    if (!mounted) return;
+    setState(() {
+      final ch = data['channels'];
+      if (ch is Map) ch.forEach((k, v) {
+        if (v is bool) _channels[k.toString()] = v;
+      });
+      final tg = data['toggles'];
+      if (tg is Map) tg.forEach((k, v) {
+        if (v is bool) _toggles[k.toString()] = v;
+      });
+      final th = data['theme'];
+      if (th is String && th.isNotEmpty) _theme = th;
+    });
   }
 
   Color _colorOf(XlPalette p, String key) {
@@ -1702,6 +1730,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _history.add(_SettingChange(key, oldValue));
     _logChange(key, newValue);
     if (_history.length > 10) _history.removeAt(0);
+    _pushToggleToBackend(key, newValue);
+    _persistChannels();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -1719,6 +1749,31 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           },
         ),
       ));
+  }
+
+  Future<void> _pushToggleToBackend(String key, bool value) async {
+    final req = pb.SettingsRequest();
+    switch (key) {
+      case 'alwaysOnTop':
+        req.alwaysOnTop = value;
+        break;
+      case 'autoStart':
+        req.autoStart = value;
+        break;
+      case 'asr':
+        req.asrEnabled = value;
+        break;
+      case 'tts':
+        req.ttsEnabled = value;
+        break;
+      case 'readAloud':
+        req.readAloudMode = value;
+        break;
+      default:
+        return;
+    }
+    await XlClient.stub.safe(() => XlClient.stub.updateSettings(req));
+    await XlClient.stub.safe(() => XlClient.stub.settings());
   }
 
   Widget _toggle(XlPalette p, bool on, Color color, VoidCallback onTap) {

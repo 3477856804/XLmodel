@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
 
 class SecurityPanel extends StatefulWidget {
   const SecurityPanel({super.key});
@@ -83,6 +86,48 @@ class _SecurityPanelState extends State<SecurityPanel> {
       default:
         return '低';
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    try {
+      final reply = await XlClient.stub.command('security:config');
+      final decoded = jsonDecode(reply.output);
+      if (!mounted) return;
+      setState(() {
+        final perms = decoded['permissions'];
+        if (perms is Map) {
+          for (final t in _tools) {
+            if (perms.containsKey(t.name)) t.allowed = perms[t.name] == true;
+          }
+        }
+        final dirs = decoded['protected_dirs'];
+        if (dirs is List && dirs.isNotEmpty) {
+          _protectedDirs
+            ..clear()
+            ..addAll(dirs.map((e) => e.toString()));
+        }
+        final audit = decoded['audit_log'];
+        if (audit is List && audit.isNotEmpty) {
+          _audit
+            ..clear()
+            ..addAll(audit.map((a) {
+              final m = (a is Map) ? a : {};
+              return _AuditEntry(
+                time: (m['time'] ?? '').toString(),
+                action: (m['action'] ?? '').toString(),
+                detail: (m['detail'] ?? '').toString(),
+                risk: (m['risk'] ?? 'low').toString(),
+              );
+            }));
+        }
+      });
+    } catch (_) {}
   }
 
   @override
@@ -243,7 +288,12 @@ class _SecurityPanelState extends State<SecurityPanel> {
                       ),
                     ),
                     _miniSwitch(p, t.allowed, t.needApproval ? p.gold : p.pink,
-                        () => setState(() => t.allowed = !t.allowed)),
+                        () async {
+                      final next = !t.allowed;
+                      setState(() => t.allowed = next);
+                      await XlClient.stub.safe(() =>
+                          XlClient.stub.command('security:set ${t.name} $next'));
+                    }),
                   ],
                 ),
               ),
@@ -292,7 +342,11 @@ class _SecurityPanelState extends State<SecurityPanel> {
                           style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w600, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
                     ),
                     GestureDetector(
-                      onTap: () => setState(() => _protectedDirs.remove(d)),
+                      onTap: () async {
+                        setState(() => _protectedDirs.remove(d));
+                        await XlClient.stub.safe(() =>
+                            XlClient.stub.command('security:remove_dir $d'));
+                      },
                       child: Icon(Icons.remove_circle_outline_rounded, size: 16, color: p.red),
                     ),
                   ],
@@ -320,13 +374,15 @@ class _SecurityPanelState extends State<SecurityPanel> {
             ),
             const SizedBox(width: 10),
             GestureDetector(
-              onTap: () {
+              onTap: () async {
                 final v = _dirCtrl.text.trim();
                 if (v.isEmpty) return;
                 setState(() {
                   if (!_protectedDirs.contains(v)) _protectedDirs.add(v);
                   _dirCtrl.clear();
                 });
+                await XlClient.stub.safe(() =>
+                    XlClient.stub.command('security:add_dir $v'));
               },
               child: Container(
                 width: 42,
