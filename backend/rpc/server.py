@@ -1184,6 +1184,243 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
 
 
 # --------------------------------------------------------------------------- #
+#  增量完善（v0.0.1）：请求限流 / 服务端指标 / 优雅关闭跟踪 / 子系统健康
+#  说明：以下均为独立新增工具类与函数，不改动上方既有 servicer 方法签名与行为。
+# --------------------------------------------------------------------------- #
+import collections as _collections                                  # noqa: E402
+import contextlib as _contextlib                                    # noqa: E402
+
+
+class RateLimiter:
+    """固定窗口限流器：按 (client_ip, method) 维度限速。
+
+    每个时间窗口内同一 key 的请求数超过 max_per_window 时拒绝后续请求。
+    所有内部操作均带 try-except，限流本身异常绝不影响业务主流程。
+    """
+
+    def __init__(self, max_per_window: int = 60, window_sec: float = 10.0):
+        self.max_per_window = max(1, int(max_per_window))
+        self.window_sec = max(1.0, float(window_sec))
+        self._buckets: dict = {}
+        self._lock = threading.Lock()
+
+    def allow(self, client_ip: str, method: str) -> bool:
+        """判断该 (ip, method) 请求是否放行；超限返回 False。"""
+        try:
+            now = time.time()
+            bucket_start = (now // self.window_sec) * self.window_sec
+            key = f"{client_ip or 'unknown'}|{method or '*'}"
+            with self._lock:
+                start, count = self._buckets.get(key, (bucket_start, 0))
+                if start < bucket_start:
+                    start, count = bucket_start, 0
+                count += 1
+                self._buckets[key] = (start, count)
+                # 顺带清理过期桶，防止内存膨胀
+                if len(self._buckets) > 4096:
+                    stale = [k for k, (s, _) in self._buckets.items()
+                             if s < bucket_start]
+                    for k in stale:
+                        self._buckets.pop(k, None)
+                return count <= self.max_per_window
+        except Exception:                                              # noqa: BLE001
+            return True
+
+    def snapshot(self) -> dict:
+        """返回当前限流桶快照（用于状态面板展示）。"""
+        try:
+            with self._lock:
+                return {"keys": len(self._buckets),
+                        "max_per_window": self.max_per_window,
+                        "window_sec": self.window_sec}
+        except Exception:                                              # noqa: BLE001
+            return {}
+
+
+class ServerMetrics:
+    """进程内服务端指标收集：QPS / 错误率 / 延迟直方图。
+
+    与既有 _request_stats 并存，本类额外提供分位数延迟与直方图分布，
+    线程安全；任何异常都被吞掉，指标采集不影响请求处理。
+    """
+
+    _BUCKETS_MS = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._total = 0
+        self._errors = 0
+        self._hist = {b: 0 for b in self._BUCKETS_MS}
+        self._samples: "_collections.deque" = _collections.deque(maxlen=1024)
+
+    def observe(self, method: str, duration_ms: float, ok: bool) -> None:
+        """记录一次 RPC：方法名、耗时（毫秒）、成功与否。"""
+        try:
+            dur = max(0.0, float(duration_ms or 0.0))
+            with self._lock:
+                self._total += 1
+                if not ok:
+                    self._errors += 1
+                self._samples.append(dur)
+                placed = False
+                for b in self._BUCKETS_MS:
+                    if dur <= b:
+                        self._hist[b] += 1
+                        placed = True
+                        break
+                if not placed:
+                    self._hist[self._BUCKETS_MS[-1]] += 1
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def qps(self) -> float:
+        """基于最近样本平均耗时估算的瞬时 QPS。"""
+        try:
+            with self._lock:
+                n = len(self._samples)
+                if n < 2:
+                    return 0.0
+                avg_s = sum(self._samples) / n / 1000.0
+                return round(1.0 / avg_s, 2) if avg_s > 0 else 0.0
+        except Exception:                                              # noqa: BLE001
+            return 0.0
+
+    def error_rate(self) -> float:
+        """累计错误率（0-1）。"""
+        try:
+            with self._lock:
+                return round(self._errors / self._total, 4) if self._total else 0.0
+        except Exception:                                              # noqa: BLE001
+            return 0.0
+
+    def latency_percentile(self, pct: float = 95.0) -> float:
+        """返回延迟分位数（毫秒），pct 取 0-100。"""
+        try:
+            with self._lock:
+                if not self._samples:
+                    return 0.0
+                data = sorted(self._samples)
+                k = max(0, min(len(data) - 1,
+                               int(round(pct / 100.0 * (len(data) - 1)))))
+                return round(data[k], 1)
+        except Exception:                                              # noqa: BLE001
+            return 0.0
+
+    def snapshot(self) -> dict:
+        """汇总全部指标为字典。"""
+        try:
+            with self._lock:
+                return {
+                    "total": self._total,
+                    "errors": self._errors,
+                    "qps": self.qps(),
+                    "error_rate": self.error_rate(),
+                    "p50_ms": self.latency_percentile(50),
+                    "p95_ms": self.latency_percentile(95),
+                    "histogram": dict(self._hist),
+                }
+        except Exception:                                              # noqa: BLE001
+            return {}
+
+
+class InFlightTracker:
+    """跟踪正在处理的 RPC 数量，支持优雅关闭时等待进行中请求排空。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._active = 0
+        self._done = threading.Event()
+        self._done.set()
+
+    @_contextlib.contextmanager
+    def track(self, method: str = ""):
+        """上下文管理器：进入 +1，退出 -1；归零时置位 done 事件。"""
+        try:
+            with self._lock:
+                self._active += 1
+                self._done.clear()
+        except Exception:                                              # noqa: BLE001
+            pass
+        try:
+            yield
+        finally:
+            try:
+                with self._lock:
+                    self._active = max(0, self._active - 1)
+                    if self._active == 0:
+                        self._done.set()
+            except Exception:                                          # noqa: BLE001
+                pass
+
+    def count(self) -> int:
+        try:
+            with self._lock:
+                return self._active
+        except Exception:                                              # noqa: BLE001
+            return 0
+
+    def wait_idle(self, timeout: float = 10.0) -> bool:
+        """等待进行中请求排空；超时返回 False。"""
+        try:
+            return self._done.wait(timeout=timeout)
+        except Exception:                                              # noqa: BLE001
+            return False
+
+
+# 全局单例（供未来中间件 / 健康检查挂载使用）
+_rate_limiter = RateLimiter()
+_server_metrics = ServerMetrics()
+_inflight_tracker = InFlightTracker()
+
+
+def _disk_free_gb(path: str) -> float:
+    """返回路径所在磁盘剩余空间（GB），失败返回 0.0。"""
+    try:
+        st = os.statvfs(path)
+        return float(st.f_bavail) * float(st.f_frsize) / (1024 ** 3)
+    except Exception:                                                  # noqa: BLE001
+        return 0.0
+
+
+def subsystem_health() -> dict:
+    """汇总各子系统健康状态：引擎 / 终端 / 文件 / 磁盘 / 指标。
+
+    每个子系统单独 try-except，任一异常只标记该子系统为 unknown，
+    绝不影响整体健康检查返回。
+    """
+    out: dict = {"overall": "ok", "checks": {}, "ts": time.time()}
+
+    def _mark(name: str, fn):
+        try:
+            out["checks"][name] = fn()
+        except Exception as e:                                          # noqa: BLE001
+            out["checks"][name] = {"status": "unknown",
+                                   "error": f"{type(e).__name__}: {e}"}
+
+    _mark("engine", lambda: {
+        "status": "ready" if _get_engine() is not None else "degraded",
+    })
+    _mark("terminal", lambda: {
+        "status": "ready" if _get_terminal_manager() is not None else "stopped",
+    })
+    _mark("file_manager", lambda: {
+        "status": "ready" if _get_file_manager() is not None else "stopped",
+    })
+    _mark("disk", lambda: {"free_gb": round(_disk_free_gb(_PROJECT_ROOT), 2)})
+    _mark("metrics", lambda: _server_metrics.snapshot())
+    # 聚合：任一子系统 degraded/unknown 则整体降级
+    try:
+        for c in out["checks"].values():
+            st = str(c.get("status", "ok"))
+            if st in ("degraded", "unknown", "stopped"):
+                out["overall"] = "degraded"
+                break
+    except Exception:                                                  # noqa: BLE001
+        out["overall"] = "degraded"
+    return out
+
+
+# --------------------------------------------------------------------------- #
 #  入口
 # --------------------------------------------------------------------------- #
 def serve(port: int = 50051):

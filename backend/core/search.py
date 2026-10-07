@@ -319,6 +319,175 @@ def search_code(query: str, path: str = ".", max_results: int = 50) -> list:
     return out
 
 
+# ============================================================================
+# 增量完善（v0.0.1）：增强缓存 / 热词统计 / 搜索建议 / 多源聚合
+# 说明：以下均为独立新增类与函数，不改动上方既有搜索行为与函数签名。
+# ============================================================================
+import collections as _collections                                       # noqa: E402
+import threading as _threading                                          # noqa: E402
+
+
+class LruTtlCache:
+    """带 LRU 淘汰与 TTL 过期的键值缓存，线程安全。
+
+    相比模块级 _cache（简单字典），本类用 OrderedDict 实现真正的 LRU：
+    命中即刷新到末尾，超容量时淘汰最久未使用项；过期项惰性清理。
+    """
+
+    def __init__(self, max_size: int = 128, ttl: float = 300.0):
+        self.max_size = max(1, int(max_size))
+        self.ttl = max(1.0, float(ttl))
+        self._store: "_collections.OrderedDict" = _collections.OrderedDict()
+        self._lock = _threading.Lock()
+
+    def get(self, key: str):
+        """取缓存；未命中或已过期返回 None。"""
+        try:
+            now = time.time()
+            with self._lock:
+                item = self._store.get(key)
+                if item is None:
+                    return None
+                ts, value = item
+                if (now - ts) > self.ttl:
+                    self._store.pop(key, None)
+                    return None
+                self._store.move_to_end(key)
+                return value
+        except Exception:                                                  # noqa: BLE001
+            return None
+
+    def put(self, key: str, value) -> None:
+        """写入缓存；超容量时淘汰最久未使用项。"""
+        try:
+            with self._lock:
+                self._store[key] = (time.time(), value)
+                self._store.move_to_end(key)
+                while len(self._store) > self.max_size:
+                    self._store.popitem(last=False)
+        except Exception:                                                  # noqa: BLE001
+            pass
+
+    def evict_expired(self) -> int:
+        """主动清理过期项，返回清理条数。"""
+        try:
+            now = time.time()
+            n = 0
+            with self._lock:
+                stale = [k for k, (ts, _) in self._store.items()
+                         if (now - ts) > self.ttl]
+                for k in stale:
+                    self._store.pop(k, None)
+                    n += 1
+            return n
+        except Exception:                                                  # noqa: BLE001
+            return 0
+
+    def __len__(self) -> int:
+        try:
+            with self._lock:
+                return len(self._store)
+        except Exception:                                                  # noqa: BLE001
+            return 0
+
+
+class HotWordTracker:
+    """搜索热词统计：按 query 频次计数，输出 TopN 热词。"""
+
+    def __init__(self, max_terms: int = 1024):
+        self.max_terms = max(16, int(max_terms))
+        self._freq: dict = {}
+        self._lock = _threading.Lock()
+
+    def record(self, query: str) -> None:
+        """记录一次搜索词；词表超容量时淘汰计数最低的一半。"""
+        try:
+            q = (query or "").strip()
+            if not q:
+                return
+            with self._lock:
+                self._freq[q] = self._freq.get(q, 0) + 1
+                if len(self._freq) > self.max_terms:
+                    drop = sorted(self._freq.items(), key=lambda kv: kv[1])
+                    for k, _ in drop[:max(1, len(self._freq) // 2)]:
+                        self._freq.pop(k, None)
+        except Exception:                                                  # noqa: BLE001
+            pass
+
+    def top(self, n: int = 10) -> list:
+        """返回 [(word, count), ...] 按频次降序。"""
+        try:
+            with self._lock:
+                items = sorted(self._freq.items(),
+                               key=lambda kv: kv[1], reverse=True)
+                return [(w, c) for w, c in items[:max(1, n)]]
+        except Exception:                                                  # noqa: BLE001
+            return []
+
+
+# 全局热词跟踪器（与既有 _history 并存，互不影响）
+_hot_words = HotWordTracker()
+
+
+def search_suggestions(prefix: str, limit: int = 5) -> list:
+    """基于已有搜索历史与热词表的前缀自动补全建议。
+
+    合并历史前缀命中与热词前缀命中，去重后按热度返回前 limit 条。
+    """
+    try:
+        p = (prefix or "").strip().lower()
+        if not p:
+            return []
+        hist = get_history()
+        sug = [h for h in hist if h.lower().startswith(p)]
+        for w, _c in _hot_words.top(50):
+            if w.lower().startswith(p) and w not in sug:
+                sug.append(w)
+        return sug[:max(1, limit)]
+    except Exception:                                                  # noqa: BLE001
+        return []
+
+
+def search_multi_source(query: str, n: int = 5,
+                        engines=("duckduckgo", "searx")) -> list:
+    """多源聚合搜索：同时查询多个搜索引擎，按 URL 去重合并。
+
+    结果按来源顺序加权打分（先返回的源权重更高），同 URL 保留较长
+    snippet 并叠加权重；任一源失败自动跳过，绝不抛异常。
+    """
+    try:
+        merged: dict = {}
+        for idx, eng in enumerate(engines or ("duckduckgo",)):
+            weight = max(1.0, float(len(list(engines)) - idx))
+            try:
+                if eng == "searx":
+                    res = _searx(query, n)
+                else:
+                    res = _ddg(query, n)
+            except Exception:                                          # noqa: BLE001
+                continue
+            for r in (res or []):
+                url = str(r.get("url") or "")
+                key = url or str(r.get("title") or "")
+                if not key:
+                    continue
+                if key in merged:
+                    old = merged[key]
+                    if len(str(r.get("snippet") or "")) > len(
+                            str(old.get("snippet") or "")):
+                        old["snippet"] = r.get("snippet", old.get("snippet"))
+                    old["score"] = old.get("score", 1.0) + weight
+                else:
+                    merged[key] = dict(r)
+                    merged[key]["score"] = weight
+                    merged[key]["source"] = eng
+        out = list(merged.values())
+        out.sort(key=lambda r: r.get("score", 1.0), reverse=True)
+        return out[:max(1, n)]
+    except Exception:                                                  # noqa: BLE001
+        return []
+
+
 if __name__ == '__main__':
     import sys
     q = ' '.join(sys.argv[1:]) or '今天有什么新闻'

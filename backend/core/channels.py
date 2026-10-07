@@ -662,3 +662,233 @@ class ChannelManager:
                                 args=[channel_name]).start()
 
         threading.Thread(target=_do_reconnect, daemon=True).start()
+
+
+# ============================================================================
+# 增量完善（v0.0.1）：消息模板 / 通道统计 / 消息去重 / 失败重试队列
+# 说明：以下均为独立新增类，不改动上方既有通道实现与方法签名。
+# ============================================================================
+import hashlib as _hashlib                                              # noqa: E402
+import re as _re                                                        # noqa: E402
+
+
+class MessageTemplate:
+    """通用消息模板：支持 {var} 占位符替换与缺省值兜底。
+
+    用法:
+        t = MessageTemplate("{user} 你好，当前进度 {progress}%")
+        t.render({"user": "小明", "progress": 42})
+        # -> "小明 你好，当前进度 42%"
+    """
+
+    _VAR_RE = _re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+    def __init__(self, template: str):
+        self.template = str(template or "")
+
+    def render(self, variables: dict = None) -> str:
+        """按 variables 替换占位符；缺失变量替换为空串，绝不抛异常。"""
+        try:
+            vars_map = variables or {}
+
+            def _sub(m):
+                val = vars_map.get(m.group(1), "")
+                return str(val) if val is not None else ""
+
+            return self._VAR_RE.sub(_sub, self.template)
+        except Exception:                                              # noqa: BLE001
+            return self.template
+
+    @staticmethod
+    def safe_render(template: str, variables: dict = None) -> str:
+        """静态便捷方法：一次成型的模板渲染。"""
+        try:
+            return MessageTemplate(template).render(variables)
+        except Exception:                                              # noqa: BLE001
+            return str(template or "")
+
+
+class ChannelStats:
+    """按通道统计发送数 / 失败数 / 成功率 / 平均耗时。线程安全。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._data: Dict[str, dict] = {}
+
+    def record(self, channel: str, ok: bool, latency_ms: float) -> None:
+        """记录一次发送结果。"""
+        try:
+            c = str(channel or "unknown")
+            with self._lock:
+                d = self._data.setdefault(
+                    c, {"sent": 0, "failed": 0, "total_ms": 0.0})
+                d["sent"] += 1
+                if not ok:
+                    d["failed"] += 1
+                d["total_ms"] += max(0.0, float(latency_ms or 0.0))
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def summary(self, channel: str = "") -> dict:
+        """返回某通道或全部通道的统计摘要。"""
+        try:
+            with self._lock:
+                if channel:
+                    d = self._data.get(str(channel))
+                    return self._summarize(str(channel), d) if d else {}
+                return {n: self._summarize(n, d)
+                        for n, d in self._data.items()}
+        except Exception:                                              # noqa: BLE001
+            return {}
+
+    @staticmethod
+    def _summarize(name: str, d: dict) -> dict:
+        try:
+            sent = int(d.get("sent", 0))
+            failed = int(d.get("failed", 0))
+            ok_cnt = sent - failed
+            avg = (float(d.get("total_ms", 0.0)) / sent) if sent else 0.0
+            return {"channel": name, "sent": sent, "failed": failed,
+                    "success_rate": round(ok_cnt / sent, 4) if sent else 0.0,
+                    "avg_ms": round(avg, 2)}
+        except Exception:                                              # noqa: BLE001
+            return {"channel": name}
+
+    def reset(self, channel: str = "") -> None:
+        """清空某通道或全部通道的统计。"""
+        try:
+            with self._lock:
+                if channel:
+                    self._data.pop(str(channel), None)
+                else:
+                    self._data.clear()
+        except Exception:                                              # noqa: BLE001
+            pass
+
+
+class MessageDeduplicator:
+    """基于 (channel, content) 哈希的发送去重。
+
+    时间窗口内相同内容视为重复，避免重复推送；采用 OrderedDict 实现
+    LRU 淘汰，防止条目无限增长。
+    """
+
+    def __init__(self, window_sec: float = 60.0, max_entries: int = 512):
+        self.window_sec = max(1.0, float(window_sec))
+        self.max_entries = max(16, int(max_entries))
+        self._seen: "collections.OrderedDict" = collections.OrderedDict()
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _key(channel: str, content: str) -> str:
+        raw = f"{channel}|{content}".encode("utf-8", "ignore")
+        return _hashlib.md5(raw).hexdigest()
+
+    def is_duplicate(self, channel: str, content: str) -> bool:
+        """若窗口内已发送过相同内容，返回 True。"""
+        try:
+            now = time.time()
+            key = self._key(channel, content)
+            with self._lock:
+                self._gc(now)
+                ts = self._seen.get(key)
+                return ts is not None and (now - ts) < self.window_sec
+        except Exception:                                              # noqa: BLE001
+            return False
+
+    def mark_sent(self, channel: str, content: str) -> None:
+        """记录一次发送，供后续去重判断。"""
+        try:
+            now = time.time()
+            key = self._key(channel, content)
+            with self._lock:
+                self._gc(now)
+                self._seen[key] = now
+                self._seen.move_to_end(key)
+                while len(self._seen) > self.max_entries:
+                    self._seen.popitem(last=False)
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def _gc(self, now: float) -> None:
+        try:
+            expired = [k for k, ts in self._seen.items()
+                       if (now - ts) >= self.window_sec]
+            for k in expired:
+                self._seen.pop(k, None)
+        except Exception:                                              # noqa: BLE001
+            pass
+
+
+class RetryQueue:
+    """失败消息重试队列：记录发送失败的消息，支持指数退避重试。
+
+    持久化于内存（重启即清空）；每条消息最多重试 max_retries 次。
+    所有方法均带 try-except，队列异常不影响主发送流程。
+    """
+
+    def __init__(self, max_retries: int = 3, backoff_base: float = 2.0):
+        self.max_retries = max(0, int(max_retries))
+        self.backoff_base = max(1.0, float(backoff_base))
+        self._items: Dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def enqueue(self, channel: str, to: str, content: str) -> str:
+        """入队一条失败消息，返回消息 id；失败返回空串。"""
+        try:
+            msg_id = _hashlib.md5(
+                f"{channel}|{to}|{content}|{time.time()}".encode(
+                    "utf-8", "ignore")).hexdigest()[:16]
+            now = time.time()
+            with self._lock:
+                self._items[msg_id] = {
+                    "id": msg_id, "channel": channel, "to": to,
+                    "content": content, "retries": 0,
+                    "next_try": now, "created_at": now,
+                }
+            return msg_id
+        except Exception:                                              # noqa: BLE001
+            return ""
+
+    def ready(self) -> list:
+        """返回当前可重试的消息列表（已到达 next_try 时间）。"""
+        try:
+            now = time.time()
+            with self._lock:
+                return [dict(it) for it in self._items.values()
+                        if it["next_try"] <= now]
+        except Exception:                                              # noqa: BLE001
+            return []
+
+    def ack(self, msg_id: str) -> None:
+        """重试成功，从队列移除该消息。"""
+        try:
+            with self._lock:
+                self._items.pop(msg_id, None)
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def fail(self, msg_id: str) -> int:
+        """记录一次失败：递增次数并按指数退避设定下次重试；超限移除返回 0。"""
+        try:
+            with self._lock:
+                it = self._items.get(msg_id)
+                if not it:
+                    return 0
+                it["retries"] += 1
+                if it["retries"] > self.max_retries:
+                    self._items.pop(msg_id, None)
+                    return 0
+                delay = self.backoff_base ** it["retries"]
+                it["next_try"] = time.time() + delay
+                return it["retries"]
+        except Exception:                                              # noqa: BLE001
+            return 0
+
+    def pending_count(self) -> int:
+        """当前队列中待重试消息总数。"""
+        try:
+            with self._lock:
+                return len(self._items)
+        except Exception:                                              # noqa: BLE001
+            return 0
