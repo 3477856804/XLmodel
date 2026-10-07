@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
@@ -25,6 +29,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   late Animation<double> _radialAnim;
   late Animation<double> _timelineAnim;
   int _rangeIndex = 1;
+  int _dailyGoal = 10;
 
   static const _ranges = <String>['7 天', '30 天', '全部'];
 
@@ -74,6 +79,226 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
         _loading = false;
       });
     }
+  }
+
+  int _todayCount(pb.GrowthStatusReply g) => (g.totalInteractions * 0.06).round();
+
+  Future<void> _exportGrowthData() async {
+    final g = _data;
+    if (g == null) return;
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final now = DateTime.now();
+      final stamp = '${now.year}${_two(now.month)}${_two(now.day)}';
+      final rows = <List<String>>[
+        ['metric', 'value'],
+        ['displayRank', g.displayRank],
+        ['displayStage', g.displayStage],
+        ['displayEmotion', g.displayEmotion],
+        ['totalInteractions', '${g.totalInteractions}'],
+        ['currentGeneration', '${g.currentGeneration}'],
+        ['totalGenerations', '${g.totalGenerations}'],
+        ['normalizedProgress', g.normalizedProgress.toStringAsFixed(2)],
+        ['emotionEnergy', g.emotionEnergy.toStringAsFixed(2)],
+      ];
+      final csv = rows.map((r) => r.map((c) => '"$c"').join(',')).join('\n');
+      final csvFile = File(p.join(docs.path, 'growth_$stamp.csv'));
+      await csvFile.writeAsString(csv);
+      final jsonFile = File(p.join(docs.path, 'growth_$stamp.json'));
+      await jsonFile.writeAsString(const JsonEncoder.withIndent('  ').convert({
+        'rank': g.displayRank,
+        'stage': g.displayStage,
+        'emotion': g.displayEmotion,
+        'interactions': g.totalInteractions,
+        'generation': '${g.currentGeneration}/${g.totalGenerations}',
+        'progress': g.normalizedProgress,
+        'exportedAt': now.toIso8601String(),
+      }));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(milliseconds: 2000),
+          content: Text('成长数据已导出（growth_$stamp）', style: const TextStyle(fontWeight: FontWeight.w600)),
+        ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text('导出失败：$e')));
+    }
+  }
+
+  Widget _dailyGoalCard(XlPalette p) {
+    final g = _data!;
+    final today = _todayCount(g);
+    final ratio = (today / _dailyGoal).clamp(0.0, 1.0);
+    final done = today >= _dailyGoal;
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.flag_rounded, size: 18, color: p.gold),
+              const SizedBox(width: 10),
+              Text('每日互动目标',
+                  style: TextStyle(
+                      fontSize: XlFont.h6,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                      letterSpacing: XlLetterSpacing.normal)),
+              const Spacer(),
+              _tinyChip(p, done ? '已达成' : '进行中', done ? p.green : p.gold),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              _AnimatedCounter(
+                value: today.toDouble(),
+                decimals: 0,
+                duration: const Duration(milliseconds: 700),
+                style: TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.w800,
+                    color: p.text1,
+                    letterSpacing: -1.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    height: 1.0),
+              ),
+              Text(' / $_dailyGoal 次',
+                  style: TextStyle(
+                      fontSize: XlFont.caption,
+                      fontWeight: FontWeight.w700,
+                      color: p.text3,
+                      letterSpacing: XlLetterSpacing.wide)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: ratio),
+              duration: const Duration(milliseconds: 900),
+              curve: XlCurve.easeOut,
+              builder: (_, v, __) => Container(
+                height: 10,
+                decoration: BoxDecoration(
+                  color: p.surfaceLo,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: v,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [p.gold, p.pink]),
+                      borderRadius: BorderRadius.circular(99),
+                      boxShadow: [BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 10, spreadRadius: -2)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _goalStepBtn(p, Icons.remove_rounded, () {
+                if (_dailyGoal > 5) setState(() => _dailyGoal -= 5);
+              }),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('目标每 5 次可调，今天再聊 ${(_dailyGoal - today).clamp(0, 999)} 次即可达标',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: XlFont.label,
+                        color: p.text3,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: XlLetterSpacing.wider)),
+              ),
+              const SizedBox(width: 10),
+              _goalStepBtn(p, Icons.add_rounded, () {
+                if (_dailyGoal < 100) setState(() => _dailyGoal += 5);
+              }),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _goalStepBtn(XlPalette p, IconData icon, VoidCallback onTap) {
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
+        child: Icon(icon, size: 16, color: p.pink),
+      ),
+    );
+  }
+
+  Widget _weekCompareCard(XlPalette p) {
+    final thisWeek = <double>[4, 6, 5, 8, 7, 9, 6];
+    final lastWeek = <double>[3, 5, 4, 6, 5, 7, 5];
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bar_chart_rounded, size: 18, color: p.pink),
+              const SizedBox(width: 10),
+              Text('本周 vs 上周',
+                  style: TextStyle(
+                      fontSize: XlFont.h6,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                      letterSpacing: XlLetterSpacing.normal)),
+              const Spacer(),
+              _legendDot(p, p.pink, '本周'),
+              const SizedBox(width: 12),
+              _legendDot(p, p.text3, '上周'),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 150,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _WeekComparePainter(
+                thisWeek: thisWeek,
+                lastWeek: lastWeek,
+                pink: p.pink,
+                track: p.surfaceLo,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: ['一', '二', '三', '四', '五', '六', '日']
+                .map((d) => Text(d,
+                    style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: p.decor,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: XlLetterSpacing.wider)))
+                .toList(),
+          ),
+        ],
+      ),
+    );
   }
 
   Color _colorOf(XlPalette p, String key) {
@@ -162,9 +387,11 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
           const SizedBox(height: 20),
           _stagger(3, _statsGrid(p)),
           const SizedBox(height: 20),
-          _stagger(4, _timelineHeaderCard(p)),
+          _stagger(4, _growthTools(p)),
           const SizedBox(height: 20),
-          _stagger(5, _timelineList(p)),
+          _stagger(5, _timelineHeaderCard(p)),
+          const SizedBox(height: 20),
+          _stagger(6, _timelineList(p)),
         ],
       ),
     );
@@ -825,6 +1052,56 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _growthTools(XlPalette p) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, c) {
+            if (c.maxWidth < 900) {
+              return Column(
+                children: [
+                  _dailyGoalCard(p),
+                  const SizedBox(height: 18),
+                  _weekCompareCard(p),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _dailyGoalCard(p)),
+                const SizedBox(width: 18),
+                Expanded(child: _weekCompareCard(p)),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+        _Pressable(
+          onTap: _exportGrowthData,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.ios_share_rounded, size: 15, color: p.pink),
+                const SizedBox(width: 8),
+                Text('导出成长数据',
+                    style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        fontWeight: FontWeight.w700,
+                        color: p.text1,
+                        letterSpacing: XlLetterSpacing.wider)),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1788,4 +2065,53 @@ class _SparklinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SparklinePainter old) =>
       old.values != values || old.color != color;
+}
+
+class _WeekComparePainter extends CustomPainter {
+  final List<double> thisWeek;
+  final List<double> lastWeek;
+  final Color pink;
+  final Color track;
+  _WeekComparePainter({
+    required this.thisWeek,
+    required this.lastWeek,
+    required this.pink,
+    required this.track,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final n = thisWeek.length;
+    if (n == 0) return;
+    final maxV = math.max(
+      thisWeek.reduce(math.max),
+      lastWeek.reduce(math.max),
+    );
+    final groupW = size.width / n;
+    final barW = groupW * 0.26;
+    final baseline = size.height - 4;
+    for (var i = 0; i < n; i++) {
+      final cx = groupW * i + groupW / 2;
+      final hLast = (lastWeek[i] / maxV) * (size.height - 20);
+      final hThis = (thisWeek[i] / maxV) * (size.height - 20);
+      final lastRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cx - barW * 0.7, baseline - hLast / 2), width: barW, height: hLast),
+        Radius.circular(barW / 2),
+      );
+      canvas.drawRRect(lastRect, Paint()..color = track);
+      final thisRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cx + barW * 0.7, baseline - hThis / 2), width: barW, height: hThis),
+        Radius.circular(barW / 2),
+      );
+      canvas.drawRRect(
+        thisRect,
+        Paint()
+          ..shader = LinearGradient(colors: [pink, pink.withOpacity(0.7)]).createShader(thisRect.outerRect),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WeekComparePainter old) =>
+      old.thisWeek != thisWeek || old.lastWeek != lastWeek || old.pink != pink;
 }

@@ -30,6 +30,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   final Map<String, double> _dlSpeed = {};
   final Map<String, int> _lastDlTick = {};
   final Set<String> _compareSelected = {};
+  final Set<String> _favorites = {};
+  bool _favOnly = false;
+  String _quantFilter = 'all';
   String? _installedName;
   late AnimationController _enterCtrl;
   late AnimationController _pulseCtrl;
@@ -191,6 +194,8 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   List<_ModelItem> get _filtered {
     var list = _source.where((it) {
       if (_category != 'all' && it.category != _category) return false;
+      if (_favOnly && !_favorites.contains(it.name)) return false;
+      if (_quantFilter != 'all' && !it.quant.toUpperCase().startsWith(_quantFilter)) return false;
       if (_query.isEmpty) return true;
       return it.name.toLowerCase().contains(_query) ||
           it.params.toLowerCase().contains(_query) ||
@@ -253,6 +258,10 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
           const SizedBox(height: 20),
           _toolbar(p),
           const SizedBox(height: 14),
+          if (_downloading.isNotEmpty) ...[
+            _downloadQueueBar(p),
+            const SizedBox(height: 14),
+          ],
           if (_compareSelected.length >= 2) _compareBar(p),
           const SizedBox(height: 18),
           _grid(p),
@@ -749,6 +758,8 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
               },
             ),
           ),
+          const SizedBox(height: 12),
+          Align(alignment: Alignment.centerLeft, child: _filterExtras(p)),
         ],
       ),
     );
@@ -904,6 +915,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                     ],
                   ),
                 ),
+                _favHeart(p, m),
                 _statusPill(p, m.canRun, installed, downloading),
               ],
             ),
@@ -1468,6 +1480,169 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
         );
       });
     }
+  }
+
+  Widget _downloadQueueBar(XlPalette p) {
+    final active = _downloading.toList();
+    final overall = active.isEmpty
+        ? 0.0
+        : active.map((n) => _dlInfo[n]?.ratio ?? 0.0).reduce((a, b) => a + b) / active.length;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.download_for_offline_rounded, size: 16, color: p.pink),
+              const SizedBox(width: 10),
+              Text('下载队列',
+                  style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                      letterSpacing: XlLetterSpacing.wide)),
+              const Spacer(),
+              _chip(p, '${active.length} 个任务', p.gold),
+              const SizedBox(width: 8),
+              _chip(p, '${(overall * 100).toStringAsFixed(0)}%', p.green),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: Container(
+              height: 6,
+              color: p.surfaceLo,
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: overall.clamp(0.0, 1.0),
+                child: Container(
+                  decoration: BoxDecoration(gradient: p.gradBrand, borderRadius: BorderRadius.circular(99)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (final name in active)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: AppTheme.glowDot(p.pink, size: 6),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: XlFont.label,
+                            color: p.text2,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: XlLetterSpacing.wide)),
+                  ),
+                  Text(_dlInfo[name]?.sizeLabel ?? '',
+                      style: TextStyle(
+                          fontSize: XlFont.micro,
+                          color: p.decor,
+                          fontWeight: FontWeight.w700,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                  const SizedBox(width: 8),
+                  Text('${((_dlInfo[name]?.ratio ?? 0) * 100).toStringAsFixed(0)}%',
+                      style: TextStyle(
+                          fontSize: XlFont.label,
+                          color: p.pink,
+                          fontWeight: FontWeight.w800,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _favHeart(XlPalette p, _ModelItem m) {
+    final fav = _favorites.contains(m.name);
+    return _Pressable(
+      onTap: () => setState(() {
+        if (fav) {
+          _favorites.remove(m.name);
+        } else {
+          _favorites.add(m.name);
+        }
+      }),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: Icon(
+          fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          size: 18,
+          color: fav ? p.pink : p.decor,
+        ),
+      ),
+    );
+  }
+
+  Widget _filterExtras(XlPalette p) {
+    return Row(
+      children: [
+        _Pressable(
+          onTap: () => setState(() => _favOnly = !_favOnly),
+          child: AnimatedContainer(
+            duration: XlDuration.fast,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: _favOnly
+                ? BoxDecoration(gradient: p.gradBrand, borderRadius: BorderRadius.circular(XlRadius.pill))
+                : AppTheme.neuXs(context, r: XlRadius.pill),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.favorite_rounded, size: 13, color: _favOnly ? p.btnInk : p.pink),
+                const SizedBox(width: 6),
+                Text('收藏 ${_favorites.length}',
+                    style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        fontWeight: FontWeight.w800,
+                        color: _favOnly ? p.btnInk : p.text2,
+                        letterSpacing: XlLetterSpacing.wider)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          decoration: AppTheme.neuXs(context, r: XlRadius.pill),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _quantFilter,
+              isDense: true,
+              icon: Icon(Icons.filter_alt_outlined, size: 15, color: p.gold),
+              dropdownColor: p.surfaceHi,
+              borderRadius: BorderRadius.circular(XlRadius.md),
+              style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w700,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.wide),
+              items: const [
+                DropdownMenuItem(value: 'all', child: Text('全部量化')),
+                DropdownMenuItem(value: 'Q4', child: Text('Q4 量化')),
+                DropdownMenuItem(value: 'Q8', child: Text('Q8 量化')),
+              ],
+              onChanged: (v) {
+                if (v != null) setState(() => _quantFilter = v);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _compareBar(XlPalette p) {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -32,6 +33,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   late Animation<double> _enterAnim;
   final List<_SettingChange> _history = [];
   bool _aboutExpanded = false;
+  final List<_ChangeRecord> _changeLog = [];
+  bool _diagExpanded = false;
 
   final Map<String, bool> _toggles = {
     'alwaysOnTop': false,
@@ -281,6 +284,66 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       _language = '简体中文';
     });
     _showSnack('设置已重置');
+  }
+
+  void _logChange(String key, bool value) {
+    _changeLog.insert(0, _ChangeRecord(key, value, DateTime.now()));
+    if (_changeLog.length > 12) _changeLog.removeLast();
+  }
+
+  String _labelForKey(String key) {
+    switch (key) {
+      case 'alwaysOnTop': return '窗口置顶';
+      case 'autoStart': return '开机自启';
+      case 'asr': return '语音识别';
+      case 'tts': return '语音朗读';
+      case 'readAloud': return '阅读模式';
+      case 'splash': return '启动动画';
+      case 'sound': return '系统音效';
+      case 'crash': return '崩溃上报';
+      case 'telemetry': return '使用统计';
+      case 'animations': return '启用动画';
+      case 'hardwareAccel': return '硬件加速';
+      case 'autoUpdate': return '自动更新';
+      default: return key;
+    }
+  }
+
+  String _fmtClock(DateTime t) {
+    return '${_two(t.hour)}:${_two(t.minute)}:${_two(t.second)}';
+  }
+
+  Future<void> _exportConfigSnapshot() async {
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final now = DateTime.now();
+      final stamp = '${now.year}${_two(now.month)}${_two(now.day)}_${_two(now.hour)}${_two(now.minute)}';
+      final payload = <String, dynamic>{
+        'version': '0.0.1',
+        'exportedAt': now.toIso8601String(),
+        'toggles': Map<String, bool>.from(_toggles),
+        'channels': Map<String, bool>.from(_channels),
+        'model': _model,
+        'voice': _voice,
+        'render': _render,
+        'threads': _threads,
+        'theme': _theme,
+        'language': _language,
+        'changeLog': _changeLog.map((e) => {
+              'key': e.key,
+              'label': _labelForKey(e.key),
+              'value': e.value,
+              'time': e.time.toIso8601String(),
+            }).toList(),
+      };
+      final file = File(p.join(docs.path, 'xiaoling_config_$stamp.json'));
+      await file.writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
+      if (!mounted) return;
+      _showSnack('配置快照已导出：${p.basename(file.path)}');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('导出失败：$e');
+    }
   }
 
   void _openMcpPanel() {
@@ -1240,11 +1303,15 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         const SizedBox(height: 10),
         _actionRow(p, '导入数据', '从备份文件恢复', Icons.download_rounded, p.blue, () => _importData()),
         const SizedBox(height: 10),
+        _actionRow(p, '导出配置快照', '把当前本地设置打包成 JSON 备份', Icons.backup_table_rounded, p.green, () => _exportConfigSnapshot()),
+        const SizedBox(height: 10),
         _actionRow(p, 'MCP 工具连接', '连接外部 MCP 服务器扩展 AI 能力', Icons.hub_rounded, p.pink, () => _openMcpPanel()),
         const SizedBox(height: 10),
         _actionRow(p, '安全中心', '权限管理、目录保护与操作审计', Icons.shield_outlined, p.gold, () => _openSecurityPanel()),
         const SizedBox(height: 10),
         _actionRow(p, '重置所有设置', '恢复出厂默认，不可撤销', Icons.restart_alt_rounded, p.red, () => _resetSettings()),
+        const SizedBox(height: 14),
+        _diagGroup(p),
       ],
     );
   }
@@ -1265,6 +1332,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         _aboutRow(p, '架构', 'Flutter + Python + gRPC', Icons.architecture_rounded),
         const SizedBox(height: 10),
         _aboutRow(p, '开源协议', 'MIT License', Icons.gavel_rounded),
+        const SizedBox(height: 18),
+        _systemInfoPanel(p),
         const SizedBox(height: 18),
         Row(
           children: [
@@ -1631,6 +1700,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     final newValue = !oldValue;
     setState(() => _toggles[key] = newValue);
     _history.add(_SettingChange(key, oldValue));
+    _logChange(key, newValue);
     if (_history.length > 10) _history.removeAt(0);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -1867,6 +1937,221 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     );
   }
 
+  Widget _diagGroup(XlPalette p) {
+    return Container(
+      decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Pressable(
+            onTap: () => setState(() => _diagExpanded = !_diagExpanded),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: p.blue.withOpacity(p.isDark ? 0.14 : 0.10),
+                      borderRadius: BorderRadius.circular(XlRadius.md),
+                      border: Border.all(color: p.blue.withOpacity(0.28), width: 1),
+                    ),
+                    child: Icon(Icons.history_rounded, size: 17, color: p.blue),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('诊断与变更日志',
+                            style: TextStyle(
+                                fontSize: XlFont.caption,
+                                fontWeight: FontWeight.w800,
+                                color: p.text1,
+                                letterSpacing: XlLetterSpacing.wide)),
+                        const SizedBox(height: 3),
+                        Text('最近的开关改动与运行时信息',
+                            style: TextStyle(
+                                fontSize: XlFont.label,
+                                color: p.text3,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: XlLetterSpacing.wide)),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _diagExpanded ? 0.5 : 0.0,
+                    duration: XlDuration.normal,
+                    child: Icon(Icons.expand_more_rounded, size: 18, color: p.decor),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedCrossFade(
+            duration: XlDuration.normal,
+            crossFadeState: _diagExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _changeLogPanel(p),
+                  const SizedBox(height: 12),
+                  _systemInfoPanel(p),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _changeLogPanel(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: p.surfaceLo,
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        boxShadow: p.sunkenXs,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.recent_actors_rounded, size: 14, color: p.gold),
+              const SizedBox(width: 8),
+              Text('最近变更',
+                  style: TextStyle(
+                      fontSize: XlFont.label,
+                      fontWeight: FontWeight.w800,
+                      color: p.text2,
+                      letterSpacing: XlLetterSpacing.wide)),
+              const Spacer(),
+              Text('${_changeLog.length} 条',
+                  style: TextStyle(
+                      fontSize: XlFont.micro,
+                      fontWeight: FontWeight.w700,
+                      color: p.decor,
+                      letterSpacing: XlLetterSpacing.wider)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (_changeLog.isEmpty)
+            Text('暂无变更记录，修改任意开关后会记录在这里',
+                style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.decor,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: XlLetterSpacing.wide))
+          else
+            for (final e in _changeLog.take(6))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _changeRow(p, e),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _changeRow(XlPalette p, _ChangeRecord e) {
+    final color = e.value ? p.green : p.decor;
+    return Row(
+      children: [
+        Icon(e.value ? Icons.toggle_on_rounded : Icons.toggle_off_rounded, size: 14, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(_labelForKey(e.key),
+              style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.text2,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: XlLetterSpacing.wide)),
+        ),
+        Text(e.value ? '开启' : '关闭',
+            style: TextStyle(
+                fontSize: XlFont.label,
+                color: color,
+                fontWeight: FontWeight.w800,
+                letterSpacing: XlLetterSpacing.wide)),
+        const SizedBox(width: 10),
+        Text(_fmtClock(e.time),
+            style: TextStyle(
+                fontSize: XlFont.micro,
+                color: p.decor,
+                fontWeight: FontWeight.w700,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                letterSpacing: XlLetterSpacing.wider)),
+      ],
+    );
+  }
+
+  Widget _systemInfoPanel(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: p.surfaceLo,
+        borderRadius: BorderRadius.circular(XlRadius.md),
+        boxShadow: p.sunkenXs,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.memory_rounded, size: 14, color: p.violet),
+              const SizedBox(width: 8),
+              Text('运行时信息',
+                  style: TextStyle(
+                      fontSize: XlFont.label,
+                      fontWeight: FontWeight.w800,
+                      color: p.text2,
+                      letterSpacing: XlLetterSpacing.wide)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _sysRow(p, '操作系统', Platform.operatingSystem, Icons.desktop_windows_rounded),
+          const SizedBox(height: 6),
+          _sysRow(p, '系统版本', Platform.operatingSystemVersion.split(' ').take(2).join(' '), Icons.badge_rounded),
+          const SizedBox(height: 6),
+          _sysRow(p, 'CPU 核心', '${Platform.numberOfProcessors} 核', Icons.developer_board_rounded),
+          const SizedBox(height: 6),
+          _sysRow(p, '分隔符', Platform.pathSeparator, Icons.folder_rounded),
+        ],
+      ),
+    );
+  }
+
+  Widget _sysRow(XlPalette p, String label, String value, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 13, color: p.text3),
+        const SizedBox(width: 10),
+        Text(label,
+            style: TextStyle(
+                fontSize: XlFont.label,
+                color: p.text2,
+                fontWeight: FontWeight.w600,
+                letterSpacing: XlLetterSpacing.wide)),
+        const Spacer(),
+        Flexible(
+          child: Text(value,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.text1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: XlLetterSpacing.wide)),
+        ),
+      ],
+    );
+  }
+
   Widget _infoPanel(XlPalette p, String text) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1926,6 +2211,13 @@ class _SettingChange {
   final String key;
   final bool oldValue;
   const _SettingChange(this.key, this.oldValue);
+}
+
+class _ChangeRecord {
+  final String key;
+  final bool value;
+  final DateTime time;
+  const _ChangeRecord(this.key, this.value, this.time);
 }
 
 class _Pressable extends StatefulWidget {
