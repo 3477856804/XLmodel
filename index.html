@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小凌 XIAOLING — 会成长的数字生命</title>
+<meta name="description" content="小凌 XIAOLING — 会成长的全平台 AI 数字生命。3D 桌宠 · 本地模型 · 万物皆插件 · 蒸馏训练 · 完全离线可用。">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#1a0a14;
+  --bg-2:#2a1020;
+  --glass:rgba(255,255,255,.04);
+  --glass-strong:rgba(255,255,255,.07);
+  --glass-hover:rgba(255,255,255,.09);
+  --card:rgba(255,255,255,.03);
+  --card-hover:rgba(255,255,255,.06);
+  --stroke:rgba(255,255,255,.08);
+  --stroke-2:rgba(255,255,255,.14);
+  --glass-border:rgba(255,255,255,.12);
+  --glass-highlight:inset 0 1px 0 rgba(255,255,255,.15),inset 0 0 30px rgba(255,255,255,.02);
+  --blur:blur(20px);
+  --text:#f0f0f5;
+  --text-2:#9898a8;
+  --text-3:#5a5a6e;
+  --accent:#E85A8A;
+  --accent-2:#FF9EBB;
+  --accent-3:#FFB6CD;
+  --grad:linear-gradient(135deg,#FFB6CD 0%,#E85A8A 50%,#FF9EBB 100%);
+  --r:16px;
+  --r-lg:24px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--text);
+  background:var(--bg);
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+img{display:block;max-width:100%}
+code,pre{font-family:"JetBrains Mono",monospace}
+
+/* ===== 背景层 ===== */
+.bg-grid{
+  position:fixed;inset:0;z-index:-3;
+  background-image:
+    linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:60px 60px;
+  mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,black 30%,transparent 80%);
+}
+.bg-glow{
+  position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(600px 400px at 15% 10%,rgba(232,90,138,.12),transparent 70%),
+    radial-gradient(500px 500px at 85% 20%,rgba(255,158,187,.10),transparent 70%),
+    radial-gradient(700px 500px at 50% 90%,rgba(255,182,205,.08),transparent 70%);
+}
+#particles{position:fixed;inset:0;z-index:-1;pointer-events:none}
+
+/* ===== 导航 ===== */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  backdrop-filter:blur(24px) saturate(180%);
+  -webkit-backdrop-filter:blur(24px) saturate(180%);
+  background:rgba(5,5,8,.55);
+  border-bottom:1px solid var(--glass-border);
+  box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 8px 32px rgba(0,0,0,.3);
+}
+.nav-inner{
+  max-width:1200px;margin:0 auto;padding:0 32px;
+  height:64px;display:flex;align-items:center;justify-content:space-between;
+}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.02em}
+.logo-dot{
+  width:28px;height:28px;border-radius:8px;
+  background:var(--grad);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:900;color:#1a0a14;
+}
+.nav-links{display:flex;gap:32px;align-items:center}
+.nav-links a{font-size:14px;color:var(--text-2);transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{
+  padding:8px 20px;border-radius:10px;font-size:14px;font-weight:500;
+  background:rgba(255,255,255,.9);color:var(--bg);
+  backdrop-filter:blur(10px);
+  transition:transform .2s,opacity .2s,box-shadow .2s;
+  box-shadow:0 2px 12px rgba(255,255,255,.1);
+}
+.nav-cta:hover{transform:translateY(-1px);opacity:.9;box-shadow:0 4px 20px rgba(255,255,255,.2)}
+
+/* ===== Hero ===== */
+.hero{
+  min-height:100vh;display:flex;align-items:center;
+  padding:120px 32px 80px;position:relative;
+}
+.hero-inner{max-width:1200px;margin:0 auto;width:100%;display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 16px;border-radius:100px;
+  border:1px solid var(--glass-border);
+  background:rgba(255,255,255,.05);
+  backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);
+  box-shadow:var(--glass-highlight),0 4px 24px rgba(0,0,0,.2);
+  font-size:13px;color:var(--text-2);
+  margin-bottom:28px;
+}
+.hero-badge .pulse{
+  width:6px;height:6px;border-radius:50%;
+  background:#4ade80;box-shadow:0 0 8px #4ade80;
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hero h1{
+  font-size:clamp(40px,6vw,72px);
+  font-weight:900;line-height:1.05;letter-spacing:-.03em;
+  margin-bottom:24px;
+}
+.hero h1 .grad{
+  background:var(--grad);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero p.sub{
+  font-size:18px;color:var(--text-2);max-width:520px;margin-bottom:40px;line-height:1.8;
+}
+.hero-actions{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:48px}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:14px 28px;border-radius:12px;font-size:15px;font-weight:500;
+  transition:all .25s;cursor:pointer;border:none;
+}
+.btn-primary{
+  background:var(--text);color:var(--bg);
+  box-shadow:0 4px 24px rgba(255,255,255,.1);
+}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(255,255,255,.18)}
+.btn-ghost{
+  background:rgba(255,255,255,.05);color:var(--text);
+  border:1px solid var(--glass-border);
+  backdrop-filter:var(--blur);
+  -webkit-backdrop-filter:var(--blur);
+  box-shadow:var(--glass-highlight);
+}
+.btn-ghost:hover{background:rgba(255,255,255,.09);border-color:var(--stroke-2)}
+.hero-stats{display:flex;gap:40px}
+.stat .num{font-size:28px;font-weight:700;letter-spacing:-.02em}
+.stat .label{font-size:13px;color:var(--text-3);margin-top:2px}
+
+/* Hero 右侧展示 */
+.hero-visual{position:relative;display:flex;justify-content:center;align-items:center}
+.hero-ring{
+  position:absolute;width:420px;height:420px;border-radius:50%;
+  border:1px solid var(--stroke);
+  animation:spin 30s linear infinite;
+}
+.hero-ring::before{
+  content:"";position:absolute;top:-3px;left:50%;width:6px;height:6px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 12px var(--accent);
+}
+.hero-ring-2{
+  position:absolute;width:340px;height:340px;border-radius:50%;
+  border:1px dashed var(--stroke);
+  animation:spin 20s linear infinite reverse;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hero-avatar{
+  width:280px;height:280px;border-radius:50%;
+  background:var(--grad);
+  display:flex;align-items:center;justify-content:center;
+  font-size:120px;font-weight:900;color:rgba(5,5,8,.8);
+  box-shadow:0 0 80px rgba(232,90,138,.2),0 0 120px rgba(255,158,187,.15);
+  position:relative;z-index:1;
+  overflow:hidden;
+}
+.hero-avatar img{width:100%;height:100%;object-fit:cover}
+.hero-float{
+  position:absolute;padding:10px 16px;border-radius:12px;
+  background:rgba(10,10,18,.6);border:1px solid var(--glass-border);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:var(--glass-highlight),0 8px 32px rgba(0,0,0,.3);
+  font-size:13px;color:var(--text-2);
+  animation:float 4s ease-in-out infinite;
+}
+.hero-float.f1{top:10%;left:-5%;animation-delay:0s}
+.hero-float.f2{bottom:15%;right:-8%;animation-delay:1s}
+.hero-float.f3{top:50%;right:-12%;animation-delay:2s}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+
+/* ===== 通用区块 ===== */
+section{padding:120px 32px}
+.section-inner{max-width:1200px;margin:0 auto}
+.section-head{text-align:center;margin-bottom:72px}
+.section-eyebrow{
+  font-size:13px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:16px;
+}
+.section-title{
+  font-size:clamp(32px,4vw,48px);font-weight:800;letter-spacing:-.02em;
+  margin-bottom:16px;
+}
+.section-desc{font-size:17px;color:var(--text-2);max-width:600px;margin:0 auto}
+
+/* ===== 功能卡片 ===== */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.feature{
+  padding:32px;border-radius:var(--r-lg);
+  background:rgba(255,255,255,.035);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:var(--glass-highlight),0 8px 32px rgba(0,0,0,.2);
+  transition:all .3s;position:relative;overflow:hidden;
+}
+.feature:hover{
+  background:rgba(255,255,255,.07);
+  border-color:rgba(255,255,255,.2);
+  transform:translateY(-4px);
+  box-shadow:var(--glass-highlight),0 16px 48px rgba(0,0,0,.3),0 0 40px rgba(232,90,138,.06);
+}
+.feature-icon{
+  width:48px;height:48px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:700;margin-bottom:20px;
+  background:rgba(232,90,138,.08);
+  border:1px solid rgba(232,90,138,.2);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 20px rgba(232,90,138,.08);
+  color:var(--accent);
+}
+.feature h3{font-size:18px;font-weight:600;margin-bottom:10px}
+.feature p{font-size:14px;color:var(--text-2);line-height:1.7}
+
+/* ===== 插件系统展示 ===== */
+.plugin-section{background:var(--bg-2);border-top:1px solid var(--stroke);border-bottom:1px solid var(--stroke)}
+.plugin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.plugin-card{
+  padding:24px;border-radius:var(--r);
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:var(--glass-highlight);
+  transition:all .25s;cursor:default;
+}
+.plugin-card:hover{
+  border-color:rgba(232,90,138,.3);
+  background:rgba(232,90,138,.05);
+  box-shadow:var(--glass-highlight),0 0 30px rgba(232,90,138,.08);
+  transform:translateY(-2px);
+}
+.plugin-card .dot{
+  width:8px;height:8px;border-radius:50%;margin-bottom:14px;
+  background:var(--accent);box-shadow:0 0 8px var(--accent);
+}
+.plugin-card h4{font-size:15px;font-weight:600;margin-bottom:6px}
+.plugin-card p{font-size:12px;color:var(--text-3)}
+
+/* ===== 代码展示 ===== */
+.code-section{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center}
+.code-block{
+  background:rgba(13,13,20,.7);
+  border-radius:var(--r-lg);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  box-shadow:var(--glass-highlight),0 16px 48px rgba(0,0,0,.4);
+  overflow:hidden;
+}
+.code-header{
+  padding:14px 20px;border-bottom:1px solid var(--stroke);
+  display:flex;align-items:center;gap:8px;
+}
+.code-dot{width:10px;height:10px;border-radius:50%}
+.code-dot.r{background:#ff5f57}.code-dot.y{background:#febc2e}.code-dot.g{background:#28c840}
+.code-title{margin-left:12px;font-size:13px;color:var(--text-3)}
+.code-body{padding:24px;font-size:14px;line-height:1.8;overflow-x:auto}
+.code-body .cmd{color:var(--accent)}
+.code-body .cmt{color:var(--text-3)}
+.code-body .str{color:#f472b6}
+
+/* ===== 模型展示 ===== */
+.models-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.model-card{
+  border-radius:var(--r-lg);overflow:hidden;
+  background:rgba(255,255,255,.03);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:var(--glass-highlight);
+  transition:all .3s;
+}
+.model-card:hover{
+  transform:translateY(-4px);
+  border-color:rgba(255,255,255,.2);
+  box-shadow:var(--glass-highlight),0 16px 40px rgba(0,0,0,.3);
+}
+.model-thumb{
+  aspect-ratio:1;
+  background:linear-gradient(135deg,#1a1a2e,#16213e);
+  display:flex;align-items:center;justify-content:center;
+  font-size:48px;font-weight:900;color:rgba(255,255,255,.1);
+  overflow:hidden;
+}
+.model-thumb img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.model-placeholder{
+  background:linear-gradient(135deg,rgba(232,90,138,.08),rgba(255,158,187,.08));
+  color:rgba(255,255,255,.25);
+  font-size:36px;
+}
+.model-info{padding:16px 20px}
+.model-info h4{font-size:15px;font-weight:600;margin-bottom:4px}
+.model-info p{font-size:12px;color:var(--text-3)}
+
+/* ===== 下载区 ===== */
+.download-section{background:var(--bg-2);border-top:1px solid var(--stroke)}
+.download-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;max-width:900px;margin:0 auto}
+.dl-card{
+  padding:36px 32px;border-radius:var(--r-lg);
+  background:rgba(255,255,255,.04);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  box-shadow:var(--glass-highlight),0 16px 48px rgba(0,0,0,.3);
+  text-align:center;transition:all .3s;position:relative;
+}
+.dl-card:hover{
+  border-color:rgba(255,255,255,.2);
+  background:rgba(255,255,255,.07);
+  transform:translateY(-4px);
+  box-shadow:var(--glass-highlight),0 24px 64px rgba(0,0,0,.4),0 0 40px rgba(232,90,138,.06);
+}
+.dl-card .os-icon{
+  width:56px;height:56px;border-radius:14px;margin:0 auto 20px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;font-weight:700;
+  background:rgba(255,255,255,.06);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15);
+  color:var(--text);
+}
+.dl-card h3{font-size:20px;font-weight:700;margin-bottom:8px}
+.dl-card .size{font-size:13px;color:var(--text-3);margin-bottom:24px}
+.dl-btn{
+  display:block;width:100%;padding:12px;border-radius:10px;
+  background:rgba(255,255,255,.92);color:var(--bg);
+  font-size:14px;font-weight:600;
+  backdrop-filter:blur(10px);
+  transition:all .2s;border:none;cursor:pointer;
+  box-shadow:0 2px 12px rgba(255,255,255,.1);
+}
+.dl-btn:hover{opacity:.85;transform:translateY(-1px);box-shadow:0 4px 20px rgba(255,255,255,.18)}
+.dl-note{
+  text-align:center;margin-top:32px;font-size:13px;color:var(--text-3);
+  max-width:600px;margin-left:auto;margin-right:auto;
+}
+
+/* ===== Footer ===== */
+footer{
+  padding:48px 32px;border-top:1px solid var(--stroke);
+  text-align:center;font-size:13px;color:var(--text-3);
+}
+footer .links{display:flex;gap:24px;justify-content:center;margin-bottom:16px}
+footer a{color:var(--text-2);transition:color .2s}
+footer a:hover{color:var(--text)}
+
+/* ===== 滚动揭示 ===== */
+.reveal{opacity:0;transform:translateY(30px);transition:opacity .7s,transform .7s}
+.reveal.visible{opacity:1;transform:none}
+
+/* ===== 响应式 ===== */
+@media(max-width:900px){
+  .hero-inner{grid-template-columns:1fr;text-align:center}
+  .hero p.sub{margin:0 auto 40px}
+  .hero-actions{justify-content:center}
+  .hero-stats{justify-content:center}
+  .hero-visual{margin-top:40px}
+  .features{grid-template-columns:1fr}
+  .plugin-grid{grid-template-columns:repeat(2,1fr)}
+  .code-section{grid-template-columns:1fr}
+  .models-grid{grid-template-columns:repeat(2,1fr)}
+  .download-grid{grid-template-columns:1fr}
+  .nav-links{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- 背景 -->
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<canvas id="particles"></canvas>
+
+<!-- 导航 -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="logo">
+      <div class="logo-dot">凌</div>
+      <span>小凌 XIAOLING</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#plugins">插件</a>
+      <a href="#models">模型</a>
+      <a href="#download">下载</a>
+    </div>
+    <a href="#download" class="nav-cta">开始使用</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-inner">
+    <div>
+      <div class="hero-badge">
+        <span class="pulse"></span>
+        <span>v0.0.3 已发布 · 三平台单文件</span>
+      </div>
+      <h1>会成长的<br><span class="grad">数字生命</span></h1>
+      <p class="sub">小凌是一个运行在你桌面上的 3D AI 伴侣。她有自己的身体、声音和记忆，通过蒸馏训练持续成长。万物皆插件，一切可定制。</p>
+      <div class="hero-actions">
+        <a href="#download" class="btn btn-primary">立即下载</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><div class="num">7</div><div class="label">角色模型</div></div>
+        <div class="stat"><div class="num">46</div><div class="label">动作资产</div></div>
+        <div class="stat"><div class="num">6+</div><div class="label">可插拔功能</div></div>
+        <div class="stat"><div class="num">100%</div><div class="label">离线可用</div></div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-ring"></div>
+      <div class="hero-ring-2"></div>
+      <div class="hero-avatar">
+        <img src="favicon.png" alt="小凌" onerror="this.style.display='none';this.parentElement.innerHTML='凌'">
+      </div>
+      <div class="hero-float f1">蒸馏训练中...</div>
+      <div class="hero-float f2">插件已加载</div>
+      <div class="hero-float f3">成长进度 67%</div>
+    </div>
+  </div>
+</section>
+
+<!-- 功能 -->
+<section id="features">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">CORE FEATURES</div>
+      <h2 class="section-title">不只是桌宠，是数字生命</h2>
+      <p class="section-desc">从 3D 渲染到本地推理，从语音合成到蒸馏训练，小凌拥有完整的生命闭环。</p>
+    </div>
+    <div class="features">
+      <div class="feature reveal">
+        <div class="feature-icon">3D</div>
+        <h3>纯 Python 3D 渲染</h3>
+        <p>自研软件渲染器，支持 VRM/VRMA 模型加载、蒙皮变形、弹簧骨骼，无需 OpenGL 也能流畅运行。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">AI</div>
+        <h3>本地模型推理</h3>
+        <p>内置 DeepSeek 蒸馏训练引擎，基底模型 + LoRA 适配器持续成长，完全离线运行，数据不出本地。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">插件</div>
+        <h3>万物皆插件</h3>
+        <p>深度对话、Agent 任务、定时提醒、通话模式、语音朗读、蒸馏训练——每个功能都是可插拔的插件。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">语音</div>
+        <h3>专属音色绑定</h3>
+        <p>每个角色模型绑定一套专属语音，开启阅读模式后，桌宠会用自己的声音朗读回复内容。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">训练</div>
+        <h3>可视化训练工作台</h3>
+        <p>训练过程实时可视化，感知/理解/决策/进化/守护五维进度卡，角色在中央实时展示训练状态。</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">跨平台</div>
+        <h3>三平台单文件</h3>
+        <p>Windows .exe / Linux .tar.gz / macOS .zip，单文件双击即开，所有依赖（含 torch）已打包。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 插件系统 -->
+<section id="plugins" class="plugin-section">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">PLUGIN SYSTEM</div>
+      <h2 class="section-title">万物皆插件</h2>
+      <p class="section-desc">参考 DSH / Trae / WorkBuddy 设计，右下角加号一键开关插件，像搭积木一样组合你的数字生命。</p>
+    </div>
+    <div class="plugin-grid">
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>深度对话</h4>
+        <p>长上下文多轮对话</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>Agent 任务</h4>
+        <p>自主规划与执行</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>定时提醒</h4>
+        <p>日程与周期任务</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>通话模式</h4>
+        <p>实时语音对话</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>语音朗读</h4>
+        <p>专属音色阅读</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>蒸馏训练</h4>
+        <p>模型持续进化</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>表情系统</h4>
+        <p>VRM 形变目标</p>
+      </div>
+      <div class="plugin-card reveal">
+        <div class="dot"></div>
+        <h4>更多插件</h4>
+        <p>持续扩展中</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 代码展示 -->
+<section>
+  <div class="section-inner">
+    <div class="code-section">
+      <div class="reveal">
+        <div class="section-eyebrow">QUICK START</div>
+        <h2 class="section-title" style="text-align:left">下载即开，零配置</h2>
+        <p style="color:var(--text-2);margin-top:16px;font-size:16px;line-height:1.8">
+          无需安装 Python，无需手动下载依赖。所有运行时（含 PyTorch）已打包进单文件，双击即可启动图形界面。选择角色模型后立即开始对话和训练。
+        </p>
+      </div>
+      <div class="code-block reveal">
+        <div class="code-header">
+          <span class="code-dot r"></span><span class="code-dot y"></span><span class="code-dot g"></span>
+          <span class="code-title">terminal</span>
+        </div>
+        <div class="code-body">
+          <span class="cmt"># Windows 用户</span><br>
+          <span class="cmd">双击</span> XiaoLing-Windows.exe<br><br>
+          <span class="cmt"># Linux 用户</span><br>
+          <span class="cmd">tar</span> -xzf XiaoLing-Linux.tar.gz<br>
+          <span class="cmd">./</span>XiaoLing-Linux<br><br>
+          <span class="cmt"># macOS 用户</span><br>
+          <span class="cmd">unzip</span> XiaoLing-macOS.zip<br>
+          <span class="cmd">./</span>XiaoLing-macOS<br><br>
+          <span class="cmt"># 首次启动自动加载模型</span><br>
+          <span class="str">[小凌]</span> 正在唤醒... 模型加载完成
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 模型展示 -->
+<section id="models" class="plugin-section">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">CHARACTER MODELS</div>
+      <h2 class="section-title">7 个角色，各有性格</h2>
+      <p class="section-desc">每个模型绑定专属音色和动作，可在工作台内随时切换。</p>
+    </div>
+    <div class="models-grid">
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/小凌.png" alt="小凌"></div>
+        <div class="model-info"><h4>小凌</h4><p>默认角色 · 金发蓝眼</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/Vivi.png" alt="Vivi"></div>
+        <div class="model-info"><h4>Vivi</h4><p>活力少女 · 猫耳造型</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/QuQu.png" alt="QuQu"></div>
+        <div class="model-info"><h4>QuQu</h4><p>酷飒御姐 · 银灰短发</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb model-placeholder">Z</div>
+        <div class="model-info"><h4>Zome</h4><p>神秘角色</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/Rabbit_Peridot.png" alt="Rabbit Peridot"></div>
+        <div class="model-info"><h4>Rabbit Peridot</h4><p>兔耳萌系</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb"><img src="assets/Rabbit_Rubellite.png" alt="Rabbit Rubellite"></div>
+        <div class="model-info"><h4>Rabbit Rubellite</h4><p>兔耳萌系</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb model-placeholder">I</div>
+        <div class="model-info"><h4>Imeris</h4><p>精致建模</p></div>
+      </div>
+      <div class="model-card reveal">
+        <div class="model-thumb model-placeholder">+</div>
+        <div class="model-info"><h4>更多模型</h4><p>支持自定义 VRM</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 下载 -->
+<section id="download" class="download-section">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <div class="section-eyebrow">DOWNLOAD</div>
+      <h2 class="section-title">全平台下载</h2>
+      <p class="section-desc">单文件程序，双击即开。所有依赖已内置，无需额外安装。</p>
+    </div>
+    <div class="download-grid">
+      <div class="dl-card reveal">
+        <div class="os-icon">W</div>
+        <h3>Windows</h3>
+        <div class="size">约 302 MB · .exe</div>
+        <a href="https://ghfast.top/https://github.com/3477856804/XLmodel-release/releases/download/v0.0.3/XiaoLing-Windows.exe" class="dl-btn">下载 Windows 版</a>
+      </div>
+      <div class="dl-card reveal">
+        <div class="os-icon">L</div>
+        <h3>Linux</h3>
+        <div class="size">约 407 MB · .tar.gz</div>
+        <a href="https://ghfast.top/https://github.com/3477856804/XLmodel-release/releases/download/v0.0.3/XiaoLing-Linux.tar.gz" class="dl-btn">下载 Linux 版</a>
+      </div>
+      <div class="dl-card reveal">
+        <div class="os-icon">M</div>
+        <h3>macOS</h3>
+        <div class="size">约 288 MB · .zip</div>
+        <a href="https://ghfast.top/https://github.com/3477856804/XLmodel-release/releases/download/v0.0.3/XiaoLing-macOS.zip" class="dl-btn">下载 macOS 版</a>
+      </div>
+    </div>
+    <p class="dl-note">Windows 用户首次运行可能出现 SmartScreen 提示，请点击"更多信息" → "仍要运行"。下载通过 ghfast.top 镜像加速。</p>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="links">
+    <a href="#features">功能</a>
+    <a href="#plugins">插件</a>
+    <a href="#models">模型</a>
+    <a href="#download">下载</a>
+  </div>
+  <p>小凌 XIAOLING · 会成长的数字生命 · 开源项目</p>
+</footer>
+
+<script>
+// 粒子背景
+const canvas = document.getElementById('particles');
+const ctx = canvas.getContext('2d');
+let particles = [];
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+resize();addEventListener('resize',resize);
+for(let i=0;i<60;i++){
+  particles.push({
+    x:Math.random()*canvas.width,
+    y:Math.random()*canvas.height,
+    r:Math.random()*1.5+.5,
+    vx:(Math.random()-.5)*.3,
+    vy:(Math.random()-.5)*.3,
+    a:Math.random()*.5+.2
+  });
+}
+function animate(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  particles.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0||p.x>canvas.width)p.vx*=-1;
+    if(p.y<0||p.y>canvas.height)p.vy*=-1;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(232,90,138,${p.a})`;
+    ctx.fill();
+  });
+  // 连线
+  for(let i=0;i<particles.length;i++){
+    for(let j=i+1;j<particles.length;j++){
+      const dx=particles[i].x-particles[j].x;
+      const dy=particles[i].y-particles[j].y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<120){
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x,particles[i].y);
+        ctx.lineTo(particles[j].x,particles[j].y);
+        ctx.strokeStyle=`rgba(232,90,138,${.15*(1-dist/120)})`;
+        ctx.stroke();
+      }
+    }
+  }
+  requestAnimationFrame(animate);
+}
+animate();
+
+// 滚动揭示
+const observer = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')});
+},{threshold:.1});
+document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));
+</script>
+</body>
+</html>

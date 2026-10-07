@@ -1,0 +1,28 @@
+{
+ "generated_at": "2026-09-25T19:03:30",
+ "files_total": 144,
+ "bytes_total": 205788594,
+ "python_files": 52,
+ "python_lines": 21198,
+ "markdown_files": 6,
+ "markdown_lines": 1179,
+ "vrm_models": 7,
+ "vrma_actions": 46,
+ "top_dirs": [
+  ".github",
+  ".star_core",
+  "assets",
+  "core",
+  "renderer",
+  "sounds",
+  "动作资产",
+  "工具",
+  "打包",
+  "技能",
+  "数据",
+  "测试",
+  "素材",
+  "脚本",
+  "角色模型"
+ ]
+}
