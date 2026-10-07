@@ -7,6 +7,7 @@ import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
+import '../widgets/mcp_panel.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -276,6 +277,24 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       _language = '简体中文';
     });
     _showSnack('设置已重置');
+  }
+
+  void _openMcpPanel() {
+    final p = XlPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: p.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.xl)),
+        insetPadding: const EdgeInsets.all(24),
+        child: Container(
+          width: 520,
+          constraints: const BoxConstraints(maxHeight: 600),
+          padding: const EdgeInsets.all(20),
+          child: const McpPanel(),
+        ),
+      ),
+    );
   }
 
   Future<void> _toggleChannel(String name, bool current) async {
@@ -1160,6 +1179,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         _actionRow(p, '导出数据', '导出对话、记忆和配置', Icons.upload_file_rounded, p.violet, () => _exportData()),
         const SizedBox(height: 10),
         _actionRow(p, '导入数据', '从备份文件恢复', Icons.download_rounded, p.blue, () => _importData()),
+        const SizedBox(height: 10),
+        _actionRow(p, 'MCP 工具连接', '连接外部 MCP 服务器扩展 AI 能力', Icons.hub_rounded, p.pink, () => _openMcpPanel()),
         const SizedBox(height: 10),
         _actionRow(p, '重置所有设置', '恢复出厂默认，不可撤销', Icons.restart_alt_rounded, p.red, () => _resetSettings()),
       ],

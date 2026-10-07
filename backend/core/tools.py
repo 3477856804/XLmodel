@@ -596,6 +596,18 @@ class ToolKit:
         self.skills = SkillManager(skills_dir=skills_dir, tool_manager=self.tools,
                                    memory=memory)
         self.goals = GoalManager(memory=memory)
+        self._mcp_manager = None
+
+    @property
+    def mcp_manager(self):
+        """懒加载 MCPManager 单例。"""
+        if self._mcp_manager is None:
+            try:
+                from .mcp_client import MCPManager
+                self._mcp_manager = MCPManager()
+            except Exception:
+                self._mcp_manager = False
+        return self._mcp_manager if self._mcp_manager else None
 
     def execute(self, name: str, args: dict | None = None) -> str:
         return self.tools.execute(name, args)
@@ -628,7 +640,7 @@ class ToolKit:
     # ================================================================
     def agent_tools(self) -> list:
         """返回 Agent 可用工具的定义列表（含参数 schema）。"""
-        return [
+        base = [
             {
                 "name": "read_file",
                 "description": "读取指定文件内容，返回 {path, content, language, lines, size}",
@@ -689,6 +701,29 @@ class ToolKit:
                 "args": {},
             },
         ]
+        mcp = self.mcp_manager
+        if mcp is not None:
+            for t in mcp.get_all_tools():
+                base.append({
+                    "name": t["full_name"],
+                    "description": t.get("description", "") or f"MCP 工具 ({t['server']})",
+                    "args": self._mcp_schema_to_args(t.get("inputSchema", {})),
+                })
+        return base
+
+    @staticmethod
+    def _mcp_schema_to_args(schema: dict) -> dict:
+        """将 MCP inputSchema 转换为内部 args 格式。"""
+        props = (schema or {}).get("properties", {})
+        required = set((schema or {}).get("required", []))
+        out = {}
+        for k, v in props.items():
+            out[k] = {
+                "type": v.get("type", "string"),
+                "description": v.get("description", ""),
+                "required": k in required,
+            }
+        return out
 
     def _file_manager(self):
         """惰性构建 FileManager，避免循环导入与初始化开销。"""
@@ -782,6 +817,12 @@ class ToolKit:
                         f"总行数：{res.get('total_lines',0)}\n"
                         f"语言：{', '.join(res.get('languages', []))}\n"
                         f"README：{(res.get('readme','') or '（无）')[:500]}")
+
+            if name.startswith("mcp__"):
+                mcp = self.mcp_manager
+                if mcp is None:
+                    return "MCP 模块不可用"
+                return mcp.call_tool(name, args)
 
             return f"未知工具：{name}"
         except Exception as e:  # noqa: BLE001

@@ -4,6 +4,8 @@ import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
+import '../widgets/plugin_store.dart';
+import 'plugin_community.dart';
 
 class PluginsPage extends StatefulWidget {
   const PluginsPage({super.key});
@@ -28,6 +30,9 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   late AnimationController _shimmerCtrl;
   late Animation<double> _enterAnim;
   late Animation<double> _listAnim;
+  late TabController _tabCtrl;
+
+  static const _topTabs = <String>['已安装', '商店', '社区'];
 
   static const _categories = <String, String>{
     'all': '全部',
@@ -69,6 +74,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     _shimmerCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this)..repeat();
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _listAnim = CurvedAnimation(parent: _listCtrl, curve: XlCurve.easeOut);
+    _tabCtrl = TabController(length: _topTabs.length, vsync: this);
     _enterCtrl.forward();
     _listCtrl.forward();
     _load();
@@ -76,6 +82,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
 
   @override
   void dispose() {
+    _tabCtrl.dispose();
     _enterCtrl.dispose();
     _listCtrl.dispose();
     _shimmerCtrl.dispose();
@@ -198,24 +205,210 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     return Stack(
       children: [
         Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
-        SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(p),
-              const SizedBox(height: 22),
-              _buildStats(p),
-              const SizedBox(height: 22),
-              _buildToolbar(p),
-              const SizedBox(height: 18),
-              _buildGrid(p),
-              const SizedBox(height: 24),
-              _buildFooter(p),
-            ],
-          ),
+        Column(
+          children: [
+            _buildTopTabs(p),
+            Expanded(
+              child: TabBarView(
+                controller: _tabCtrl,
+                children: [
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHeader(p),
+                        const SizedBox(height: 22),
+                        _buildStats(p),
+                        const SizedBox(height: 22),
+                        _buildToolbar(p),
+                        const SizedBox(height: 18),
+                        _buildGrid(p),
+                        const SizedBox(height: 24),
+                        _buildFooter(p),
+                      ],
+                    ),
+                  ),
+                  const SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(26, 6, 26, 30),
+                    child: PluginStore(),
+                  ),
+                  _buildCommunityTab(p),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
+    );
+  }
+
+  Widget _buildTopTabs(XlPalette p) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(26, 6, 26, 10),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final cell = c.maxWidth / _topTabs.length;
+            return AnimatedBuilder(
+              animation: _tabCtrl,
+              builder: (_, __) {
+                final idx = _tabCtrl.index;
+                return SizedBox(
+                  height: 38,
+                  child: Stack(
+                    children: [
+                      AnimatedPositioned(
+                        duration: XlDuration.normal,
+                        curve: XlCurve.spring,
+                        left: idx * cell,
+                        top: 0,
+                        bottom: 0,
+                        width: cell,
+                        child: Container(decoration: AppTheme.brand(context, r: XlRadius.pill)),
+                      ),
+                      Row(
+                        children: [
+                          for (int i = 0; i < _topTabs.length; i++)
+                            Expanded(
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () => _tabCtrl.animateTo(i),
+                                  borderRadius: BorderRadius.circular(XlRadius.pill),
+                                  child: Center(
+                                    child: Text(_topTabs[i],
+                                        style: TextStyle(
+                                          fontSize: XlFont.captionSm,
+                                          fontWeight: i == idx ? FontWeight.w800 : FontWeight.w600,
+                                          color: i == idx ? p.btnInk : p.text2,
+                                          letterSpacing: XlLetterSpacing.wide,
+                                        )),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCommunityTab(XlPalette p) {
+    final totalDl = kCommunityPlugins.fold<int>(0, (s, e) => s + e.downloads);
+    final dshCount = kCommunityPlugins.where((e) => e.dshCompatible).length;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      child: Container(
+        padding: const EdgeInsets.all(26),
+        decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+        child: Column(
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: AppTheme.brandOrbLg(context, size: 76),
+              child: Icon(Icons.forum_rounded, size: 34, color: p.btnInk),
+            ),
+            const SizedBox(height: 18),
+            ShaderMask(
+              shaderCallback: (b) => p.gradText.createShader(b),
+              child: const Text('小凌社区',
+                  style: TextStyle(
+                    fontSize: XlFont.h3,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: XlLetterSpacing.normal,
+                  )),
+            ),
+            const SizedBox(height: 8),
+            Text('精选插件 · 分类浏览 · DSH 兼容生态',
+                style: TextStyle(
+                  fontSize: XlFont.caption,
+                  color: p.text2,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: XlLetterSpacing.wide,
+                )),
+            const SizedBox(height: 22),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _communityStat(p, '${kCommunityPlugins.length}+', '插件'),
+                _communityDivider(p),
+                _communityStat(p, '${formatDownloads(totalDl)}+', '累计下载'),
+                _communityDivider(p),
+                _communityStat(p, '$dshCount', 'DSH 兼容'),
+              ],
+            ),
+            const SizedBox(height: 26),
+            _Pressable(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PluginCommunityPage()),
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 13),
+                decoration: AppTheme.btn(context, r: XlRadius.pill),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('进入小凌社区',
+                        style: TextStyle(
+                          fontSize: XlFont.caption,
+                          fontWeight: FontWeight.w800,
+                          color: p.btnInk,
+                          letterSpacing: XlLetterSpacing.wider,
+                        )),
+                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_forward_rounded, size: 16, color: p.btnInk),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _communityStat(XlPalette p, String value, String label) {
+    return Column(
+      children: [
+        Text(value,
+            style: TextStyle(
+              fontSize: XlFont.h4,
+              fontWeight: FontWeight.w800,
+              color: p.text1,
+              letterSpacing: XlLetterSpacing.tight,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            )),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(
+              fontSize: XlFont.label,
+              color: p.decor,
+              fontWeight: FontWeight.w700,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+      ],
+    );
+  }
+
+  Widget _communityDivider(XlPalette p) {
+    return Container(
+      width: 1,
+      height: 28,
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      color: p.edgeSoft,
     );
   }
 

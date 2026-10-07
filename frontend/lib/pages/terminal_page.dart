@@ -4,7 +4,7 @@ import '../rpc/xiaoling.pb.dart' as pb;
 import '../theme/theme.dart';
 import '../widgets/terminal_panel.dart';
 import '../widgets/file_explorer.dart';
-import '../widgets/code_viewer.dart';
+import '../widgets/code_editor.dart';
 
 class TerminalPage extends StatefulWidget {
   const TerminalPage({super.key});
@@ -46,6 +46,26 @@ class _TerminalPageState extends State<TerminalPage> with SingleTickerProviderSt
       setState(() => _loadingFile = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('读取失败: $e')),
+      );
+    }
+  }
+
+  Future<void> _onSaveFile(String content) async {
+    final f = _file;
+    if (f == null) return;
+    try {
+      await XlClient.fastCall(
+        (s) => s.fileWrite(pb.FileWriteRequest(path: f.path, content: content)),
+        label: 'fileWrite',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已保存')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存失败: $e')),
       );
     }
   }
@@ -139,7 +159,28 @@ class _TerminalPageState extends State<TerminalPage> with SingleTickerProviderSt
           flex: 6,
           child: Stack(
             children: [
-              CodeViewer(file: _file),
+              _file == null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.code_rounded, size: 36, color: p.decor),
+                          const SizedBox(height: 10),
+                          Text('等待选择文件',
+                              style: TextStyle(
+                                fontSize: XlFont.caption,
+                                fontWeight: FontWeight.w700,
+                                color: p.text2,
+                              )),
+                        ],
+                      ),
+                    )
+                  : CodeEditor(
+                      filePath: _file!.path,
+                      initialContent: _file!.content,
+                      language: _file!.language,
+                      onSave: _onSaveFile,
+                    ),
               if (_loadingFile)
                 Positioned.fill(
                   child: Container(

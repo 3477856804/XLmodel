@@ -436,7 +436,12 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
           body: e.content,
           iconColor: p.gold,
         );
+      case 'delegate':
+        return _delegateCard(p, e, completed: e.content.contains('完成') || e.content.contains('completed'));
       case 'tool_call':
+        if (e.toolName.contains('sub_agent') || e.toolName.contains('delegate')) {
+          return _delegateCard(p, e);
+        }
         return _raisedCard(
           p,
           icon: Icons.build_rounded,
@@ -574,8 +579,62 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
     );
   }
 
+  Widget _delegateCard(XlPalette p, AgentEvent e, {bool completed = false}) {
+    final isDelegateType = e.type == 'delegate';
+    final title = isDelegateType
+        ? '委派子 Agent'
+        : '调用工具: ${e.toolName.isEmpty ? 'sub_agent' : e.toolName}';
+    final body = isDelegateType ? e.content : _prettyJson(e.toolArgs);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neu(context, r: XlRadius.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.people_alt_rounded, size: 15, color: p.pink),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(title,
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ),
+              completed
+                  ? Icon(Icons.check_circle_rounded, size: 15, color: p.green)
+                  : const _RotatingDot(),
+            ],
+          ),
+          if (body.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+              child: Text(body,
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    height: XlLineHeight.normal,
+                    color: p.text2,
+                    fontFamily: isDelegateType ? null : 'monospace',
+                  )),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _toolResultCard(XlPalette p, AgentEvent e) {
     final idx = _events.indexOf(e);
+    final prev = idx > 0 ? _events[idx - 1] : null;
+    final isSubAgentResult = prev != null &&
+        prev.type == 'tool_call' &&
+        (prev.toolName.contains('sub_agent') || prev.toolName.contains('delegate'));
     final full = e.toolResult;
     final expanded = _expanded.contains(idx);
     final truncated = full.length > 500;
@@ -586,7 +645,12 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _headerRow(p, Icons.check_circle_rounded, p.green, '工具结果', p.text1),
+          _headerRow(
+              p,
+              isSubAgentResult ? Icons.people_alt_rounded : Icons.check_circle_rounded,
+              isSubAgentResult ? p.pink : p.green,
+              isSubAgentResult ? '子 Agent 结果' : '工具结果',
+              p.text1),
           const SizedBox(height: 8),
           Text(shown,
               style: TextStyle(
@@ -749,6 +813,36 @@ class _PressableState extends State<_Pressable> {
         curve: XlCurve.standard,
         child: widget.child,
       ),
+    );
+  }
+}
+
+class _RotatingDot extends StatefulWidget {
+  const _RotatingDot();
+  @override
+  State<_RotatingDot> createState() => _RotatingDotState();
+}
+
+class _RotatingDotState extends State<_RotatingDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this)..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return RotationTransition(
+      turns: _ctrl,
+      child: Icon(Icons.sync_rounded, size: 15, color: p.gold),
     );
   }
 }
