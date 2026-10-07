@@ -33,8 +33,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   late AnimationController _pulseCtrl;
   late AnimationController _ringCtrl;
   late AnimationController _actCtrl;
-  late Animation<double> _enterAnim;
-  late Animation<double> _ringAnim;
+  late AnimationController _shimmerCtrl;
+  late AnimationController _breatheCtrl;
   late Animation<double> _actAnim;
   final List<_Activity> _activities = [];
 
@@ -42,12 +42,12 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   void initState() {
     super.initState();
     _greeting = _calcGreeting();
-    _enterCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
+    _enterCtrl = AnimationController(duration: const Duration(milliseconds: 1200), vsync: this);
     _pulseCtrl = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat();
     _ringCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this);
     _actCtrl = AnimationController(duration: const Duration(milliseconds: 1100), vsync: this);
-    _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
-    _ringAnim = CurvedAnimation(parent: _ringCtrl, curve: XlCurve.easeOut);
+    _shimmerCtrl = AnimationController(duration: const Duration(milliseconds: 1600), vsync: this)..repeat();
+    _breatheCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this)..repeat(reverse: true);
     _actAnim = CurvedAnimation(parent: _actCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
     _bootstrap();
@@ -59,6 +59,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _pulseCtrl.dispose();
     _ringCtrl.dispose();
     _actCtrl.dispose();
+    _shimmerCtrl.dispose();
+    _breatheCtrl.dispose();
     super.dispose();
   }
 
@@ -114,6 +116,29 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     }
   }
 
+  Animation<double> _stagger(int index) {
+    final start = (index * 0.12).clamp(0.0, 0.8);
+    final end = (start + 0.35).clamp(0.0, 1.0);
+    return CurvedAnimation(
+      parent: _enterCtrl,
+      curve: Interval(start, end, curve: XlCurve.easeOut),
+    );
+  }
+
+  Widget _wrapStagger(int index, Widget child) {
+    final anim = _stagger(index);
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, __) => Opacity(
+        opacity: anim.value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - anim.value) * 18),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
@@ -121,16 +146,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     return Stack(
       children: [
         Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
-        AnimatedBuilder(
-          animation: _enterAnim,
-          builder: (_, __) => Opacity(
-            opacity: _enterAnim.value,
-            child: Transform.translate(
-              offset: Offset(0, (1 - _enterAnim.value) * 16),
-              child: _body(p),
-            ),
-          ),
-        ),
+        _body(p),
       ],
     );
   }
@@ -141,13 +157,13 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _heroRow(p),
+          _wrapStagger(0, _heroRow(p)),
           const SizedBox(height: 22),
-          _statsGrid(p),
+          _wrapStagger(1, _statsGrid(p)),
           const SizedBox(height: 22),
-          _middleRow(p),
+          _wrapStagger(2, _middleRow(p)),
           const SizedBox(height: 22),
-          _bottomRow(p),
+          _wrapStagger(3, _bottomRow(p)),
         ],
       ),
     );
@@ -255,10 +271,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     final gen = g?.currentGeneration ?? 0;
     final totalGen = g?.totalGenerations ?? 0;
     final items = <_Stat>[
-      _Stat('成长值', '${prog.toStringAsFixed(0)}', '%', Icons.trending_up_rounded, 'pink', (prog / 100).clamp(0.0, 1.0), '本周 +${(prog * 0.08).toStringAsFixed(1)}%'),
-      _Stat('亲密度', '${(prog * 0.72).toStringAsFixed(0)}', '%', Icons.favorite_rounded, 'gold', (prog * 0.72 / 100).clamp(0.0, 1.0), '今日聊了 ${(inter * 0.04).toInt()} 次'),
-      _Stat('记忆条数', '$inter', '条', Icons.psychology_outlined, 'violet', (inter / 200).clamp(0.0, 1.0), '新增 ${(inter * 0.03).toInt()} 条'),
-      _Stat('进化代数', '$gen', '/$totalGen', Icons.auto_awesome_rounded, 'green', totalGen == 0 ? 0.0 : (gen / totalGen).clamp(0.0, 1.0), '下一步：深度融合'),
+      _Stat('成长值', prog, '%', Icons.trending_up_rounded, 'pink', (prog / 100).clamp(0.0, 1.0), '本周 +${(prog * 0.08).toStringAsFixed(1)}%', 0),
+      _Stat('亲密度', (prog * 0.72), '%', Icons.favorite_rounded, 'gold', (prog * 0.72 / 100).clamp(0.0, 1.0), '今日聊了 ${(inter * 0.04).toInt()} 次', 1),
+      _Stat('记忆条数', inter.toDouble(), '条', Icons.psychology_outlined, 'violet', (inter / 200).clamp(0.0, 1.0), '新增 ${(inter * 0.03).toInt()} 条', 2),
+      _Stat('进化代数', gen.toDouble(), '/$totalGen', Icons.auto_awesome_rounded, 'green', totalGen == 0 ? 0.0 : (gen / totalGen).clamp(0.0, 1.0), '下一步：深度融合', 3),
     ];
     return LayoutBuilder(
       builder: (context, c) {
@@ -281,18 +297,11 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
 
   Widget _statCard(XlPalette p, _Stat s, int i) {
     final color = _colorOf(p, s.color);
-    return TweenAnimationBuilder<double>(
-      duration: Duration(milliseconds: 400 + i * 80),
-      curve: XlCurve.easeOut,
-      tween: Tween(begin: 0.0, end: 1.0),
-      builder: (_, t, child) => Transform.translate(
-        offset: Offset(0, (1 - t) * 14),
-        child: Opacity(opacity: t, child: child),
-      ),
-      child: _HoverScale(
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: AppTheme.neuLg(context, r: XlRadius.xl),
+    return _HoverGlowCard(
+      accent: color,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: AppTheme.neuLg(context, r: XlRadius.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -328,15 +337,18 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                Text(s.value,
-                    style: TextStyle(
-                      fontSize: XlFont.h1,
-                      fontWeight: FontWeight.w800,
-                      color: p.text1,
-                      letterSpacing: XlLetterSpacing.tight,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      height: 1.0,
-                    )),
+                _AnimatedCounter(
+                  value: s.rawValue,
+                  delay: Duration(milliseconds: 200 + i * 100),
+                  style: TextStyle(
+                    fontSize: XlFont.h1,
+                    fontWeight: FontWeight.w800,
+                    color: p.text1,
+                    letterSpacing: XlLetterSpacing.tight,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    height: 1.0,
+                  ),
+                ),
                 if (s.unit.isNotEmpty) ...[
                   const SizedBox(width: 3),
                   Text(s.unit,
@@ -384,7 +396,6 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               ],
             ),
           ],
-        ),
         ),
       ),
     );
@@ -492,10 +503,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
 
   Widget _traitsRow(XlPalette p) {
     final traits = <_Trait>[
-      _Trait('温柔', 'pink', 0.82),
-      _Trait('活泼', 'gold', 0.64),
-      _Trait('聪慧', 'violet', 0.74),
-      _Trait('专注', 'green', 0.56),
+      const _Trait('温柔', 'pink', 0.82),
+      const _Trait('活泼', 'gold', 0.64),
+      const _Trait('聪慧', 'violet', 0.74),
+      const _Trait('专注', 'green', 0.56),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -710,17 +721,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
           ),
           const SizedBox(height: 16),
           if (_activities.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: Text('暂无活动',
-                    style: TextStyle(
-                      fontSize: XlFont.captionSm,
-                      color: p.text3,
-                      fontWeight: FontWeight.w500,
-                    )),
-              ),
-            )
+            _emptyState(p, '暂无活动', '数据加载后将显示最新动态')
           else
             AnimatedBuilder(
               animation: _actAnim,
@@ -734,6 +735,36 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                 );
               },
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState(XlPalette p, String title, String sub) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: AppTheme.brandOrb(context, size: 64),
+            child: Icon(Icons.auto_awesome_rounded, size: 26, color: p.btnInk),
+          ),
+          const SizedBox(height: 16),
+          Text(title,
+              style: TextStyle(
+                fontSize: XlFont.caption,
+                color: p.text2,
+                fontWeight: FontWeight.w700,
+              )),
+          const SizedBox(height: 4),
+          Text(sub,
+              style: TextStyle(
+                fontSize: XlFont.micro,
+                color: p.text3,
+                fontWeight: FontWeight.w500,
+              )),
         ],
       ),
     );
@@ -849,14 +880,16 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                   )),
               const Spacer(),
               AnimatedBuilder(
-                animation: _pulseCtrl,
+                animation: _breatheCtrl,
                 builder: (_, __) {
-                  final t = _pulseCtrl.value;
                   final c = connected ? p.green : p.red;
-                  return Container(
-                    width: 8,
-                    height: 8,
-                    decoration: AppTheme.glowDot(c, size: 8),
+                  return Transform.scale(
+                    scale: 1.0 + _breatheCtrl.value * 0.3,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: AppTheme.glowDot(c, size: 8),
+                    ),
                   );
                 },
               ),
@@ -921,44 +954,158 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   }
 
   Widget _loadingView(XlPalette p) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedBuilder(
-            animation: _pulseCtrl,
-            builder: (_, __) {
-              final t = _pulseCtrl.value;
-              return Stack(
-                alignment: Alignment.center,
+    return Stack(
+      children: [
+        Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
+        SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Container(
-                    width: 72 + t * 16,
-                    height: 72 + t * 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.pink.withOpacity((1 - t) * 0.18),
-                    ),
-                  ),
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: AppTheme.brandOrbLg(context, size: 72),
-                    child: Icon(Icons.auto_awesome_rounded, size: 28, color: p.btnInk),
-                  ),
+                  _SkeletonBox(width: 180, height: 28, p: p),
+                  const SizedBox(width: 12),
+                  _SkeletonBox(width: 60, height: 22, p: p, radius: XlRadius.pill),
                 ],
-              );
-            },
+              ),
+              const SizedBox(height: 8),
+              _SkeletonBox(width: 260, height: 14, p: p),
+              const SizedBox(height: 22),
+              LayoutBuilder(
+                builder: (context, c) {
+                  final cols = c.maxWidth > 1180 ? 4 : c.maxWidth > 780 ? 2 : 1;
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: cols,
+                      mainAxisSpacing: 14,
+                      crossAxisSpacing: 14,
+                      childAspectRatio: cols == 4 ? 1.5 : (cols == 2 ? 2.1 : 2.8),
+                    ),
+                    itemCount: 4,
+                    itemBuilder: (_, __) => _SkeletonCard(p: p, shimmerCtrl: _shimmerCtrl),
+                  );
+                },
+              ),
+              const SizedBox(height: 22),
+              _SkeletonCard(p: p, shimmerCtrl: _shimmerCtrl, height: 200),
+              const SizedBox(height: 18),
+              _SkeletonCard(p: p, shimmerCtrl: _shimmerCtrl, height: 140),
+            ],
           ),
-          const SizedBox(height: 22),
-          Text('正在唤醒小凌…',
-              style: TextStyle(
-                fontSize: XlFont.caption,
-                color: p.text2,
-                fontWeight: FontWeight.w600,
-                letterSpacing: XlLetterSpacing.wider,
-              )),
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  final double width;
+  final double height;
+  final XlPalette p;
+  final double radius;
+  const _SkeletonBox({required this.width, required this.height, required this.p, this.radius = XlRadius.md});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: p.surfaceLo,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.15 : 0.06), width: 1),
+      ),
+    );
+  }
+}
+
+class _SkeletonCard extends StatelessWidget {
+  final XlPalette p;
+  final AnimationController shimmerCtrl;
+  final double? height;
+  const _SkeletonCard({required this.p, required this.shimmerCtrl, this.height});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      padding: const EdgeInsets.all(18),
+      decoration: AppTheme.neuLg(context, r: XlRadius.xl),
+      child: AnimatedBuilder(
+        animation: shimmerCtrl,
+        builder: (_, __) {
+          final t = shimmerCtrl.value;
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(XlRadius.xl),
+              gradient: LinearGradient(
+                begin: Alignment(-1.0 + t * 2.5, 0),
+                end: Alignment(-0.4 + t * 2.5, 0),
+                colors: [
+                  p.surfaceLo,
+                  p.surfaceHi.withOpacity(0.6),
+                  p.surfaceLo,
+                ],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AnimatedCounter extends StatefulWidget {
+  final double value;
+  final Duration delay;
+  final TextStyle style;
+  const _AnimatedCounter({required this.value, this.delay = Duration.zero, required this.style});
+  @override
+  State<_AnimatedCounter> createState() => _AnimatedCounterState();
+}
+
+class _AnimatedCounterState extends State<_AnimatedCounter> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(duration: const Duration(milliseconds: 800), vsync: this);
+    _anim = Tween<double>(begin: 0, end: widget.value).animate(
+      CurvedAnimation(parent: _ctrl, curve: XlCurve.easeOut),
+    );
+    if (widget.delay == Duration.zero) {
+      _ctrl.forward();
+    } else {
+      Future.delayed(widget.delay, () {
+        if (mounted) _ctrl.forward();
+      });
+    }
+  }
+  @override
+  void didUpdateWidget(_AnimatedCounter old) {
+    super.didUpdateWidget(old);
+    if (old.value != widget.value) {
+      _anim = Tween<double>(begin: old.value, end: widget.value).animate(
+        CurvedAnimation(parent: _ctrl, curve: XlCurve.easeOut),
+      );
+      _ctrl.forward(from: 0);
+    }
+  }
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Text(
+        _anim.value.toStringAsFixed(0),
+        style: widget.style,
       ),
     );
   }
@@ -966,13 +1113,14 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
 
 class _Stat {
   final String label;
-  final String value;
+  final double rawValue;
   final String unit;
   final IconData icon;
   final String color;
   final double progress;
   final String hint;
-  const _Stat(this.label, this.value, this.unit, this.icon, this.color, this.progress, this.hint);
+  final int index;
+  const _Stat(this.label, this.rawValue, this.unit, this.icon, this.color, this.progress, this.hint, this.index);
 }
 
 class _Action {
@@ -1009,15 +1157,16 @@ class _Sys {
   const _Sys(this.name, this.value, this.icon, this.color, this.active);
 }
 
-class _HoverScale extends StatefulWidget {
+class _HoverGlowCard extends StatefulWidget {
   final Widget child;
+  final Color accent;
   final double scale;
-  const _HoverScale({required this.child, this.scale = 1.02});
+  const _HoverGlowCard({required this.child, required this.accent, this.scale = 1.02});
   @override
-  State<_HoverScale> createState() => _HoverScaleState();
+  State<_HoverGlowCard> createState() => _HoverGlowCardState();
 }
 
-class _HoverScaleState extends State<_HoverScale> {
+class _HoverGlowCardState extends State<_HoverGlowCard> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
@@ -1028,7 +1177,24 @@ class _HoverScaleState extends State<_HoverScale> {
         scale: _hover ? widget.scale : 1.0,
         duration: XlDuration.fast,
         curve: XlCurve.standard,
-        child: widget.child,
+        child: AnimatedContainer(
+          duration: XlDuration.fast,
+          curve: XlCurve.standard,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(XlRadius.xl),
+            boxShadow: _hover
+                ? [
+                    ...Theme.of(context).extension<XlPalette>()!.raised,
+                    BoxShadow(
+                      color: widget.accent.withOpacity(0.35),
+                      blurRadius: 24,
+                      spreadRadius: -4,
+                    ),
+                  ]
+                : null,
+          ),
+          child: widget.child,
+        ),
       ),
     );
   }

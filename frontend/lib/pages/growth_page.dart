@@ -32,11 +32,11 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _enterCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
-    _radialCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this);
+    _radialCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
     _pulseCtrl = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat();
     _timelineCtrl = AnimationController(duration: const Duration(milliseconds: 1200), vsync: this);
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
-    _radialAnim = CurvedAnimation(parent: _radialCtrl, curve: XlCurve.easeOut);
+    _radialAnim = CurvedAnimation(parent: _radialCtrl, curve: XlCurve.spring);
     _timelineAnim = CurvedAnimation(parent: _timelineCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
     _load();
@@ -109,6 +109,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     final p = XlPalette.of(context);
     if (_loading) return _loadingView(p);
     if (_data == null) return _errorView(p);
+    if (_data!.totalInteractions == 0) return _emptyState(p);
     return Stack(
       children: [
         Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
@@ -132,11 +133,11 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _heroRow(p),
+          _stagger(0, _heroRow(p)),
           const SizedBox(height: 22),
-          _heroCard(p),
+          _stagger(1, _heroCard(p)),
           const SizedBox(height: 20),
-          LayoutBuilder(
+          _stagger(2, LayoutBuilder(
             builder: (context, c) {
               final stacked = c.maxWidth < 1000;
               if (stacked) {
@@ -157,15 +158,30 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                 ],
               );
             },
-          ),
+          )),
           const SizedBox(height: 20),
-          _statsGrid(p),
+          _stagger(3, _statsGrid(p)),
           const SizedBox(height: 20),
-          _timelineHeaderCard(p),
+          _stagger(4, _timelineHeaderCard(p)),
           const SizedBox(height: 20),
-          _timelineList(p),
+          _stagger(5, _timelineList(p)),
         ],
       ),
+    );
+  }
+
+  Widget _stagger(int index, Widget child) {
+    final start = (index * 0.09).clamp(0.0, 0.7);
+    final end = (start + 0.5).clamp(0.0, 1.0);
+    return AnimatedBuilder(
+      animation: _enterAnim,
+      builder: (_, __) {
+        final t = Interval(start, end, curve: Curves.easeOut).transform(_enterAnim.value);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(offset: Offset(0, (1 - t) * 18), child: child),
+        );
+      },
     );
   }
 
@@ -335,15 +351,19 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(prog.toStringAsFixed(1),
-                      style: TextStyle(
-                        fontSize: 64,
-                        fontWeight: FontWeight.w800,
-                        color: p.btnInk,
-                        height: 0.95,
-                        letterSpacing: -2.0,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      )),
+                  _AnimatedCounter(
+                    value: prog,
+                    decimals: 1,
+                    duration: const Duration(milliseconds: 800),
+                    style: TextStyle(
+                      fontSize: 64,
+                      fontWeight: FontWeight.w800,
+                      color: p.btnInk,
+                      height: 0.95,
+                      letterSpacing: -2.0,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10, left: 4),
                     child: Text('%',
@@ -369,14 +389,18 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                         crossAxisAlignment: CrossAxisAlignment.baseline,
                         textBaseline: TextBaseline.alphabetic,
                         children: [
-                          Text('${g.currentGeneration}',
-                              style: TextStyle(
-                                fontSize: XlFont.h3,
-                                fontWeight: FontWeight.w800,
-                                color: p.btnInk,
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                                height: 1.0,
-                              )),
+                          _AnimatedCounter(
+                            value: g.currentGeneration.toDouble(),
+                            decimals: 0,
+                            duration: const Duration(milliseconds: 800),
+                            style: TextStyle(
+                              fontSize: XlFont.h3,
+                              fontWeight: FontWeight.w800,
+                              color: p.btnInk,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              height: 1.0,
+                            ),
+                          ),
                           Text('/${g.totalGenerations}',
                               style: TextStyle(
                                 fontSize: XlFont.captionSm,
@@ -412,11 +436,20 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                       tween: Tween(begin: 0.0, end: g.progressRatio),
                       builder: (_, v, __) => FractionallySizedBox(
                         widthFactor: v,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: p.btnInk,
-                            borderRadius: BorderRadius.circular(99),
-                            boxShadow: [BoxShadow(color: p.btnInk.withOpacity(0.4), blurRadius: 10, spreadRadius: -2)],
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: p.btnInk,
+                                  borderRadius: BorderRadius.circular(99),
+                                  boxShadow: [BoxShadow(color: p.btnInk.withOpacity(0.4), blurRadius: 10, spreadRadius: -2)],
+                                ),
+                              ),
+                              _ShimmerSweep(anim: _pulseCtrl),
+                            ],
                           ),
                         ),
                       ),
@@ -429,7 +462,14 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                 children: [
                   _heroPill(p, Icons.favorite_rounded, g.interactionsLabel),
                   const SizedBox(width: 8),
-                  _heroPill(p, Icons.mood_rounded, g.displayEmotion),
+                  AnimatedSwitcher(
+                    duration: XlDuration.normal,
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: ScaleTransition(scale: Tween(begin: 0.9, end: 1.0).animate(anim), child: child),
+                    ),
+                    child: _heroPill(p, Icons.mood_rounded, g.displayEmotion, key: ValueKey(g.displayEmotion)),
+                  ),
                   const SizedBox(width: 8),
                   _heroPill(p, g.paused ? Icons.pause_rounded : Icons.play_arrow_rounded, g.trainingLabel),
                 ],
@@ -441,8 +481,9 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _heroPill(XlPalette p, IconData icon, String text) {
+  Widget _heroPill(XlPalette p, IconData icon, String text, {Key? key}) {
     return Container(
+      key: key,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(p.isDark ? 0.22 : 0.16),
@@ -687,7 +728,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   Widget _statsGrid(XlPalette p) {
     final g = _data!;
     final items = <_GrowthStat>[
-      _GrowthStat('交互次数', '${g.totalInteractions}', '次', Icons.chat_bubble_outline_rounded, 'pink', (g.totalInteractions / 200).clamp(0.0, 1.0), '今日 +${(g.totalInteractions * 0.04).toInt()}'),
+      _GrowthStat('交互次数', '${g.totalInteractions}', '次', Icons.chat_bubble_outline_rounded, 'pink', (g.totalInteractions / 200).clamp(0.0, 1.0), '今日 +${(g.totalInteractions * 0.04).toInt()}', number: g.totalInteractions.toDouble()),
       _GrowthStat('当前情绪', g.displayEmotion, '', Icons.mood_rounded, 'gold', g.emotionEnergy, '相比昨日 +12%'),
       _GrowthStat('训练状态', g.trainingLabel, '', Icons.auto_awesome_rounded, 'violet', g.paused ? 0.3 : 0.75, g.paused ? '手动暂停' : '后台运行'),
       _GrowthStat('当前段位', g.displayRank, '', Icons.emoji_events_rounded, 'green', 0.62, '距下段位 38%'),
@@ -756,16 +797,30 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               textBaseline: TextBaseline.alphabetic,
               children: [
                 Flexible(
-                  child: Text(s.value,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: s.value.length > 4 ? XlFont.h4 : XlFont.h2,
-                        fontWeight: FontWeight.w800,
-                        color: p.text1,
-                        letterSpacing: XlLetterSpacing.tight,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        height: 1.0,
-                      )),
+                  child: s.number != null
+                      ? _AnimatedCounter(
+                          value: s.number!,
+                          decimals: 0,
+                          duration: const Duration(milliseconds: 800),
+                          style: TextStyle(
+                            fontSize: s.value.length > 4 ? XlFont.h4 : XlFont.h2,
+                            fontWeight: FontWeight.w800,
+                            color: p.text1,
+                            letterSpacing: XlLetterSpacing.tight,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            height: 1.0,
+                          ),
+                        )
+                      : Text(s.value,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: s.value.length > 4 ? XlFont.h4 : XlFont.h2,
+                            fontWeight: FontWeight.w800,
+                            color: p.text1,
+                            letterSpacing: XlLetterSpacing.tight,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            height: 1.0,
+                          )),
                 ),
                 if (s.unit.isNotEmpty) ...[
                   const SizedBox(width: 3),
@@ -921,27 +976,30 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                 width: 40,
                 child: Column(
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        gradient: n.done ? LinearGradient(colors: [color, color.withOpacity(0.72)]) : null,
-                        color: n.done ? null : p.surfaceLo,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: n.done
-                              ? Colors.white.withOpacity(p.isDark ? 0.32 : 0.48)
-                              : p.shDark.withOpacity(p.isDark ? 0.30 : 0.13),
-                          width: 1.4,
+                    ScaleTransition(
+                      scale: Tween(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: _timelineCtrl, curve: Interval((i * 0.12).clamp(0.0, 0.9), ((i * 0.12) + 0.4).clamp(0.0, 1.0), curve: XlCurve.spring))),
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: n.done ? LinearGradient(colors: [color, color.withOpacity(0.72)]) : null,
+                          color: n.done ? null : p.surfaceLo,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: n.done
+                                ? Colors.white.withOpacity(p.isDark ? 0.32 : 0.48)
+                                : p.shDark.withOpacity(p.isDark ? 0.30 : 0.13),
+                            width: 1.4,
+                          ),
+                          boxShadow: n.done
+                              ? [...p.raisedXxs, BoxShadow(color: color.withOpacity(0.35), blurRadius: 14, spreadRadius: -3)]
+                              : p.sunkenXxs,
                         ),
-                        boxShadow: n.done
-                            ? [...p.raisedXxs, BoxShadow(color: color.withOpacity(0.35), blurRadius: 14, spreadRadius: -3)]
-                            : p.sunkenXxs,
-                      ),
-                      child: Icon(
-                        n.icon,
-                        size: 16,
-                        color: n.done ? (p.isDark ? p.btnInk : Colors.white) : p.decor,
+                        child: Icon(
+                          n.icon,
+                          size: 16,
+                          color: n.done ? (p.isDark ? p.btnInk : Colors.white) : p.decor,
+                        ),
                       ),
                     ),
                     if (!last)
@@ -1091,7 +1149,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _loadingView(XlPalette p) {
+  Widget _emptyState(XlPalette p) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1104,37 +1162,110 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                 alignment: Alignment.center,
                 children: [
                   Container(
-                    width: 72 + t * 16,
-                    height: 72 + t * 16,
+                    width: 96 + t * 18,
+                    height: 96 + t * 18,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: p.pink.withOpacity((1 - t) * 0.18),
+                      color: p.pink.withOpacity((1 - t) * 0.14),
                     ),
                   ),
                   Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      gradient: p.gradBrand,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
-                      boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
-                    ),
-                    child: Icon(Icons.favorite_rounded, size: 28, color: p.btnInk),
+                    width: 96,
+                    height: 96,
+                    decoration: AppTheme.brandOrb(context, size: 96),
+                    child: Icon(Icons.favorite_rounded, size: 38, color: p.btnInk),
                   ),
                 ],
               );
             },
           ),
-          const SizedBox(height: 22),
-          Text('正在读取成长记录…',
+          const SizedBox(height: 24),
+          Text('开始互动，见证成长',
+              style: TextStyle(
+                fontSize: XlFont.h5,
+                fontWeight: FontWeight.w800,
+                color: p.text1,
+                letterSpacing: XlLetterSpacing.normal,
+              )),
+          const SizedBox(height: 8),
+          Text('每一次对话，都会让她变得更懂你',
               style: TextStyle(
                 fontSize: XlFont.caption,
-                color: p.text2,
-                fontWeight: FontWeight.w600,
+                color: p.text3,
+                fontWeight: FontWeight.w500,
                 letterSpacing: XlLetterSpacing.wider,
               )),
         ],
+      ),
+    );
+  }
+
+  Widget _loadingView(XlPalette p) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [_skeleton(p, width: 140, height: 30, radius: 10), const SizedBox(width: 12), _skeleton(p, width: 70, height: 22, radius: 99)]),
+          const SizedBox(height: 22),
+          _skeleton(p, width: double.infinity, height: 180, radius: 26),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _skeleton(p, width: double.infinity, height: 260, radius: 22)),
+              const SizedBox(width: 18),
+              Expanded(flex: 5, child: _skeleton(p, width: double.infinity, height: 260, radius: 22)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _skeleton(p, width: double.infinity, height: 110, radius: 22),
+          const SizedBox(height: 20),
+          for (int i = 0; i < 3; i++) ...[
+            _skeleton(p, width: double.infinity, height: 72, radius: 18),
+            const SizedBox(height: 14),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _skeleton(XlPalette p, {required double width, required double height, double radius = 16}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: p.surfaceLo,
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: p.sunkenSm,
+        ),
+        child: AnimatedBuilder(
+          animation: _pulseCtrl,
+          builder: (_, __) {
+            return LayoutBuilder(builder: (ctx, c) {
+              final w = c.maxWidth;
+              final dx = (_pulseCtrl.value * 2.2 - 0.6) * w;
+              return Stack(children: [
+                Positioned(
+                  left: dx.clamp(-w * 0.6, w),
+                  top: 0, bottom: 0,
+                  width: w * 0.4,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        Colors.white.withOpacity(0.0),
+                        Colors.white.withOpacity(p.isDark ? 0.06 : 0.18),
+                        Colors.white.withOpacity(0.0),
+                      ]),
+                    ),
+                  ),
+                ),
+              ]);
+            });
+          },
+        ),
       ),
     );
   }
@@ -1394,7 +1525,8 @@ class _GrowthStat {
   final String color;
   final double progress;
   final String hint;
-  const _GrowthStat(this.label, this.value, this.unit, this.icon, this.color, this.progress, this.hint);
+  final double? number;
+  const _GrowthStat(this.label, this.value, this.unit, this.icon, this.color, this.progress, this.hint, {this.number});
 }
 
 class _Pressable extends StatefulWidget {
@@ -1423,6 +1555,61 @@ class _PressableState extends State<_Pressable> {
           child: widget.child,
         ),
       ),
+    );
+  }
+}
+
+class _ShimmerSweep extends StatelessWidget {
+  final Animation<double> anim;
+  const _ShimmerSweep({required this.anim});
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, __) {
+        return LayoutBuilder(builder: (ctx, c) {
+          final w = c.maxWidth;
+          final dx = (anim.value * 2.2 - 0.5) * w;
+          return Stack(children: [
+            Positioned(
+              left: dx.clamp(-w * 0.5, w),
+              top: 0, bottom: 0,
+              width: w * 0.35,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [
+                    Colors.white.withOpacity(0.0),
+                    Colors.white.withOpacity(0.45),
+                    Colors.white.withOpacity(0.0),
+                  ]),
+                ),
+              ),
+            ),
+          ]);
+        });
+      },
+    );
+  }
+}
+
+class _AnimatedCounter extends StatelessWidget {
+  final double value;
+  final int decimals;
+  final TextStyle? style;
+  final Duration duration;
+  const _AnimatedCounter({
+    required this.value,
+    this.decimals = 0,
+    this.style,
+    this.duration = const Duration(milliseconds: 800),
+  });
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: value),
+      duration: duration,
+      curve: XlCurve.easeOut,
+      builder: (_, v, __) => Text(v.toStringAsFixed(decimals), style: style),
     );
   }
 }

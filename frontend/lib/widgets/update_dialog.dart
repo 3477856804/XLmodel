@@ -128,7 +128,11 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
             maxHeight: MediaQuery.of(context).size.height - 80,
           ),
           decoration: AppTheme.glassDeep(context, r: XlRadius.xxxl),
-          child: Column(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(XlRadius.xxxl),
+            child: Stack(
+              children: [
+                Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               _hero(p),
@@ -138,12 +142,52 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
               Flexible(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-                  child: _tabContent(p),
+                  child: AnimatedSwitcher(
+                    duration: XlDuration.normal,
+                    switchInCurve: XlCurve.easeOut,
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(anim),
+                        child: child,
+                      ),
+                    ),
+                    child: KeyedSubtree(
+                      key: ValueKey(_tab),
+                      child: _tabContent(p),
+                    ),
+                  ),
                 ),
               ),
               AppTheme.divider(context),
               _actions(p),
             ],
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _shimmerCtrl,
+                builder: (_, __) {
+                  final t = _shimmerCtrl.value;
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment(-1.4 - t * 1.4 + t, -0.2),
+                        end: Alignment(-0.5 - t * 1.4 + t, 0.2),
+                        colors: [
+                          Colors.white.withOpacity(0),
+                          Colors.white.withOpacity(0.05),
+                          Colors.white.withOpacity(0),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+              ],
+            ),
           ),
         ),
       ),
@@ -473,7 +517,19 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
           ),
         ),
         const SizedBox(height: 16),
-        ...List.generate(lines.length, (i) => _logLine(p, lines[i], i)),
+        ...List.generate(lines.length, (i) => TweenAnimationBuilder<double>(
+              key: ValueKey('log_$i'),
+              duration: Duration(milliseconds: 300 + (i.clamp(0, 10) * 40)),
+              curve: XlCurve.easeOut,
+              tween: Tween(begin: 0, end: 1),
+              builder: (_, t, __) => Opacity(
+                opacity: t,
+                child: Transform.translate(
+                  offset: Offset(0, (1 - t) * 12),
+                  child: _logLine(p, lines[i], i),
+                ),
+              ),
+            )),
       ],
     );
   }

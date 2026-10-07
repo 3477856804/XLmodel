@@ -21,8 +21,10 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   final _searchCtrl = TextEditingController();
   String _query = '';
   final Set<String> _busy = {};
+  final Set<String> _expanded = {};
   late AnimationController _enterCtrl;
   late AnimationController _listCtrl;
+  late AnimationController _shimmerCtrl;
   late Animation<double> _enterAnim;
   late Animation<double> _listAnim;
 
@@ -62,6 +64,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     super.initState();
     _enterCtrl = AnimationController(duration: const Duration(milliseconds: 700), vsync: this);
     _listCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
+    _shimmerCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this)..repeat();
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _listAnim = CurvedAnimation(parent: _listCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
@@ -73,6 +76,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   void dispose() {
     _enterCtrl.dispose();
     _listCtrl.dispose();
+    _shimmerCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -452,37 +456,58 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: _categories.entries.map((e) {
-                  final selected = _category == e.key;
-                  return Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => setState(() => _category = e.key),
-                      borderRadius: BorderRadius.circular(XlRadius.pill),
-                      child: AnimatedContainer(
-                        duration: XlDuration.fast,
-                        curve: XlCurve.standard,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: selected
-                            ? AppTheme.brand(context, r: XlRadius.pill)
-                            : null,
-                        child: Text(e.value,
-                            style: TextStyle(
-                              fontSize: XlFont.captionSm,
-                              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                              color: selected ? p.btnInk : p.text2,
-                              letterSpacing: XlLetterSpacing.wide,
-                            )),
-                      ),
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final entries = _categories.entries.toList();
+                final n = entries.length;
+                final cell = c.maxWidth / n;
+                final selIdx = entries.indexWhere((e) => e.key == _category);
+                return Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
+                  child: SizedBox(
+                    height: 32,
+                    child: Stack(
+                      children: [
+                        AnimatedPositioned(
+                          duration: XlDuration.normal,
+                          curve: XlCurve.spring,
+                          left: selIdx < 0 ? 0 : selIdx * cell,
+                          top: 0,
+                          bottom: 0,
+                          width: cell,
+                          child: Container(
+                            decoration: AppTheme.brand(context, r: XlRadius.pill),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            for (final e in entries)
+                              Expanded(
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () => setState(() => _category = e.key),
+                                    borderRadius: BorderRadius.circular(XlRadius.pill),
+                                    child: Center(
+                                      child: Text(e.value,
+                                          style: TextStyle(
+                                            fontSize: XlFont.captionSm,
+                                            fontWeight: _category == e.key ? FontWeight.w800 : FontWeight.w600,
+                                            color: _category == e.key ? p.btnInk : p.text2,
+                                            letterSpacing: XlLetterSpacing.wide,
+                                          )),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
-                  );
-                }).toList(),
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -632,15 +657,54 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: Text(
-              plugin.desc,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: XlFont.captionSm,
-                color: p.text2,
-                height: XlLineHeight.relaxed,
-                fontWeight: FontWeight.w500,
+            child: GestureDetector(
+              onTap: () => setState(() {
+                if (_expanded.contains(plugin.name)) {
+                  _expanded.remove(plugin.name);
+                } else {
+                  _expanded.add(plugin.name);
+                }
+              }),
+              child: AnimatedCrossFade(
+                duration: XlDuration.normal,
+                crossFadeState: _expanded.contains(plugin.name)
+                    ? CrossFadeState.showSecond
+                    : CrossFadeState.showFirst,
+                firstChild: Text(
+                  plugin.desc,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    color: p.text2,
+                    height: XlLineHeight.relaxed,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                secondChild: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Text(
+                          plugin.desc,
+                          style: TextStyle(
+                            fontSize: XlFont.captionSm,
+                            color: p.text1,
+                            height: XlLineHeight.relaxed,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Text('收起 ▲',
+                        style: TextStyle(
+                          fontSize: XlFont.micro,
+                          color: p.pink,
+                          fontWeight: FontWeight.w700,
+                        )),
+                  ],
+                ),
               ),
             ),
           ),
@@ -706,15 +770,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
           child: busy
               ? Padding(
                   padding: const EdgeInsets.all(4),
-                  child: Container(
-                    width: 18,
-                    height: 18,
-                    padding: const EdgeInsets.all(3),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.6,
-                      color: on ? p.surfaceHi : p.pink,
-                    ),
-                  ),
+                  child: _BusySpinner(color: on ? p.surfaceHi : p.pink),
                 )
               : Container(
                   margin: const EdgeInsets.all(3),
@@ -801,26 +857,67 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _loadingView(XlPalette p) {
-    return Container(
-      padding: const EdgeInsets.all(60),
-      decoration: AppTheme.neu(context, r: XlRadius.xl),
-      child: Column(
-        children: [
-          SizedBox(
-            width: 44,
-            height: 44,
-            child: CircularProgressIndicator(strokeWidth: 3, color: p.pink),
+    return LayoutBuilder(
+      builder: (context, c) {
+        final cols = c.maxWidth > 1180 ? 3 : c.maxWidth > 780 ? 2 : 1;
+        return GridView.count(
+          crossAxisCount: cols,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 14,
+          childAspectRatio: cols == 1 ? 3.0 : 1.35,
+          children: [
+            for (int i = 0; i < 6; i++) _skeletonCard(p),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _skeletonCard(XlPalette p) {
+    return AnimatedBuilder(
+      animation: _shimmerCtrl,
+      builder: (_, __) {
+        final t = _shimmerCtrl.value;
+        final base = BoxDecoration(
+          borderRadius: BorderRadius.circular(XlRadius.xl),
+          gradient: LinearGradient(
+            begin: Alignment(-1.2 - t * 1.2 + t, 0),
+            end: Alignment(-0.5 - t * 1.2 + t, 0),
+            colors: [
+              p.surfaceLo,
+              p.surfaceLo,
+              p.surfaceHi.withOpacity(0.9),
+              p.surfaceLo,
+              p.surfaceLo,
+            ],
+            stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
           ),
-          const SizedBox(height: 18),
-          Text('正在加载插件…',
-              style: TextStyle(
-                fontSize: XlFont.caption,
-                color: p.text2,
-                fontWeight: FontWeight.w600,
-                letterSpacing: XlLetterSpacing.wider,
-              )),
-        ],
-      ),
+        );
+        return Container(
+          padding: const EdgeInsets.all(18),
+          decoration: base,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(width: 42, height: 42, decoration: base.copyWith(borderRadius: BorderRadius.circular(XlRadius.md))),
+                  const Spacer(),
+                  Container(width: 46, height: 28, decoration: base.copyWith(borderRadius: BorderRadius.circular(XlRadius.pill))),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(width: 120, height: 12, decoration: base.copyWith(borderRadius: BorderRadius.circular(6))),
+              const SizedBox(height: 10),
+              Container(width: double.infinity, height: 8, decoration: base.copyWith(borderRadius: BorderRadius.circular(4))),
+              const SizedBox(height: 6),
+              Container(width: 160, height: 8, decoration: base.copyWith(borderRadius: BorderRadius.circular(4))),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -830,14 +927,33 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
       decoration: AppTheme.neu(context, r: XlRadius.xl),
       child: Column(
         children: [
-          Container(
-            width: 62,
-            height: 62,
-            decoration: AppTheme.neuXs(context, r: XlRadius.xl),
-            child: Icon(Icons.search_off_rounded, size: 26, color: p.decor),
+          AnimatedBuilder(
+            animation: _shimmerCtrl,
+            builder: (_, __) {
+              final t = _shimmerCtrl.value;
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 72 + t * 14,
+                    height: 72 + t * 14,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: p.pink.withOpacity((1 - t) * 0.16),
+                    ),
+                  ),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: AppTheme.brandOrb(context, size: 64),
+                    child: Icon(Icons.extension_outlined, size: 26, color: p.btnInk),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 18),
-          Text('没有匹配的插件',
+          Text('暂无插件',
               style: TextStyle(
                 fontSize: XlFont.h6,
                 fontWeight: FontWeight.w800,
@@ -1128,6 +1244,26 @@ class _Stat {
   final Color color;
   final double progress;
   const _Stat(this.label, this.value, this.icon, this.color, this.progress);
+}
+
+class _BusySpinner extends StatefulWidget {
+  final Color color;
+  const _BusySpinner({required this.color});
+  @override
+  State<_BusySpinner> createState() => _BusySpinnerState();
+}
+
+class _BusySpinnerState extends State<_BusySpinner> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 800))..repeat();
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    return RotationTransition(
+      turns: _c,
+      child: Icon(Icons.sync_rounded, size: 16, color: widget.color),
+    );
+  }
 }
 
 class _Pressable extends StatefulWidget {

@@ -23,12 +23,29 @@ class NotifPanel extends StatefulWidget {
   State<NotifPanel> createState() => _NotifPanelState();
 }
 
-class _NotifPanelState extends State<NotifPanel> {
+class _NotifPanelState extends State<NotifPanel> with TickerProviderStateMixin {
   TrainingStatusReply? _training;
   ReminderList? _reminders;
   bool _loading = true;
   bool _busy = false;
   String? _err;
+  final Set<String> _dismissing = {};
+  late final AnimationController _panelCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 380),
+  );
+  late final AnimationController _staggerCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  );
+  late final AnimationController _shimmerCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..repeat();
+  late final Animation<double> _panelAnim = CurvedAnimation(
+    parent: _panelCtrl,
+    curve: XlCurve.spring,
+  );
 
   int get _unread => _reminders?.unread ?? 0;
   int get _pending => _reminders?.pending ?? 0;
@@ -36,7 +53,17 @@ class _NotifPanelState extends State<NotifPanel> {
   @override
   void initState() {
     super.initState();
+    _panelCtrl.forward();
+    _staggerCtrl.forward();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _panelCtrl.dispose();
+    _staggerCtrl.dispose();
+    _shimmerCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -92,18 +119,28 @@ class _NotifPanelState extends State<NotifPanel> {
             alignment: Alignment.topRight,
             child: GestureDetector(
               onTap: () {},
-              child: Container(
-                width: 400,
-                constraints: const BoxConstraints(maxHeight: 620),
-                margin: const EdgeInsets.only(top: 68, right: 16),
-                decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _header(p),
-                    AppTheme.divider(context),
-                    Flexible(child: _body(p)),
-                  ],
+              child: AnimatedBuilder(
+                animation: _panelAnim,
+                builder: (_, child) => FadeTransition(
+                  opacity: _panelAnim,
+                  child: SlideTransition(
+                    position: Tween(begin: const Offset(0, 0.3), end: Offset.zero).animate(_panelAnim),
+                    child: child,
+                  ),
+                ),
+                child: Container(
+                  width: 400,
+                  constraints: const BoxConstraints(maxHeight: 620),
+                  margin: const EdgeInsets.only(top: 68, right: 16),
+                  decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _header(p),
+                      AppTheme.divider(context),
+                      Flexible(child: _body(p)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -329,12 +366,29 @@ class _NotifPanelState extends State<NotifPanel> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 18),
               child: Center(
-                child: Text('暂时没有提醒',
-                    style: TextStyle(fontSize: XlFont.caption, color: p.text3)),
+                child: Column(
+                  children: [
+                    Icon(Icons.notifications_off_rounded, size: 28, color: p.decor),
+                    const SizedBox(height: 8),
+                    Text('暂无通知',
+                        style: TextStyle(fontSize: XlFont.caption, color: p.text3)),
+                  ],
+                ),
               ),
             )
           else
-            ...items.map((r) => _reminderRow(p, r)),
+            ...List.generate(items.length, (i) {
+              final r = items[i];
+              final delay = (i * 0.12).clamp(0.0, 0.6);
+              final t = ((_staggerCtrl.value - delay) / (1 - delay)).clamp(0.0, 1.0);
+              return Opacity(
+                opacity: t,
+                child: Transform.translate(
+                  offset: Offset(0, (1 - t) * 14),
+                  child: _reminderRow(p, r),
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -344,7 +398,19 @@ class _NotifPanelState extends State<NotifPanel> {
     final left = r.secondsLeft.toInt();
     final overdue = left <= 0;
     final color = overdue ? p.pink : p.text3;
-    return Padding(
+    final dismissing = _dismissing.contains(r.dueAt.toString());
+    return AnimatedSlide(
+      duration: XlDuration.normal,
+      curve: XlCurve.standard,
+      offset: dismissing ? const Offset(-0.4, 0) : Offset.zero,
+      child: AnimatedScale(
+        duration: XlDuration.normal,
+        curve: XlCurve.standard,
+        scale: dismissing ? 0.85 : 1.0,
+        child: AnimatedOpacity(
+          duration: XlDuration.normal,
+          opacity: dismissing ? 0.0 : 1.0,
+          child: Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(
         children: [
@@ -376,7 +442,7 @@ class _NotifPanelState extends State<NotifPanel> {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: _busy ? null : () => _complete(r),
+            onTap: _busy ? null : () => _onComplete(r),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
               decoration: AppTheme.neuXxs(context, r: XlRadius.xs),
@@ -389,7 +455,17 @@ class _NotifPanelState extends State<NotifPanel> {
           ),
         ],
       ),
+            ),
+          ),
+        ),
     );
+  }
+
+  Future<void> _onComplete(ReminderItem r) async {
+    if (_dismissing.contains(r.dueAt.toString())) return;
+    setState(() => _dismissing.add(r.dueAt.toString()));
+    await Future.delayed(const Duration(milliseconds: 260));
+    await _complete(r);
   }
 
   String _timeLabel(int sec) {
@@ -420,10 +496,41 @@ class _NotifPanelState extends State<NotifPanel> {
       child: FractionallySizedBox(
         alignment: Alignment.centerLeft,
         widthFactor: (pct / 100).clamp(0.0, 1.0),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [color.withOpacity(0.75), color]),
-            borderRadius: BorderRadius.circular(XlRadius.pill),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(XlRadius.pill),
+          child: Stack(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [color.withOpacity(0.75), color]),
+                  borderRadius: BorderRadius.circular(XlRadius.pill),
+                ),
+              ),
+              if (!slim)
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _shimmerCtrl,
+                    builder: (_, __) {
+                      final t = _shimmerCtrl.value;
+                      return FractionallySizedBox(
+                        alignment: Alignment(-1 + t * 3 - 1, 0),
+                        widthFactor: 0.5,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.white.withOpacity(0),
+                                Colors.white.withOpacity(0.35),
+                                Colors.white.withOpacity(0),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
           ),
         ),
       ),

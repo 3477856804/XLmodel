@@ -45,6 +45,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   int _cameraPreset = 0;
   late AnimationController _pulseCtrl;
   late AnimationController _ringCtrl;
+  late AnimationController _glowCtrl;
   late AnimationController _loadCtrl;
   late AnimationController _fadeCtrl;
   late Animation<double> _fadeAnim;
@@ -59,6 +60,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
     _autoRotate = widget.autoRotateDefault;
     _pulseCtrl = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat();
     _ringCtrl = AnimationController(duration: const Duration(seconds: 12), vsync: this)..repeat();
+    _glowCtrl = AnimationController(duration: const Duration(seconds: 8), vsync: this)..repeat();
     _loadCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this);
     _fadeCtrl = AnimationController(duration: const Duration(milliseconds: 600), vsync: this);
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: XlCurve.easeOut);
@@ -83,6 +85,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   void dispose() {
     _pulseCtrl.dispose();
     _ringCtrl.dispose();
+    _glowCtrl.dispose();
     _loadCtrl.dispose();
     _fadeCtrl.dispose();
     _loadTimer?.cancel();
@@ -119,7 +122,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
       builder: (_, child) => Opacity(
         opacity: _fadeAnim.value,
         child: Transform.scale(
-          scale: 0.96 + _fadeAnim.value * 0.04,
+          scale: 0.90 + _fadeAnim.value * 0.10,
           child: child,
         ),
       ),
@@ -137,6 +140,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                 children: [
                   _ambientGlow(p),
                   _outerRing(p),
+                  _rotGlow(p),
                   _frame(p),
                   _content(p),
                   _topBadge(p),
@@ -215,6 +219,42 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
           ),
         );
       },
+    );
+  }
+
+  Widget _rotGlow(XlPalette p) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _glowCtrl,
+        builder: (_, __) {
+          return Transform.rotate(
+            angle: _glowCtrl.value * 2 * math.pi,
+            child: ShaderMask(
+              blendMode: BlendMode.srcATop,
+              shaderCallback: (rect) => SweepGradient(
+                startAngle: 0,
+                endAngle: 2 * math.pi,
+                colors: [
+                  p.pink.withOpacity(0.0),
+                  p.pink.withOpacity(0.35),
+                  p.pink.withOpacity(0.0),
+                  p.gold.withOpacity(0.22),
+                  p.pink.withOpacity(0.0),
+                ],
+                stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+              ).createShader(rect),
+              child: Container(
+                width: widget.width,
+                height: widget.width,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withOpacity(0.25), width: 1),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -424,7 +464,32 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
       child: ClipOval(
         child: Container(
           color: p.screen.withOpacity(p.isDark ? 0.72 : 0.62),
-          child: Center(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedBuilder(
+                    animation: _glowCtrl,
+                    builder: (_, __) {
+                      final t = _glowCtrl.value;
+                      return DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment(-1.4 - t * 1.4 + t, -0.3),
+                            end: Alignment(-0.6 - t * 1.4 + t, 0.3),
+                            colors: [
+                              Colors.white.withOpacity(0),
+                              Colors.white.withOpacity(0.06),
+                              Colors.white.withOpacity(0),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -469,6 +534,8 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                     )),
               ],
             ),
+              ),
+            ],
           ),
         ),
       ),
@@ -644,30 +711,11 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   }
 
   Widget _controlBtn(XlPalette p, IconData icon, String label, Color color, VoidCallback onTap) {
-    return _Pressable(
+    return _CtrlBtn(
+      icon: icon,
+      label: label,
+      color: color,
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: AppTheme.neuXs(context, r: XlRadius.sm),
-              child: Icon(icon, size: 15, color: color),
-            ),
-            const SizedBox(height: 5),
-            Text(label,
-                style: TextStyle(
-                  fontSize: XlFont.micro,
-                  fontWeight: FontWeight.w700,
-                  color: p.text2,
-                  letterSpacing: XlLetterSpacing.wider,
-                )),
-          ],
-        ),
-      ),
     );
   }
 
@@ -779,8 +827,11 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                         decoration: BoxDecoration(
                           color: p.surfaceHi,
                           shape: BoxShape.circle,
-                          border: Border.all(color: color.withOpacity(0.5), width: 1.2),
-                          boxShadow: p.raisedXxs,
+                          border: Border.all(color: color.withOpacity(0.6), width: 1.2),
+                          boxShadow: [
+                            ...p.raisedXxs,
+                            BoxShadow(color: color.withOpacity(0.55), blurRadius: 10, spreadRadius: 1),
+                          ],
                         ),
                       ),
                     ),
@@ -907,6 +958,60 @@ class _LoadRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LoadRingPainter old) =>
       old.progress != progress || old.color != color || old.track != track;
+}
+
+class _CtrlBtn extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _CtrlBtn({required this.icon, required this.label, required this.color, required this.onTap});
+  @override
+  State<_CtrlBtn> createState() => _CtrlBtnState();
+}
+
+class _CtrlBtnState extends State<_CtrlBtn> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _down = true),
+      onTapUp: (_) => setState(() => _down = false),
+      onTapCancel: () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? 0.94 : 1.0,
+        duration: XlDuration.fast,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: XlDuration.normal,
+                curve: XlCurve.standard,
+                width: 34,
+                height: 34,
+                decoration: _down
+                    ? AppTheme.sunkenXs(context, r: XlRadius.sm)
+                    : AppTheme.neuXs(context, r: XlRadius.sm),
+                child: Icon(widget.icon, size: 15, color: widget.color),
+              ),
+              const SizedBox(height: 5),
+              Text(widget.label,
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    fontWeight: FontWeight.w700,
+                    color: p.text2,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Pressable extends StatefulWidget {

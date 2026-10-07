@@ -688,37 +688,58 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: _categories.entries.map((e) {
-                  final selected = _category == e.key;
-                  return Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => setState(() => _category = e.key),
-                      borderRadius: BorderRadius.circular(XlRadius.pill),
-                      child: AnimatedContainer(
-                        duration: XlDuration.fast,
-                        curve: XlCurve.standard,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: selected
-                            ? AppTheme.brand(context, r: XlRadius.pill)
-                            : null,
-                        child: Text(e.value,
-                            style: TextStyle(
-                              fontSize: XlFont.captionSm,
-                              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                              color: selected ? p.btnInk : p.text2,
-                              letterSpacing: XlLetterSpacing.wide,
-                            )),
-                      ),
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final entries = _categories.entries.toList();
+                final n = entries.length;
+                final cell = c.maxWidth / n;
+                final selIdx = entries.indexWhere((e) => e.key == _category);
+                return Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
+                  child: SizedBox(
+                    height: 32,
+                    child: Stack(
+                      children: [
+                        AnimatedPositioned(
+                          duration: XlDuration.normal,
+                          curve: XlCurve.spring,
+                          left: selIdx < 0 ? 0 : selIdx * cell,
+                          top: 0,
+                          bottom: 0,
+                          width: cell,
+                          child: Container(
+                            decoration: AppTheme.brand(context, r: XlRadius.pill),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            for (final e in entries)
+                              Expanded(
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () => setState(() => _category = e.key),
+                                    borderRadius: BorderRadius.circular(XlRadius.pill),
+                                    child: Center(
+                                      child: Text(e.value,
+                                          style: TextStyle(
+                                            fontSize: XlFont.captionSm,
+                                            fontWeight: _category == e.key ? FontWeight.w800 : FontWeight.w600,
+                                            color: _category == e.key ? p.btnInk : p.text2,
+                                            letterSpacing: XlLetterSpacing.wide,
+                                          )),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
-                  );
-                }).toList(),
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -799,25 +820,27 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
         opacity: t,
         child: Transform.translate(offset: Offset(0, (1 - t) * 16), child: child),
       ),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: AppTheme.neu(context, r: XlRadius.xxl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [color, color.withOpacity(0.72)]),
-                    borderRadius: BorderRadius.circular(XlRadius.md),
-                    border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.2),
-                    boxShadow: [...p.raisedXs, BoxShadow(color: color.withOpacity(0.35), blurRadius: 16, spreadRadius: -3)],
+      child: _HoverGlow(
+        color: color,
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: AppTheme.neu(context, r: XlRadius.xxl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [color, color.withOpacity(0.72)]),
+                      borderRadius: BorderRadius.circular(XlRadius.md),
+                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.2),
+                      boxShadow: [...p.raisedXs, BoxShadow(color: color.withOpacity(0.35), blurRadius: 16, spreadRadius: -3)],
+                    ),
+                    child: Icon(Icons.auto_awesome_rounded, size: 20, color: p.isDark ? p.btnInk : Colors.white),
                   ),
-                  child: Icon(Icons.auto_awesome_rounded, size: 20, color: p.isDark ? p.btnInk : Colors.white),
-                ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -897,11 +920,41 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                       child: FractionallySizedBox(
                         alignment: Alignment.centerLeft,
                         widthFactor: progress.clamp(0.0, 1.0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: p.gradBrand,
-                            borderRadius: BorderRadius.circular(XlRadius.pill),
-                            boxShadow: [BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 8, spreadRadius: -2)],
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(XlRadius.pill),
+                          child: Stack(
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: p.gradBrand,
+                                  borderRadius: BorderRadius.circular(XlRadius.pill),
+                                  boxShadow: [BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 8, spreadRadius: -2)],
+                                ),
+                              ),
+                              Positioned.fill(
+                                child: AnimatedBuilder(
+                                  animation: _scanCtrl,
+                                  builder: (_, __) {
+                                    final t = _scanCtrl.value;
+                                    return FractionallySizedBox(
+                                      alignment: Alignment(-1 + t * 3 - 1, 0),
+                                      widthFactor: 0.4,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              Colors.white.withOpacity(0),
+                                              Colors.white.withOpacity(0.35),
+                                              Colors.white.withOpacity(0),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -911,23 +964,36 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                       children: [
                         Icon(Icons.download_rounded, size: 12, color: color),
                         const SizedBox(width: 6),
-                        Text('${(progress * 100).toStringAsFixed(0)}%',
-                            style: TextStyle(
-                              fontSize: XlFont.micro,
-                              fontWeight: FontWeight.w800,
-                              color: color,
-                              letterSpacing: XlLetterSpacing.wider,
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                            )),
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: (progress * 100)),
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.linear,
+                          builder: (_, v, __) => Text('${v.toStringAsFixed(0)}%',
+                              style: TextStyle(
+                                fontSize: XlFont.micro,
+                                fontWeight: FontWeight.w800,
+                                color: color,
+                                letterSpacing: XlLetterSpacing.wider,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              )),
+                        ),
                         const Spacer(),
-                        Text(dl?.sizeLabel ?? '',
-                            style: TextStyle(
-                              fontSize: XlFont.micro,
-                              fontWeight: FontWeight.w700,
-                              color: p.text3,
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                              letterSpacing: XlLetterSpacing.wider,
-                            )),
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: dl?.downloadedMb ?? 0),
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.linear,
+                          builder: (_, v, __) => Text(
+                              dl != null
+                                  ? '${v.toStringAsFixed(1)} / ${dl.totalMb.toStringAsFixed(1)} MB'
+                                  : '',
+                              style: TextStyle(
+                                fontSize: XlFont.micro,
+                                fontWeight: FontWeight.w700,
+                                color: p.text3,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                                letterSpacing: XlLetterSpacing.wider,
+                              )),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -996,9 +1062,21 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                 ),
               ),
             ] else
-              _actionBtn(p, m, installed, color),
+              AnimatedSwitcher(
+                duration: XlDuration.normal,
+                switchInCurve: XlCurve.spring,
+                transitionBuilder: (child, anim) => ScaleTransition(
+                  scale: anim,
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey('btn_${installed ? 1 : 0}_${m.canRun ? 1 : 0}'),
+                  child: _actionBtn(p, m, installed, color),
+                ),
+              ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1406,14 +1484,33 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: Column(
         children: [
-          Container(
-            width: 62,
-            height: 62,
-            decoration: AppTheme.neuXs(context, r: XlRadius.xxl),
-            child: Icon(Icons.search_off_rounded, size: 26, color: p.decor),
+          AnimatedBuilder(
+            animation: _pulseCtrl,
+            builder: (_, __) {
+              final t = _pulseCtrl.value;
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 72 + t * 14,
+                    height: 72 + t * 14,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: p.pink.withOpacity((1 - t) * 0.16),
+                    ),
+                  ),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: AppTheme.brandOrb(context, size: 64),
+                    child: Icon(Icons.inventory_2_outlined, size: 26, color: p.btnInk),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 18),
-          Text('没有匹配的模型',
+          Text('暂无模型',
               style: TextStyle(
                 fontSize: XlFont.h6,
                 fontWeight: FontWeight.w800,
@@ -1477,45 +1574,102 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   Widget _loadingView(XlPalette p) {
-    return Center(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(26, 10, 26, 30),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AnimatedBuilder(
-            animation: _pulseCtrl,
-            builder: (_, __) {
-              final t = _pulseCtrl.value;
-              return Stack(
-                alignment: Alignment.center,
+          Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 72 + t * 16,
-                    height: 72 + t * 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.pink.withOpacity((1 - t) * 0.18),
-                    ),
-                  ),
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: AppTheme.brandOrbLg(context, size: 72),
-                    child: Icon(Icons.shopping_bag_outlined, size: 28, color: p.btnInk),
-                  ),
+                  _shimmerBar(p, 120, 22),
+                  const SizedBox(height: 8),
+                  _shimmerBar(p, 220, 12),
+                ],
+              ),
+              const Spacer(),
+              _shimmerBox(p, 110, 44, XlRadius.lg),
+            ],
+          ),
+          const SizedBox(height: 22),
+          _shimmerBox(p, double.infinity, 150, XlRadius.xxl),
+          const SizedBox(height: 20),
+          LayoutBuilder(
+            builder: (context, c) {
+              final cols = c.maxWidth > 1180 ? 3 : c.maxWidth > 780 ? 2 : 1;
+              return GridView.count(
+                crossAxisCount: cols,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: cols == 1 ? 1.9 : 1.15,
+                children: [
+                  for (int i = 0; i < 4; i++) _shimmerBox(p, double.infinity, 160, XlRadius.xxl),
                 ],
               );
             },
           ),
-          const SizedBox(height: 22),
-          Text('正在检测硬件并扫描可用模型…',
-              style: TextStyle(
-                fontSize: XlFont.caption,
-                color: p.text2,
-                fontWeight: FontWeight.w600,
-                letterSpacing: XlLetterSpacing.wider,
-              )),
         ],
       ),
+    );
+  }
+
+  Widget _shimmerBox(XlPalette p, double w, double h, double r) {
+    return AnimatedBuilder(
+      animation: _scanCtrl,
+      builder: (_, __) {
+        final t = _scanCtrl.value;
+        return Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(r),
+            gradient: LinearGradient(
+              begin: Alignment(-1.0 - t * 1.2 + t, 0),
+              end: Alignment(-0.4 - t * 1.2 + t, 0),
+              colors: [
+                p.surfaceLo,
+                p.surfaceLo,
+                p.surfaceHi.withOpacity(0.9),
+                p.surfaceLo,
+                p.surfaceLo,
+              ],
+              stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _shimmerBar(XlPalette p, double w, double h) {
+    return AnimatedBuilder(
+      animation: _scanCtrl,
+      builder: (_, __) {
+        final t = _scanCtrl.value;
+        return Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(99),
+            gradient: LinearGradient(
+              begin: Alignment(-1.2 - t * 1.2 + t, 0),
+              end: Alignment(-0.5 - t * 1.2 + t, 0),
+              colors: [
+                p.surfaceLo,
+                p.surfaceLo,
+                p.surfaceHi.withOpacity(0.9),
+                p.surfaceLo,
+                p.surfaceLo,
+              ],
+              stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1607,6 +1761,43 @@ class _DlInfo {
   String get sizeLabel {
     if (totalMb <= 0) return '';
     return '${downloadedMb.toStringAsFixed(1)} / ${totalMb.toStringAsFixed(1)} MB';
+  }
+}
+
+class _HoverGlow extends StatefulWidget {
+  final Widget child;
+  final Color color;
+  const _HoverGlow({required this.child, required this.color});
+  @override
+  State<_HoverGlow> createState() => _HoverGlowState();
+}
+
+class _HoverGlowState extends State<_HoverGlow> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        scale: _hover ? 1.015 : 1.0,
+        duration: XlDuration.normal,
+        curve: XlCurve.springSoft,
+        child: AnimatedContainer(
+          duration: XlDuration.normal,
+          curve: XlCurve.standard,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(XlRadius.xxl),
+            boxShadow: _hover
+                ? [
+                    BoxShadow(color: widget.color.withOpacity(0.30), blurRadius: 30, spreadRadius: -4),
+                  ]
+                : const [],
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
   }
 }
 

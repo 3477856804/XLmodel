@@ -20,22 +20,36 @@ class PersonaPanel extends StatefulWidget {
   State<PersonaPanel> createState() => _PersonaPanelState();
 }
 
-class _PersonaPanelState extends State<PersonaPanel> {
+class _PersonaPanelState extends State<PersonaPanel> with TickerProviderStateMixin {
   PersonaReply? _persona;
   List<PersonaPreset> _presets = const [];
   bool _loading = true;
   bool _busy = false;
   String? _err;
 
-  // 自定义人格弹窗
   bool _showAdd = false;
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _hintCtrl = TextEditingController();
 
+  late final AnimationController _panelCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 380),
+  );
+  late final AnimationController _staggerCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  );
+  late final Animation<double> _panelAnim = CurvedAnimation(
+    parent: _panelCtrl,
+    curve: XlCurve.spring,
+  );
+
   @override
   void initState() {
     super.initState();
+    _panelCtrl.forward();
+    _staggerCtrl.forward();
     _load();
   }
 
@@ -44,6 +58,8 @@ class _PersonaPanelState extends State<PersonaPanel> {
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _hintCtrl.dispose();
+    _panelCtrl.dispose();
+    _staggerCtrl.dispose();
     super.dispose();
   }
 
@@ -144,20 +160,26 @@ class _PersonaPanelState extends State<PersonaPanel> {
           child: GestureDetector(
             onTap: () {},
             child: Center(
-              child: Container(
-                width: 560,
-                constraints: const BoxConstraints(maxHeight: 680),
-                margin: const EdgeInsets.all(24),
-                decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _header(p),
-                    AppTheme.divider(context),
-                    Flexible(child: _body(p)),
-                    AppTheme.divider(context),
-                    _footer(p),
-                  ],
+              child: FadeTransition(
+                opacity: _panelAnim,
+                child: SlideTransition(
+                  position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(_panelAnim),
+                  child: Container(
+                    width: 560,
+                    constraints: const BoxConstraints(maxHeight: 680),
+                    margin: const EdgeInsets.all(24),
+                    decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _header(p),
+                        AppTheme.divider(context),
+                        Flexible(child: _body(p)),
+                        AppTheme.divider(context),
+                        _footer(p),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -381,7 +403,23 @@ class _PersonaPanelState extends State<PersonaPanel> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: builtin.map((e) => _presetChip(p, e)).toList(),
+            children: [
+              for (int i = 0; i < builtin.length; i++)
+                AnimatedBuilder(
+                  animation: _staggerCtrl,
+                  builder: (_, __) {
+                    final delay = (i * 0.08).clamp(0.0, 0.5);
+                    final t = ((_staggerCtrl.value - delay) / (1 - delay)).clamp(0.0, 1.0);
+                    return Opacity(
+                      opacity: t,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - t) * 12),
+                        child: _presetChip(p, builtin[i]),
+                      ),
+                    );
+                  },
+                ),
+            ],
           ),
           if (custom.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -410,18 +448,29 @@ class _PersonaPanelState extends State<PersonaPanel> {
     return GestureDetector(
       onTap: _busy ? null : () => _switchTo(preset),
       onLongPress: deletable && !active ? () => _remove(preset) : null,
-      child: Container(
+      child: AnimatedContainer(
+        duration: XlDuration.normal,
+        curve: XlCurve.standard,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: active
-            ? AppTheme.accent(context, r: XlRadius.md)
+            ? BoxDecoration(
+                color: p.pink,
+                borderRadius: BorderRadius.circular(XlRadius.md),
+                boxShadow: [
+                  BoxShadow(color: p.pink.withOpacity(0.45), blurRadius: 14, spreadRadius: -2),
+                ],
+              )
             : AppTheme.neuXs(context, r: XlRadius.md),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (active) ...[
-              Icon(Icons.check_rounded, size: 13, color: p.btnInk),
-              const SizedBox(width: 4),
-            ],
+            AnimatedScale(
+              duration: XlDuration.normal,
+              scale: active ? 1.0 : 0.0,
+              curve: XlCurve.spring,
+              child: Icon(Icons.check_rounded, size: 13, color: p.btnInk),
+            ),
+            if (active) const SizedBox(width: 4),
             Text(preset.name,
                 style: TextStyle(
                     fontSize: XlFont.captionSm,
@@ -548,22 +597,11 @@ class _PersonaPanelState extends State<PersonaPanel> {
 
   Widget _field(XlPalette p, TextEditingController ctrl, String hint,
       {int maxLines = 1, bool autofocus = false}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
-      child: TextField(
-        controller: ctrl,
-        maxLines: maxLines,
-        autofocus: autofocus,
-        style: TextStyle(fontSize: XlFont.bodySm, color: p.text1),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(fontSize: XlFont.captionSm, color: p.decor),
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: 11),
-        ),
-      ),
+    return _FocusField(
+      controller: ctrl,
+      hint: hint,
+      maxLines: maxLines,
+      autofocus: autofocus,
     );
   }
 
@@ -686,6 +724,69 @@ class _RadarPainter extends CustomPainter {
   @override
   bool shouldRepaint(_RadarPainter old) =>
       old.axes != axes || old.color != color;
+}
+
+class _FocusField extends StatefulWidget {
+  final TextEditingController controller;
+  final String hint;
+  final int maxLines;
+  final bool autofocus;
+  const _FocusField({
+    required this.controller,
+    required this.hint,
+    required this.maxLines,
+    required this.autofocus,
+  });
+  @override
+  State<_FocusField> createState() => _FocusFieldState();
+}
+
+class _FocusFieldState extends State<_FocusField> {
+  final FocusNode _node = FocusNode();
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(() => setState(() {}));
+  }
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return AnimatedContainer(
+      duration: XlDuration.normal,
+      curve: XlCurve.standard,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: _node.hasFocus
+          ? BoxDecoration(
+              color: p.surfaceLo,
+              borderRadius: BorderRadius.circular(XlRadius.md),
+              border: Border.all(color: p.pink.withOpacity(0.5), width: 1.2),
+              boxShadow: [
+                BoxShadow(color: p.pink.withOpacity(0.25), blurRadius: 12, spreadRadius: -2),
+              ],
+            )
+          : AppTheme.sunkenXs(context, r: XlRadius.md),
+      child: TextField(
+        controller: widget.controller,
+        focusNode: _node,
+        maxLines: widget.maxLines,
+        autofocus: widget.autofocus,
+        style: TextStyle(fontSize: XlFont.bodySm, color: p.text1),
+        decoration: InputDecoration(
+          hintText: widget.hint,
+          hintStyle: TextStyle(fontSize: XlFont.captionSm, color: p.decor),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 11),
+        ),
+      ),
+    );
+  }
 }
 
 class _Pressable extends StatefulWidget {

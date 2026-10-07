@@ -20,6 +20,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   pb.HardwareInfo? _hardware;
   bool _loading = true;
   bool _synced = false;
+  bool _clearingCache = false;
   String _activeSection = 'model';
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode();
@@ -165,6 +166,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Future<void> _clearCache() async {
+    if (_clearingCache) return;
+    setState(() => _clearingCache = true);
     try {
       final tmp = await getTemporaryDirectory();
       final size = await _dirSize(tmp);
@@ -173,11 +176,16 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           e.delete(recursive: true);
         }
       } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
-      setState(() => _cacheSize = '0 B');
+      setState(() {
+        _cacheSize = '0 B';
+        _clearingCache = false;
+      });
       _showSnack('已清理 ${(size / 1024 / 1024).toStringAsFixed(1)} MB 缓存');
     } catch (_) {
       if (!mounted) return;
+      setState(() => _clearingCache = false);
       _showSnack('缓存清理完成');
     }
   }
@@ -319,10 +327,10 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _heroRow(p),
+          _stagger(0, _heroRow(p)),
           const SizedBox(height: 20),
           Expanded(
-            child: LayoutBuilder(
+            child: _stagger(1, LayoutBuilder(
               builder: (context, c) {
                 final stacked = c.maxWidth < 900;
                 if (stacked) {
@@ -343,10 +351,25 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                   ],
                 );
               },
-            ),
+            )),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _stagger(int index, Widget child) {
+    final start = (index * 0.15).clamp(0.0, 0.6);
+    final end = (start + 0.6).clamp(0.0, 1.0);
+    return AnimatedBuilder(
+      animation: _enterAnim,
+      builder: (_, __) {
+        final t = Interval(start, end, curve: Curves.easeOut).transform(_enterAnim.value);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(offset: Offset(0, (1 - t) * 16), child: child),
+        );
+      },
     );
   }
 
@@ -559,32 +582,75 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: _loading ? _loadingPane(p) : _sectionContent(p),
+        child: _loading
+            ? _loadingPane(p)
+            : AnimatedSwitcher(
+                duration: XlDuration.medium,
+                transitionBuilder: (child, anim) => FadeTransition(
+                  opacity: anim,
+                  child: SlideTransition(
+                    position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(anim),
+                    child: child,
+                  ),
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey(_activeSection),
+                  child: _sectionContent(p),
+                ),
+              ),
       ),
     );
   }
 
   Widget _loadingPane(XlPalette p) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 60),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 40,
-              height: 40,
-              child: CircularProgressIndicator(strokeWidth: 3, color: p.pink),
-            ),
-            const SizedBox(height: 18),
-            Text('正在读取设置…',
-                style: TextStyle(
-                  fontSize: XlFont.captionSm,
-                  color: p.text2,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: XlLetterSpacing.wider,
-                )),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [_skeleton(p, width: 44, height: 44, radius: 12), const SizedBox(width: 14), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_skeleton(p, width: 140, height: 16, radius: 6), const SizedBox(height: 8), _skeleton(p, width: 200, height: 11, radius: 6)])]),
+        const SizedBox(height: 24),
+        for (int i = 0; i < 4; i++) ...[
+          _skeleton(p, width: double.infinity, height: 64, radius: 16),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _skeleton(XlPalette p, {required double width, required double height, double radius = 12}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: p.surfaceLo,
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: p.sunkenXs,
+        ),
+        child: AnimatedBuilder(
+          animation: _pulseCtrl,
+          builder: (_, __) {
+            return LayoutBuilder(builder: (ctx, c) {
+              final w = c.maxWidth;
+              final dx = (_pulseCtrl.value * 2.2 - 0.6) * w;
+              return Stack(children: [
+                Positioned(
+                  left: dx.clamp(-w * 0.6, w),
+                  top: 0, bottom: 0,
+                  width: w * 0.4,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [
+                        Colors.white.withOpacity(0.0),
+                        Colors.white.withOpacity(p.isDark ? 0.06 : 0.16),
+                        Colors.white.withOpacity(0.0),
+                      ]),
+                    ),
+                  ),
+                ),
+              ]);
+            });
+          },
         ),
       ),
     );
@@ -608,6 +674,16 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       padding: const EdgeInsets.only(bottom: 20),
       child: Row(
         children: [
+          Container(
+            width: 4,
+            height: 38,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [color, color.withOpacity(0.4)]),
+              borderRadius: BorderRadius.circular(99),
+              boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 10, spreadRadius: -2)],
+            ),
+          ),
+          const SizedBox(width: 14),
           Container(
             width: 44,
             height: 44,
@@ -1026,13 +1102,17 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                 const SizedBox(height: 3),
                 Text(e['desc'] as String, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
                 const SizedBox(height: 4),
-                Text(on ? '已启用' : '未配置',
-                    style: TextStyle(
-                      fontSize: XlFont.micro,
-                      color: on ? p.green : p.decor,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: XlLetterSpacing.wider,
-                    )),
+                AnimatedDefaultTextStyle(
+                  duration: XlDuration.normal,
+                  curve: XlCurve.standard,
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    color: on ? p.green : p.decor,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: XlLetterSpacing.wider,
+                  ),
+                  child: Text(on ? '已启用' : '未配置'),
+                ),
               ])),
               _toggle(p, on, p.gold, () => _toggleChannel(name, on)),
             ]),
@@ -1053,7 +1133,25 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         const SizedBox(height: 12),
         _switchRow(p, '使用统计', '发送匿名功能使用数据', Icons.analytics_outlined, 'telemetry', p.red),
         const SizedBox(height: 18),
-        _actionRow(p, '清理缓存', '当前占用 $_cacheSize', Icons.cleaning_services_outlined, p.pink, () => _clearCache()),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _actionRow(p, '清理缓存', _clearingCache ? '正在清理…' : '当前占用 $_cacheSize', Icons.cleaning_services_outlined, p.pink, () => _clearCache()),
+            AnimatedSize(
+              duration: XlDuration.normal,
+              curve: XlCurve.standard,
+              child: _clearingCache
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: LinearProgressIndicator(minHeight: 3, color: p.pink, backgroundColor: p.surfaceLo),
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
         const SizedBox(height: 10),
         _actionRow(p, '导出数据', '导出对话、记忆和配置', Icons.upload_file_rounded, p.violet, () => _exportData()),
         const SizedBox(height: 10),
@@ -1071,9 +1169,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         _sectionHeader(p, '关于小凌', '版本、协议与开源信息', p.pink),
         _aboutHero(p),
         const SizedBox(height: 18),
-        _aboutRow(p, '版本', 'v0.0.1', Icons.tag_rounded),
+        _aboutRow(p, '版本', 'v0.0.1', Icons.tag_rounded, valueColor: p.gold),
         const SizedBox(height: 10),
-        _aboutRow(p, '构建', 'flutter-v0.0.1 · debug', Icons.build_rounded),
+        _aboutRow(p, '构建', 'flutter-v0.0.1 · debug', Icons.build_rounded, valueColor: p.gold),
         const SizedBox(height: 10),
         _aboutRow(p, '架构', 'Flutter + Python + gRPC', Icons.architecture_rounded),
         const SizedBox(height: 10),
@@ -1189,7 +1287,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     );
   }
 
-  Widget _aboutRow(XlPalette p, String label, String value, IconData icon) {
+  Widget _aboutRow(XlPalette p, String label, String value, IconData icon, {Color? valueColor}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: AppTheme.neuXs(context, r: XlRadius.md),
@@ -1218,7 +1316,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           Text(value,
               style: TextStyle(
                 fontSize: XlFont.captionSm,
-                color: p.text1,
+                color: valueColor ?? p.text1,
                 fontWeight: FontWeight.w800,
                 letterSpacing: XlLetterSpacing.wide,
                 fontFeatures: const [FontFeature.tabularFigures()],
@@ -1422,14 +1520,19 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           duration: XlDuration.normal,
           curve: XlCurve.springSoft,
           alignment: on ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
+          child: AnimatedContainer(
+            duration: XlDuration.normal,
+            curve: XlCurve.standard,
             margin: const EdgeInsets.all(3),
             width: 20,
             height: 20,
             decoration: BoxDecoration(
-              color: p.surfaceHi,
+              color: on ? Colors.white : p.surfaceHi,
               shape: BoxShape.circle,
-              boxShadow: p.raisedXxs,
+              border: Border.all(color: on ? color.withOpacity(0.55) : Colors.transparent, width: 1.5),
+              boxShadow: on
+                  ? [...p.raisedXxs, BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: -1)]
+                  : p.raisedXxs,
             ),
           ),
         ),
@@ -1531,6 +1634,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     if (!_matches(title, sub)) return const SizedBox.shrink();
     return _Pressable(
       onTap: onTap,
+      tint: p.pink.withOpacity(0.06),
       child: Container(
           padding: const EdgeInsets.all(16),
           decoration: AppTheme.neuXs(context, r: XlRadius.lg),
@@ -1635,7 +1739,8 @@ class _Pressable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final double scale;
-  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  final Color? tint;
+  const _Pressable({super.key, required this.child, this.onTap, this.scale = 0.96, this.tint});
   @override
   State<_Pressable> createState() => _PressableState();
 }
@@ -1654,7 +1759,26 @@ class _PressableState extends State<_Pressable> {
           scale: _down ? widget.scale : 1.0,
           duration: XlDuration.micro,
           curve: XlCurve.standard,
-          child: widget.child,
+          child: Stack(
+            children: [
+              widget.child,
+              if (widget.tint != null)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _down ? 1.0 : 0.0,
+                      duration: XlDuration.micro,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: widget.tint,
+                          borderRadius: BorderRadius.circular(XlRadius.lg),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

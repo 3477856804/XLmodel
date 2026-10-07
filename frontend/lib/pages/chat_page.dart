@@ -8,7 +8,6 @@ import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
-import '../rpc/xiaoling.pb.dart' as pb;
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -29,6 +28,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   bool _showScrollDown = false;
   bool _connected = false;
   bool _playing = false;
+  bool _inputFocused = false;
   String _stage = '';
   String _version = '';
   String? _playingId;
@@ -66,6 +66,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _typingCtrl = AnimationController(duration: const Duration(milliseconds: 1200), vsync: this)..repeat();
     _waveCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this)..repeat();
     _enterCtrl.forward();
+    _inputFocus.addListener(_onFocusChange);
     _scroll.addListener(_onScroll);
     _posSub = _player.onPositionChanged.listen((d) {
       if (mounted) setState(() => _playPos = d);
@@ -85,10 +86,15 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _hello();
   }
 
+  void _onFocusChange() {
+    if (mounted) setState(() => _inputFocused = _inputFocus.hasFocus);
+  }
+
   @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
+    _inputFocus.removeListener(_onFocusChange);
     _inputFocus.dispose();
     _pulseCtrl.dispose();
     _enterCtrl.dispose();
@@ -268,14 +274,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       context: context,
       barrierColor: XlPalette.of(context).scrim,
       builder: (ctx) {
-        final p = XlPalette.of(context);
+        final p = XlPalette.of(ctx);
         return Dialog(
           backgroundColor: Colors.transparent,
           elevation: 0,
           child: Container(
             width: 400,
             padding: const EdgeInsets.all(24),
-            decoration: AppTheme.neuLg(context, r: XlRadius.xxxl),
+            decoration: AppTheme.neuLg(ctx, r: XlRadius.xxxl),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -302,7 +308,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                         scale: 0.95,
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: AppTheme.ghost(context, r: XlRadius.pill),
+                          decoration: AppTheme.ghost(ctx, r: XlRadius.pill),
                           child: Center(
                             child: Text('取消',
                                 style: TextStyle(
@@ -330,7 +336,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: AppTheme.btn(context, r: XlRadius.pill),
+                          decoration: AppTheme.btn(ctx, r: XlRadius.pill),
                           child: Center(
                             child: Text('清空',
                                 style: TextStyle(
@@ -366,12 +372,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             _inputBar(p),
           ],
         ),
-        if (_showScrollDown)
-          Positioned(
-            right: 28,
-            bottom: 128,
-            child: _scrollDownBtn(p),
+        Positioned(
+          right: 28,
+          bottom: 128,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: XlCurve.spring,
+            switchOutCurve: XlCurve.easeOut,
+            transitionBuilder: (child, anim) => ScaleTransition(
+              scale: anim,
+              child: FadeTransition(opacity: anim, child: child),
+            ),
+            child: _showScrollDown ? _scrollDownBtn(p) : const SizedBox.shrink(),
           ),
+        ),
       ],
     );
   }
@@ -440,6 +454,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       animation: _pulseCtrl,
       builder: (_, __) {
         final t = _pulseCtrl.value;
+        final breatheScale = _busy ? 1.0 + (t * 0.5).clamp(0.0, 1.0) * 0.05 : 1.0;
         return Stack(
           alignment: Alignment.center,
           children: [
@@ -451,11 +466,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 color: p.pink.withOpacity((1 - t) * 0.18),
               ),
             ),
-            Container(
-              width: 52,
-              height: 52,
-              decoration: AppTheme.brandOrb(context, size: 52),
-              child: Icon(Icons.favorite_rounded, color: p.btnInk, size: 20),
+            Transform.scale(
+              scale: breatheScale,
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: AppTheme.brandOrb(context, size: 52),
+                child: Icon(Icons.favorite_rounded, color: p.btnInk, size: 20),
+              ),
             ),
             if (_busy)
               Positioned(
@@ -612,7 +630,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (showTime) _timeDivider(p, m.time),
-            _bubble(p, m),
+            _AnimatedBubble(child: _bubble(p, m)),
           ],
         );
       },
@@ -621,49 +639,82 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   Widget _emptyState(XlPalette p) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 96,
-            height: 96,
-            decoration: AppTheme.neuXs(context, r: XlRadius.xxl),
-            child: Icon(Icons.chat_bubble_outline_rounded, size: 40, color: p.pink),
-          ),
-          const SizedBox(height: 20),
-          Text('还没有消息',
-              style: TextStyle(
-                fontSize: XlFont.h6,
-                fontWeight: FontWeight.w800,
-                color: p.text1,
-              )),
-          const SizedBox(height: 6),
-          Text('说点什么，让小凌认识你',
-              style: TextStyle(
-                fontSize: XlFont.captionSm,
-                color: p.text2,
-                fontWeight: FontWeight.w500,
-              )),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: AppTheme.brandOrbLg(context, size: 96),
+              child: Icon(Icons.favorite_rounded, size: 40, color: p.btnInk),
+            ),
+            const SizedBox(height: 22),
+            Text('开始对话吧',
+                style: TextStyle(
+                  fontSize: XlFont.h5,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                )),
+            const SizedBox(height: 8),
+            Text('小凌已经准备好，随时可以聊',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: XlFont.caption,
+                  color: p.text2,
+                  fontWeight: FontWeight.w500,
+                  height: XlLineHeight.relaxed,
+                )),
+            const SizedBox(height: 26),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: _quickReplies.take(4).map((q) => _Pressable(
+                onTap: _busy ? null : () => _send(q),
+                scale: 0.93,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: AppTheme.accentSoft(context, r: XlRadius.pill),
+                  child: Text(q,
+                      style: TextStyle(
+                        fontSize: XlFont.label,
+                        fontWeight: FontWeight.w700,
+                        color: _busy ? p.decor : p.pink,
+                        letterSpacing: XlLetterSpacing.wide,
+                      )),
+                ),
+              )).toList(),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _timeDivider(XlPalette p, DateTime t) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
-          child: Text(formatRelative(t),
-              style: TextStyle(
-                fontSize: XlFont.micro,
-                fontWeight: FontWeight.w700,
-                color: p.text3,
-                letterSpacing: XlLetterSpacing.wider,
-              )),
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 400),
+      curve: XlCurve.easeOut,
+      tween: Tween(begin: 0.0, end: 1.0),
+      builder: (_, v, child) => Opacity(
+        opacity: v,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Center(child: child),
         ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
+        child: Text(formatRelative(t),
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              fontWeight: FontWeight.w700,
+              color: p.text3,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
       ),
     );
   }
@@ -820,18 +871,25 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: List.generate(3, (i) {
-            final phase = (_typingCtrl.value - i * 0.18) % 1.0;
+            final delay = i * 0.2;
+            final phase = (_typingCtrl.value - delay) % 1.0;
             final bounce = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+            final scale = 0.6 + bounce * 0.6;
+            final opacity = 0.3 + bounce * 0.7;
             return Padding(
-              padding: EdgeInsets.only(right: i < 2 ? 4 : 0),
-              child: Transform.translate(
-                offset: Offset(0, -bounce * 3),
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: p.pink.withOpacity(0.5 + bounce * 0.5),
-                    shape: BoxShape.circle,
+              padding: EdgeInsets.only(right: i < 2 ? 5 : 0),
+              child: Transform.scale(
+                scale: scale,
+                child: Opacity(
+                  opacity: opacity,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: p.pink,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 6, spreadRadius: -1)],
+                    ),
                   ),
                 ),
               ),
@@ -920,22 +978,22 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: AppTheme.neu(context, r: XlRadius.pill),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.arrow_downward_rounded, size: 14, color: p.pink),
-              const SizedBox(width: 6),
-              Text('最新消息',
-                  style: TextStyle(
-                    fontSize: XlFont.label,
-                    fontWeight: FontWeight.w800,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.arrow_downward_rounded, size: 14, color: p.pink),
+            const SizedBox(width: 6),
+            Text('最新消息',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
-      );
+      ),
+    );
   }
 
   Widget _inputBar(XlPalette p) {
@@ -1067,8 +1125,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _inputField(XlPalette p) {
-    return Container(
-      decoration: AppTheme.screen(context, r: XlRadius.xl),
+    return AnimatedContainer(
+      duration: XlDuration.fast,
+      curve: XlCurve.standard,
+      decoration: _inputFocused
+          ? BoxDecoration(
+              color: p.screen,
+              borderRadius: BorderRadius.circular(XlRadius.xl),
+              border: Border.all(color: p.pink.withOpacity(0.5), width: 1.5),
+              boxShadow: [
+                ...p.sunkenDeep,
+                BoxShadow(color: p.pink.withOpacity(0.18), blurRadius: 16, spreadRadius: -4),
+              ],
+            )
+          : AppTheme.screen(context, r: XlRadius.xl),
       padding: const EdgeInsets.fromLTRB(18, 6, 8, 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -1123,6 +1193,41 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     return _SendButton(
       busy: _busy,
       onTap: _busy ? null : () => _send(),
+    );
+  }
+}
+
+class _AnimatedBubble extends StatefulWidget {
+  final Widget child;
+  const _AnimatedBubble({required this.child});
+  @override
+  State<_AnimatedBubble> createState() => _AnimatedBubbleState();
+}
+
+class _AnimatedBubbleState extends State<_AnimatedBubble> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<Offset> _slide;
+  late Animation<double> _fade;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(duration: const Duration(milliseconds: 260), vsync: this);
+    _slide = Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+      CurvedAnimation(parent: _ctrl, curve: XlCurve.springSoft),
+    );
+    _fade = CurvedAnimation(parent: _ctrl, curve: XlCurve.easeOut);
+    _ctrl.forward();
+  }
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return SlideTransition(
+      position: _slide,
+      child: FadeTransition(opacity: _fade, child: widget.child),
     );
   }
 }

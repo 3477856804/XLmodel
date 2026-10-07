@@ -20,7 +20,6 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   late AnimationController _enterCtrl;
   late AnimationController _radarCtrl;
   late AnimationController _pulseCtrl;
-  late AnimationController _logCtrl;
   late Animation<double> _enterAnim;
   late Animation<double> _radarAnim;
   final List<_LogLine> _logs = [];
@@ -32,6 +31,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   final _rankCtrl = TextEditingController(text: '8');
   final _stepsCtrl = TextEditingController(text: '100');
   bool _trainingActive = false;
+  bool _stopRequested = false;
   int _rtStep = 0;
   int _rtTotalSteps = 0;
   double _rtLoss = 0.0;
@@ -56,11 +56,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     _enterCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
     _radarCtrl = AnimationController(duration: const Duration(milliseconds: 1100), vsync: this);
     _pulseCtrl = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat();
-    _logCtrl = AnimationController(duration: const Duration(milliseconds: 700), vsync: this);
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _radarAnim = CurvedAnimation(parent: _radarCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
-    _logCtrl.forward();
     _load();
   }
 
@@ -69,7 +67,6 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     _enterCtrl.dispose();
     _radarCtrl.dispose();
     _pulseCtrl.dispose();
-    _logCtrl.dispose();
     _logScroll.dispose();
     _lrCtrl.dispose();
     _bsCtrl.dispose();
@@ -164,13 +161,13 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _heroRow(p),
+          _stagger(0, _heroRow(p)),
           const SizedBox(height: 22),
-          _statusBanner(p),
+          _stagger(1, _statusBanner(p)),
           const SizedBox(height: 20),
-          _paramsCard(p),
+          _stagger(2, _paramsCard(p)),
           const SizedBox(height: 20),
-          LayoutBuilder(
+          _stagger(3, LayoutBuilder(
             builder: (context, c) {
               final stacked = c.maxWidth < 1000;
               if (stacked) {
@@ -191,9 +188,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                 ],
               );
             },
-          ),
+          )),
           const SizedBox(height: 20),
-          LayoutBuilder(
+          _stagger(4, LayoutBuilder(
             builder: (context, c) {
               final stacked = c.maxWidth < 1000;
               if (stacked) {
@@ -214,9 +211,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                 ],
               );
             },
-          ),
+          )),
           const SizedBox(height: 20),
-          LayoutBuilder(
+          _stagger(5, LayoutBuilder(
             builder: (context, c) {
               final stacked = c.maxWidth < 900;
               if (stacked) {
@@ -237,11 +234,26 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                 ],
               );
             },
-          ),
+          )),
           const SizedBox(height: 20),
-          _historyCard(p),
+          _stagger(6, _historyCard(p)),
         ],
       ),
+    );
+  }
+
+  Widget _stagger(int index, Widget child) {
+    final start = (index * 0.08).clamp(0.0, 0.72);
+    final end = (start + 0.5).clamp(0.0, 1.0);
+    return AnimatedBuilder(
+      animation: _enterAnim,
+      builder: (_, __) {
+        final t = Interval(start, end, curve: Curves.easeOut).transform(_enterAnim.value);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(offset: Offset(0, (1 - t) * 18), child: child),
+        );
+      },
     );
   }
 
@@ -421,7 +433,17 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                   ],
                 ),
               ),
-              if (training) _epochIndicator(p) else _startBtn(p),
+              const Spacer(),
+              AnimatedSwitcher(
+                duration: XlDuration.normal,
+                transitionBuilder: (child, anim) => ScaleTransition(
+                  scale: anim,
+                  child: RotationTransition(turns: Tween(begin: 0.85, end: 1.0).animate(anim), child: child),
+                ),
+                child: _trainingActive
+                    ? _stopBtn(p, key: const ValueKey('stop'))
+                    : (_data!.isTraining ? _epochIndicator(p, key: const ValueKey('epoch')) : _startBtn(p, key: const ValueKey('start'))),
+              ),
             ],
           ),
           if (_trainingActive) ...[
@@ -469,19 +491,24 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
-                child: Text('Loss ${_rtLoss.toStringAsFixed(3)}',
-                    style: TextStyle(
-                      fontSize: XlFont.captionSm,
-                      color: p.violet,
-                      fontWeight: FontWeight.w800,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      letterSpacing: XlLetterSpacing.wider,
-                    )),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: _rtLoss),
+                  duration: const Duration(milliseconds: 300),
+                  curve: XlCurve.standard,
+                  builder: (_, v, __) => Text('Loss ${v.toStringAsFixed(3)}',
+                      style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        color: p.violet,
+                        fontWeight: FontWeight.w800,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          _neuProgress(p, pct, height: 6),
+          _neuProgress(p, pct, height: 6, shimmer: _trainingActive),
           const SizedBox(height: 6),
           Align(
             alignment: Alignment.centerRight,
@@ -499,9 +526,10 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     );
   }
 
-  Widget _epochIndicator(XlPalette p) {
+  Widget _epochIndicator(XlPalette p, {Key? key}) {
     final pct = _data!.progressRatio;
     return Column(
+      key: key,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Row(
@@ -537,8 +565,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     );
   }
 
-  Widget _startBtn(XlPalette p) {
+  Widget _startBtn(XlPalette p, {Key? key}) {
     return _Pressable(
+      key: key,
       onTap: _startTraining,
       child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
@@ -561,12 +590,43 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       );
   }
 
+  Widget _stopBtn(XlPalette p, {Key? key}) {
+    return _Pressable(
+      key: key,
+      onTap: _requestStop,
+      child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [p.red, p.red.withOpacity(0.8)]),
+            borderRadius: BorderRadius.circular(XlRadius.pill),
+            border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.22), width: 1),
+            boxShadow: [...p.raisedXs, BoxShadow(color: p.red.withOpacity(0.35), blurRadius: 12, spreadRadius: -2)],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.stop_rounded, size: 15, color: p.btnInk),
+              const SizedBox(width: 8),
+              Text('停止',
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    fontWeight: FontWeight.w800,
+                    color: p.btnInk,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ],
+          ),
+        ),
+      );
+  }
+
   Future<void> _startTraining() async {
     if (_trainingActive) return;
     final lr = double.tryParse(_lrCtrl.text.trim()) ?? 0.0002;
     final bs = int.tryParse(_bsCtrl.text.trim()) ?? 4;
     final rank = int.tryParse(_rankCtrl.text.trim()) ?? 8;
     final steps = int.tryParse(_stepsCtrl.text.trim()) ?? 100;
+    _stopRequested = false;
     setState(() {
       _trainingActive = true;
       _rtStep = 0;
@@ -586,7 +646,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       );
       final stream = XlClient.stub.startTraining(req);
       await for (final p in stream) {
-        if (!mounted) break;
+        if (!mounted || _stopRequested) break;
         setState(() {
           _rtStep = p.step;
           _rtTotalSteps = p.totalSteps <= 0 ? steps : p.totalSteps;
@@ -612,6 +672,13 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         _load();
       }
     }
+  }
+
+  void _requestStop() {
+    if (!_trainingActive) return;
+    setState(() => _stopRequested = true);
+    _logs.add(_LogLine('[stop] 收到停止指令，结束当前轮次', _LogLevel.warn));
+    _scrollLogBottom();
   }
 
   void _scrollLogBottom() {
@@ -997,35 +1064,27 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                           fontWeight: FontWeight.w500,
                         )),
                   )
-                : AnimatedBuilder(
-                    animation: _logCtrl,
-                    builder: (_, __) {
-                      return ListView.builder(
-                        controller: _logScroll,
-                        padding: EdgeInsets.zero,
-                        itemCount: _logs.length,
-                        itemBuilder: (_, i) {
-                          final line = _logs[i];
-                          final delay = (i.clamp(0, 12)) * 0.05;
-                          final t = ((_logCtrl.value - delay) / (1 - delay)).clamp(0.0, 1.0);
-                          return Opacity(
-                            opacity: t,
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 5),
-                              child: Text(
-                                line.text,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: XlFont.label,
-                                  height: XlLineHeight.relaxed,
-                                  color: _logColor(p, line.level),
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: XlLetterSpacing.wide,
-                                ),
-                              ),
+                : ListView.builder(
+                    controller: _logScroll,
+                    padding: EdgeInsets.zero,
+                    itemCount: _logs.length,
+                    itemBuilder: (_, i) {
+                      final line = _logs[i];
+                      return _LogEntrance(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 5),
+                          child: Text(
+                            line.text,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: XlFont.label,
+                              height: XlLineHeight.relaxed,
+                              color: _logColor(p, line.level),
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: XlLetterSpacing.wide,
                             ),
-                          );
-                        },
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -1213,7 +1272,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     );
   }
 
-  Widget _neuProgress(XlPalette p, double value, {double height = 5, Color? color}) {
+  Widget _neuProgress(XlPalette p, double value, {double height = 5, Color? color, bool shimmer = false}) {
     final c = color ?? p.pink;
     return Container(
       height: height,
@@ -1225,11 +1284,20 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       child: FractionallySizedBox(
         alignment: Alignment.centerLeft,
         widthFactor: value.clamp(0.0, 1.0),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [c.withOpacity(0.7), c]),
-            borderRadius: BorderRadius.circular(99),
-            boxShadow: [BoxShadow(color: c.withOpacity(0.35), blurRadius: 8, spreadRadius: -2)],
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [c.withOpacity(0.7), c]),
+                  borderRadius: BorderRadius.circular(99),
+                  boxShadow: [BoxShadow(color: c.withOpacity(0.35), blurRadius: 8, spreadRadius: -2)],
+                ),
+              ),
+              if (shimmer) _ShimmerSweep(anim: _pulseCtrl),
+            ],
           ),
         ),
       ),
@@ -1480,9 +1548,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
               decoration: AppTheme.screen(context, r: XlRadius.sm),
               padding: const EdgeInsets.all(4),
               child: curve.length >= 2
-                  ? CustomPaint(
-                      painter: _LossCurvePainter(points: curve, palette: p),
-                    )
+                  ? _AnimatedLossCurve(points: curve, palette: p)
                   : Center(
                       child: Text('—',
                           style: TextStyle(fontSize: XlFont.label, color: p.decor)),
@@ -1495,50 +1561,79 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _loadingView(XlPalette p) {
-    return Center(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AnimatedBuilder(
-            animation: _pulseCtrl,
-            builder: (_, __) {
-              final t = _pulseCtrl.value;
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 72 + t * 16,
-                    height: 72 + t * 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: p.pink.withOpacity((1 - t) * 0.18),
-                    ),
-                  ),
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      gradient: p.gradBrand,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
-                      boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
-                    ),
-                    child: Icon(Icons.auto_graph_rounded, size: 28, color: p.btnInk),
-                  ),
-                ],
-              );
-            },
+          Row(
+            children: [
+              _skeleton(p, width: 140, height: 30, radius: 10),
+              const SizedBox(width: 12),
+              _skeleton(p, width: 70, height: 22, radius: 99),
+            ],
           ),
           const SizedBox(height: 22),
-          Text('正在读取训练状态…',
-              style: TextStyle(
-                fontSize: XlFont.caption,
-                color: p.text2,
-                fontWeight: FontWeight.w600,
-                letterSpacing: XlLetterSpacing.wider,
-              )),
+          _skeleton(p, width: double.infinity, height: 96, radius: 22),
+          const SizedBox(height: 20),
+          _skeleton(p, width: double.infinity, height: 150, radius: 22),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _skeleton(p, width: double.infinity, height: 220, radius: 22)),
+              const SizedBox(width: 18),
+              Expanded(flex: 2, child: _skeleton(p, width: double.infinity, height: 220, radius: 22)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _skeleton(p, width: double.infinity, height: 120, radius: 22),
         ],
       ),
+    );
+  }
+
+  Widget _skeleton(XlPalette p, {required double width, required double height, double radius = 16}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: p.surfaceLo,
+          borderRadius: BorderRadius.circular(radius),
+          boxShadow: p.sunkenSm,
+        ),
+        child: _shimmerLayer(p),
+      ),
+    );
+  }
+
+  Widget _shimmerLayer(XlPalette p) {
+    return AnimatedBuilder(
+      animation: _pulseCtrl,
+      builder: (_, __) {
+        return LayoutBuilder(builder: (ctx, c) {
+          final w = c.maxWidth;
+          final dx = (_pulseCtrl.value * 2.2 - 0.6) * w;
+          return Stack(children: [
+            Positioned(
+              left: dx.clamp(-w * 0.6, w),
+              top: 0, bottom: 0,
+              width: w * 0.4,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [
+                    Colors.white.withOpacity(0.0),
+                    Colors.white.withOpacity(p.isDark ? 0.06 : 0.18),
+                    Colors.white.withOpacity(0.0),
+                  ]),
+                ),
+              ),
+            ),
+          ]);
+        });
+      },
     );
   }
 
@@ -1754,20 +1849,23 @@ class _ParamField {
 class _LossCurvePainter extends CustomPainter {
   final List<double> points;
   final XlPalette palette;
-  _LossCurvePainter({required this.points, required this.palette});
+  final double progress;
+  _LossCurvePainter({required this.points, required this.palette, this.progress = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
-    var minV = points.reduce(math.min);
-    var maxV = points.reduce(math.max);
+    final count = (points.length * progress).clamp(2.0, points.length.toDouble()).round();
+    final pts = points.sublist(0, count);
+    var minV = pts.reduce(math.min);
+    var maxV = pts.reduce(math.max);
     if ((maxV - minV).abs() < 0.001) {
       maxV = minV + 1.0;
     }
     final path = Path();
-    for (var i = 0; i < points.length; i++) {
+    for (var i = 0; i < pts.length; i++) {
       final x = size.width * i / (points.length - 1);
-      final v = (points[i] - minV) / (maxV - minV);
+      final v = (pts[i] - minV) / (maxV - minV);
       final y = size.height - 4 - v * (size.height - 8);
       if (i == 0) {
         path.moveTo(x, y);
@@ -1782,20 +1880,54 @@ class _LossCurvePainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round
       ..strokeCap = StrokeCap.round;
     canvas.drawPath(path, stroke);
-    final lastY = size.height - 4 - ((points.last - minV) / (maxV - minV)) * (size.height - 8);
-    canvas.drawCircle(Offset(size.width - 1, lastY), 2.5, Paint()..color = palette.gold);
+    final lastY = size.height - 4 - ((pts.last - minV) / (maxV - minV)) * (size.height - 8);
+    canvas.drawCircle(Offset(size.width * (pts.length - 1) / (points.length - 1), lastY), 2.5, Paint()..color = palette.gold);
   }
 
   @override
   bool shouldRepaint(covariant _LossCurvePainter old) =>
-      old.points != points || old.palette != palette;
+      old.points != points || old.palette != palette || old.progress != progress;
+}
+
+class _AnimatedLossCurve extends StatefulWidget {
+  final List<double> points;
+  final XlPalette palette;
+  const _AnimatedLossCurve({required this.points, required this.palette});
+  @override
+  State<_AnimatedLossCurve> createState() => _AnimatedLossCurveState();
+}
+
+class _AnimatedLossCurveState extends State<_AnimatedLossCurve> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..forward();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) => CustomPaint(
+        painter: _LossCurvePainter(
+          points: widget.points,
+          palette: widget.palette,
+          progress: CurvedAnimation(parent: _c, curve: XlCurve.easeOut).value,
+        ),
+      ),
+    );
+  }
 }
 
 class _Pressable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final double scale;
-  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  const _Pressable({super.key, required this.child, this.onTap, this.scale = 0.96});
   @override
   State<_Pressable> createState() => _PressableState();
 }
@@ -1814,6 +1946,72 @@ class _PressableState extends State<_Pressable> {
           scale: _down ? widget.scale : 1.0,
           duration: XlDuration.micro,
           curve: XlCurve.standard,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+class _ShimmerSweep extends StatelessWidget {
+  final Animation<double> anim;
+  const _ShimmerSweep({required this.anim});
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, __) {
+        return LayoutBuilder(builder: (ctx, c) {
+          final w = c.maxWidth;
+          final dx = (anim.value * 2.2 - 0.5) * w;
+          return Stack(children: [
+            Positioned(
+              left: dx.clamp(-w * 0.5, w),
+              top: 0, bottom: 0,
+              width: w * 0.35,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [
+                    Colors.white.withOpacity(0.0),
+                    Colors.white.withOpacity(0.35),
+                    Colors.white.withOpacity(0.0),
+                  ]),
+                ),
+              ),
+            ),
+          ]);
+        });
+      },
+    );
+  }
+}
+
+class _LogEntrance extends StatefulWidget {
+  final Widget child;
+  const _LogEntrance({required this.child});
+  @override
+  State<_LogEntrance> createState() => _LogEntranceState();
+}
+
+class _LogEntranceState extends State<_LogEntrance> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 350),
+  )..forward();
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) => Opacity(
+        opacity: _c.value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - _c.value) * 8),
           child: widget.child,
         ),
       ),
