@@ -108,6 +108,8 @@ class _PluginStoreState extends State<PluginStore> {
   final Set<String> _installed = {};
   final Set<String> _installing = {};
   bool _loading = true;
+  bool _backendOnline = false;
+  final List<dynamic> _remotePlugins = [];
 
   @override
   void initState() {
@@ -133,6 +135,10 @@ class _PluginStoreState extends State<PluginStore> {
       final plugins = (decoded['plugins'] as List?) ?? [];
       if (!mounted) return;
       setState(() {
+        _backendOnline = true;
+        _remotePlugins
+          ..clear()
+          ..addAll(plugins);
         for (final p in plugins) {
           final name = (p['name'] ?? '').toString();
           final enabled = p['enabled'] == true;
@@ -140,7 +146,10 @@ class _PluginStoreState extends State<PluginStore> {
         }
       });
       _persistInstalled();
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _backendOnline = false);
+    }
   }
 
   Future<void> _persistInstalled() async {
@@ -190,6 +199,12 @@ class _PluginStoreState extends State<PluginStore> {
           _featuredHeader(p),
           const SizedBox(height: 12),
           _featuredRail(p),
+        ],
+        if (showFeatured && _backendOnline && _remotePlugins.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _installedHeader(p),
+          const SizedBox(height: 12),
+          _installedSection(p),
         ],
         const SizedBox(height: 20),
         _gridHeader(p),
@@ -283,7 +298,104 @@ class _PluginStoreState extends State<PluginStore> {
               color: p.text1,
               letterSpacing: XlLetterSpacing.normal,
             )),
+        if (!_backendOnline) ...[
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: p.gold.withOpacity(p.isDark ? 0.16 : 0.12),
+              borderRadius: BorderRadius.circular(XlRadius.pill),
+              border: Border.all(color: p.gold.withOpacity(0.32), width: 1),
+            ),
+            child: Text('离线精选',
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  fontWeight: FontWeight.w800,
+                  color: p.gold,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _installedHeader(XlPalette p) {
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 16,
+          decoration: BoxDecoration(
+            color: p.green,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text('已安装',
+            style: TextStyle(
+              fontSize: XlFont.h6,
+              fontWeight: FontWeight.w800,
+              color: p.text1,
+              letterSpacing: XlLetterSpacing.normal,
+            )),
+        const Spacer(),
+        Text('${_remotePlugins.length} 个',
+            style: TextStyle(
+              fontSize: XlFont.label,
+              fontWeight: FontWeight.w700,
+              color: p.decor,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+      ],
+    );
+  }
+
+  Widget _installedSection(XlPalette p) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: _remotePlugins.map((raw) {
+        final m = (raw as Map).cast<String, dynamic>();
+        final name = (m['name'] ?? '').toString();
+        final enabled = m['enabled'] == true;
+        final version = (m['version'] ?? '').toString();
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: AppTheme.neuXs(context, r: XlRadius.pill),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: enabled ? p.green : p.decorSoft,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(name,
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    fontWeight: FontWeight.w700,
+                    color: p.text1,
+                    letterSpacing: XlLetterSpacing.wide,
+                  )),
+              if (version.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Text('v$version',
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      fontWeight: FontWeight.w600,
+                      color: p.decor,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -374,7 +486,7 @@ class _PluginStoreState extends State<PluginStore> {
           decoration: BoxDecoration(gradient: p.gradBrand, borderRadius: BorderRadius.circular(2)),
         ),
         const SizedBox(width: 10),
-        Text(_category == '全部' ? '全部插件' : _category,
+        Text(_category == '全部' ? '精选插件' : _category,
             style: TextStyle(
               fontSize: XlFont.h6,
               fontWeight: FontWeight.w800,

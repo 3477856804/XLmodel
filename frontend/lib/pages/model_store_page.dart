@@ -66,21 +66,6 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     hasMetal: false,
   );
 
-  static const _fallbackModels = <_ModelItem>[
-    _ModelItem('Qwen2.5-0.5B-Instruct-Q4', '0.5B', 'Q4_K_M', 0.5, 3.2, 42, '8K', 352.0, true, false, 'tiny', 'pink'),
-    _ModelItem('Qwen2.5-1.5B-Instruct-Q4', '1.5B', 'Q4_K_M', 1.2, 5.8, 68, '16K', 986.0, true, true, 'balanced', 'gold'),
-    _ModelItem('Qwen2.5-1.5B-Instruct-Q8', '1.5B', 'Q8_0', 2.0, 7.4, 74, '16K', 1620.0, true, false, 'balanced', 'gold'),
-    _ModelItem('Qwen2.5-3B-Instruct-Q4', '3B', 'Q4_K_M', 2.8, 9.6, 82, '32K', 1980.0, true, false, 'quality', 'violet'),
-    _ModelItem('Qwen2.5-7B-Instruct-Q4', '7B', 'Q4_K_M', 5.4, 12.8, 90, '32K', 4460.0, false, false, 'quality', 'violet'),
-    _ModelItem('Qwen2.5-14B-Instruct-Q4', '14B', 'Q4_K_M', 10.2, 20.4, 94, '32K', 8820.0, false, false, 'cuda', 'green'),
-    _ModelItem('Llama-3.2-1B-Instruct-Q4', '1B', 'Q4_K_M', 1.0, 4.8, 62, '8K', 810.0, true, false, 'tiny', 'pink'),
-    _ModelItem('Llama-3.2-3B-Instruct-Q4', '3B', 'Q4_K_M', 2.6, 8.6, 78, '8K', 2020.0, true, false, 'balanced', 'gold'),
-    _ModelItem('Phi-3.5-mini-Q4', '3.8B', 'Q4_K_M', 3.0, 9.2, 80, '128K', 2340.0, true, false, 'quality', 'blue'),
-    _ModelItem('Gemma-2-2B-Instruct-Q4', '2B', 'Q4_K_M', 1.8, 6.4, 71, '8K', 1610.0, true, false, 'balanced', 'pink'),
-    _ModelItem('Gemma-2-9B-Instruct-Q4', '9B', 'Q4_K_M', 6.6, 14.2, 91, '8K', 5380.0, false, false, 'cuda', 'violet'),
-    _ModelItem('DeepSeek-R1-Distill-1.5B', '1.5B', 'Q4_K_M', 1.4, 5.4, 70, '64K', 1120.0, true, false, 'balanced', 'green'),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -160,7 +145,6 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   List<_ModelItem> get _source {
-    if (_models.isEmpty) return _fallbackModels;
     return _models.map((m) {
       final category = m.tier == '轻量'
           ? 'tiny'
@@ -229,6 +213,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
     if (_loading) return _loadingView(p);
+    if (_error != null) return _errorView(p);
     return Stack(
       children: [
         Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
@@ -1888,6 +1873,10 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   Widget _emptyView(XlPalette p) {
+    final searching = _query.trim().isNotEmpty ||
+        _category != 'all' ||
+        _favOnly ||
+        _quantFilter != 'all';
     return Container(
       padding: const EdgeInsets.all(48),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
@@ -1919,21 +1908,110 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             },
           ),
           const SizedBox(height: 18),
-          Text('暂无模型',
+          Text(searching ? '没有找到匹配的模型' : '暂无可用模型',
               style: TextStyle(
                 fontSize: XlFont.h6,
                 fontWeight: FontWeight.w800,
                 color: p.text1,
               )),
           const SizedBox(height: 6),
-          Text('换个关键词或分类试试',
+          Text(searching ? '换个关键词或筛选条件试试' : '请检查后端连接后刷新',
               style: TextStyle(
                 fontSize: XlFont.captionSm,
                 color: p.text2,
                 fontWeight: FontWeight.w500,
               )),
+          if (!searching) ...[
+            const SizedBox(height: 20),
+            _Pressable(
+              onTap: _load,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+                decoration: AppTheme.btn(context, r: XlRadius.pill),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.refresh_rounded, size: 15, color: p.btnInk),
+                    const SizedBox(width: 8),
+                    Text('重新加载',
+                        style: TextStyle(
+                          fontSize: XlFont.captionSm,
+                          fontWeight: FontWeight.w800,
+                          color: p.btnInk,
+                          letterSpacing: XlLetterSpacing.wider,
+                        )),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _errorView(XlPalette p) {
+    return Stack(
+      children: [
+        Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(48),
+            decoration: AppTheme.neu(context, r: XlRadius.xxl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: p.red.withOpacity(0.32), width: 1),
+                  ),
+                  child: Icon(Icons.error_outline_rounded, size: 26, color: p.red),
+                ),
+                const SizedBox(height: 18),
+                Text('加载模型列表失败',
+                    style: TextStyle(
+                      fontSize: XlFont.h6,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                    )),
+                const SizedBox(height: 6),
+                Text('请检查后端连接后重试',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.text2,
+                      fontWeight: FontWeight.w500,
+                    )),
+                const SizedBox(height: 20),
+                _Pressable(
+                  onTap: _load,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+                    decoration: AppTheme.btn(context, r: XlRadius.pill),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.refresh_rounded, size: 15, color: p.btnInk),
+                        const SizedBox(width: 8),
+                        Text('重试',
+                            style: TextStyle(
+                              fontSize: XlFont.captionSm,
+                              fontWeight: FontWeight.w800,
+                              color: p.btnInk,
+                              letterSpacing: XlLetterSpacing.wider,
+                            )),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 

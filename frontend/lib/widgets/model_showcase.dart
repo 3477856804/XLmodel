@@ -52,8 +52,17 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   Timer? _loadTimer;
 
   static const _cameraPresets = <String>['正面', '左侧', '右侧', '背面', '俯视'];
-  static const String _renderBackend = 'OpenGL';
-  static const String _modelFamily = 'Qwen-7B';
+
+  String get _renderBackend => '硬件加速';
+
+  String get _modelFamily {
+    final path = _currentPath;
+    if (path == null || _hasError) return '未加载模型';
+    final name = path.split(RegExp(r'[\\/]')).last;
+    final dot = name.lastIndexOf('.');
+    final base = dot > 0 ? name.substring(0, dot) : name;
+    return base.isEmpty ? '已加载模型' : base;
+  }
 
   @override
   void initState() {

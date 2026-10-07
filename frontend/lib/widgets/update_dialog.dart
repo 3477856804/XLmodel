@@ -16,7 +16,6 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
   int _selectedAsset = 0;
   bool _skipNext = false;
   final _searchCtrl = TextEditingController();
-  String _downloadSpeed = '-- MB/s';
   late AnimationController _enterCtrl;
   late AnimationController _pulseCtrl;
   late AnimationController _shimmerCtrl;
@@ -1014,15 +1013,16 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
         children: [
           Row(
             children: [
-              Icon(Icons.bolt_rounded, size: 13, color: p.gold),
+              Icon(Icons.info_outline_rounded, size: 13, color: p.blue),
               const SizedBox(width: 6),
-              Text('下载速度 $_downloadSpeed',
-                  style: TextStyle(
-                      fontSize: XlFont.micro,
-                      color: p.gold,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: XlLetterSpacing.wider,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
+              Expanded(
+                child: Text('点击下载后将复制链接到剪贴板，请在浏览器中打开',
+                    style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: p.text3,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: XlLetterSpacing.wider)),
+              ),
               const Spacer(),
               Text(Updater.formatSize(widget.info.sizeMb),
                   style: TextStyle(
@@ -1168,8 +1168,6 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
       Navigator.pop(context, _skipNext ? 'skip' : 'open');
       return;
     }
-    final speed = (8.0 + DateTime.now().millisecond % 40).toStringAsFixed(1);
-    _downloadSpeed = '$speed MB/s';
     Clipboard.setData(ClipboardData(text: asset.url));
     HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -1177,17 +1175,17 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
       behavior: SnackBarBehavior.floating,
       backgroundColor: XlPalette.of(context).surface,
       elevation: 0,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 2000),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(XlRadius.md),
       ),
       content: Row(
         children: [
-          Icon(Icons.download_rounded,
+          Icon(Icons.link_rounded,
               size: 16, color: XlPalette.of(context).pink),
           const SizedBox(width: 10),
           Expanded(
-            child: Text('已复制下载链接到剪贴板',
+            child: Text('下载链接已复制到剪贴板，请在浏览器中打开下载',
                 style: TextStyle(
                   color: XlPalette.of(context).text1,
                   fontSize: XlFont.captionSm,

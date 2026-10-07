@@ -24,7 +24,6 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   String _query = '';
   final Set<String> _busy = {};
   final Set<String> _expanded = {};
-  final Map<String, int> _callCounts = {};
   late AnimationController _enterCtrl;
   late AnimationController _listCtrl;
   late AnimationController _shimmerCtrl;
@@ -50,21 +49,6 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     'name': '按名称',
     'category': '按分类',
   };
-
-  static const _demoPlugins = <_Plugin>[
-    _Plugin('深度对话', '多轮上下文记忆，越聊越懂你', '1.0.0', true, 'core', Icons.chat_bubble_outline_rounded, 'pink'),
-    _Plugin('联网搜索', 'DuckDuckGo 无追踪搜索', '0.9.2', true, 'tool', Icons.travel_explore_rounded, 'gold'),
-    _Plugin('知识图谱', '三元组记忆，构建专属世界', '1.2.0', true, 'ai', Icons.hub_outlined, 'violet'),
-    _Plugin('定时任务', '后台提醒，从不错过约定', '0.8.1', false, 'tool', Icons.schedule_rounded, 'green'),
-    _Plugin('语音播报', 'edge-tts 自动朗读回复', '1.1.0', true, 'core', Icons.volume_up_rounded, 'pink'),
-    _Plugin('LoRA 训练', '持续微调，让模型更像她', '1.3.0', true, 'ai', Icons.auto_awesome_rounded, 'gold'),
-    _Plugin('目标管理', '持久化目标与完成度追踪', '0.7.4', false, 'tool', Icons.flag_outlined, 'violet'),
-    _Plugin('自动更新', '检查并提示新版本', '1.0.3', true, 'system', Icons.system_update_alt_rounded, 'green'),
-    _Plugin('快捷指令', '自定义一键触发动作', '0.6.0', false, 'fun', Icons.bolt_rounded, 'pink'),
-    _Plugin('隐私沙箱', '数据完全本地，不出本机', '1.0.0', true, 'system', Icons.shield_outlined, 'gold'),
-    _Plugin('情绪分析', '感知语气，调整回应节奏', '0.5.2', false, 'ai', Icons.psychology_outlined, 'violet'),
-    _Plugin('自定义插件', 'Python 文件即插即用', '1.0.0', true, 'system', Icons.extension_outlined, 'green'),
-  ];
 
   @override
   void initState() {
@@ -101,32 +85,24 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
       setState(() {
         _remote = r.plugins;
         _local.clear();
-        if (_remote.isEmpty) {
-          _local.addAll(_demoPlugins);
-        } else {
-          for (final it in _remote) {
-            _local.add(_Plugin(
-              it.displayName,
-              it.displayDesc,
-              it.displayVersion,
-              it.enabled,
-              it.category.isEmpty ? 'core' : it.category,
-              _iconFor(it.name),
-              _colorKeyFor(it.name),
-            ));
-          }
+        for (final it in _remote) {
+          _local.add(_Plugin(
+            it.displayName,
+            it.displayDesc,
+            it.displayVersion,
+            it.enabled,
+            it.category.isEmpty ? 'core' : it.category,
+            _iconFor(it.name),
+            _colorKeyFor(it.name),
+          ));
         }
         _loading = false;
       });
-      for (final it in _local) {
-        _callCounts.putIfAbsent(it.name, () => (it.enabled ? (it.name.hashCode % 200) + 10 : it.name.hashCode % 50));
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _local.clear();
-        _local.addAll(_demoPlugins);
         _loading = false;
       });
     }
@@ -751,6 +727,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
 
   Widget _buildGrid(XlPalette p) {
     if (_loading) return _loadingView(p);
+    if (_error != null) return _errorView(p);
     final list = _filtered;
     if (list.isEmpty) return _emptyView(p);
     return LayoutBuilder(
@@ -927,14 +904,6 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                     fontSize: XlFont.label,
                     fontWeight: FontWeight.w800,
                     color: plugin.enabled ? p.green : p.decor,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-              const SizedBox(width: 8),
-              Text('已调用 ${_callCounts[plugin.name] ?? 0} 次',
-                  style: TextStyle(
-                    fontSize: XlFont.micro,
-                    fontWeight: FontWeight.w700,
-                    color: p.gold,
                     letterSpacing: XlLetterSpacing.wider,
                   )),
               const Spacer(),
@@ -1129,6 +1098,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _emptyView(XlPalette p) {
+    final searching = _query.trim().isNotEmpty || _category != 'all';
     return Container(
       padding: const EdgeInsets.all(48),
       decoration: AppTheme.neu(context, r: XlRadius.xl),
@@ -1160,19 +1130,100 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
             },
           ),
           const SizedBox(height: 18),
-          Text('暂无插件',
+          Text(searching ? '没有找到匹配的插件' : '暂无已安装插件',
               style: TextStyle(
                 fontSize: XlFont.h6,
                 fontWeight: FontWeight.w800,
                 color: p.text1,
               )),
           const SizedBox(height: 6),
-          Text('换个关键词或分类试试',
+          Text(searching ? '换个关键词或分类试试' : '去插件商店挑选喜欢的功能吧',
               style: TextStyle(
                 fontSize: XlFont.captionSm,
                 color: p.text2,
                 fontWeight: FontWeight.w500,
               )),
+          if (!searching) ...[
+            const SizedBox(height: 20),
+            _Pressable(
+              onTap: () => _tabCtrl.animateTo(1),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+                decoration: AppTheme.btn(context, r: XlRadius.pill),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.storefront_rounded, size: 15, color: p.btnInk),
+                    const SizedBox(width: 8),
+                    Text('去商店看看',
+                        style: TextStyle(
+                          fontSize: XlFont.captionSm,
+                          fontWeight: FontWeight.w800,
+                          color: p.btnInk,
+                          letterSpacing: XlLetterSpacing.wider,
+                        )),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _errorView(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(48),
+      decoration: AppTheme.neu(context, r: XlRadius.xl),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
+              shape: BoxShape.circle,
+              border: Border.all(color: p.red.withOpacity(0.32), width: 1),
+            ),
+            child: Icon(Icons.error_outline_rounded, size: 26, color: p.red),
+          ),
+          const SizedBox(height: 18),
+          Text('加载插件列表失败',
+              style: TextStyle(
+                fontSize: XlFont.h6,
+                fontWeight: FontWeight.w800,
+                color: p.text1,
+              )),
+          const SizedBox(height: 6),
+          Text('请检查后端连接后重试',
+              style: TextStyle(
+                fontSize: XlFont.captionSm,
+                color: p.text2,
+                fontWeight: FontWeight.w500,
+              )),
+          const SizedBox(height: 20),
+          _Pressable(
+            onTap: _load,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 11),
+              decoration: AppTheme.btn(context, r: XlRadius.pill),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh_rounded, size: 15, color: p.btnInk),
+                  const SizedBox(width: 8),
+                  Text('重试',
+                      style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
