@@ -34,7 +34,7 @@ class SubAgent:
         return task_id
 
     def _execute(self, task: SubAgentTask, tools: List[str] = None):
-        """执行子任务（模拟或真实调用 engine）"""
+        """执行子任务（真实调用 engine；引擎未加载时直接返回错误，不假装执行）。"""
         task.status = "running"
         task.events.append({"type": "start", "content": f"子 Agent 开始执行: {task.description}"})
         try:
@@ -42,17 +42,16 @@ class SubAgent:
                 # 真实调用 engine 执行任务
                 result = self.engine.chat(task.description)
                 task.result = result
-            else:
-                # 模拟执行
-                time.sleep(0.5)
-                task.progress = 50
-                task.events.append({"type": "progress", "content": "正在分析任务...", "progress": 50})
-                time.sleep(0.5)
                 task.progress = 100
-                task.result = f"子 Agent 完成任务: {task.description}\n（模拟结果，接入真实模型后将返回真实执行结果）"
-            task.status = "completed"
-            task.completed_at = time.time()
-            task.events.append({"type": "complete", "content": task.result})
+                task.status = "completed"
+                task.completed_at = time.time()
+                task.events.append({"type": "complete", "content": task.result})
+            else:
+                # 引擎未加载：返回错误状态，不 sleep 假装在执行
+                task.status = "failed"
+                task.error = "子Agent执行失败：引擎未加载"
+                task.result = ""
+                task.events.append({"type": "error", "content": task.error})
         except Exception as e:
             task.status = "failed"
             task.error = str(e)

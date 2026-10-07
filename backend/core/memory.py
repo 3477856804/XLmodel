@@ -613,7 +613,14 @@ class KnowledgeGraph:
             self._save()
 
 
-def _hash_embed(text: str, dim: int = 512) -> list:
+def _hash_keyword_vector(text: str, dim: int = 512) -> list:
+    """基于 n-gram + blake2b 哈希的关键词向量（非神经网络语义嵌入）。
+
+    注意：这是一个轻量的关键词检索向量，并非真正的语义向量。
+    它把字符 n-gram 哈希后投影到固定维度，只能匹配字面相似的关键词，
+    无法理解同义词、上下文语义或跨语言含义。如需真正的语义检索，
+    请接入 sentence-transformers 等嵌入模型。
+    """
     vec = [0.0] * dim
     s = re.sub(r"\s+", "", (text or "").lower())
     if not s:
@@ -686,7 +693,7 @@ class RAG:
             return
         doc = {"content": content.strip()[:4000],
                "metadata": metadata or {},
-               "embedding": _hash_embed(content, self.dim),
+               "embedding": _hash_keyword_vector(content, self.dim),
                "time": time.time()}
         with self._lock:
             self.documents.append(doc)
@@ -702,14 +709,19 @@ class RAG:
             else:
                 self.add_document(str(it))
 
-    def search(self, query: str, top_k: int = 5) -> list:
+    def search_keyword(self, query: str, top_k: int = 5) -> list:
+        """基于 n-gram 哈希的关键词检索（非语义向量检索）。
+
+        返回与查询字面相似度最高的文档列表。该方法不理解同义词或语义，
+        仅做关键词层面的匹配。
+        """
         if not query:
             return []
         with self._lock:
             docs = list(self.documents)
         if not docs:
             return []
-        q = _hash_embed(query, self.dim)
+        q = _hash_keyword_vector(query, self.dim)
         scored = []
         for d in docs:
             s = _cosine(q, d.get("embedding") or [])
@@ -719,7 +731,7 @@ class RAG:
         return [d for _, d in scored[:top_k]]
 
     def format_for_prompt(self, query: str, top_k: int = 3) -> str:
-        docs = self.search(query, top_k=top_k)
+        docs = self.search_keyword(query, top_k=top_k)
         if not docs:
             return ""
         lines = ["【相关知识】"]
@@ -742,7 +754,12 @@ class RAG:
                 pass
 
 
-class ContextCompressor:
+class _FallbackCompressor:
+    """ContextCompressor 的轻量回退实现（仅在无法从 engine.py 导入时使用）。
+
+    与 engine.py 中的权威实现行为一致，但不持锁，仅供 MemoryHub 独立运行时兜底。
+    """
+
     def __init__(self, max_chars: int = 4000, keep_recent: int = 8,
                  summary_slots: int = 20):
         self.max_chars = max_chars
@@ -752,7 +769,8 @@ class ContextCompressor:
     def compress(self, turns: list) -> str:
         if not turns:
             return ""
-        text = "\n".join(f"{t.get('role','user')}: {t.get('content','')}" for t in turns)
+        text = "\n".join(f"{t.get('role','user')}: {t.get('content','')}"
+                         for t in turns)
         if len(text) <= self.max_chars:
             return text
         recent = turns[-self.keep_recent:]
@@ -786,8 +804,19 @@ class MemoryHub:
         self.session = SessionPersistence()
         self.graph = KnowledgeGraph()
         self.rag = RAG(dim=rag_dim)
-        self.compressor = ContextCompressor(max_chars=compress_chars)
+        # ContextCompressor 的唯一权威实现在 engine.py（带线程锁）。
+        # 此处延迟导入以避免与 engine.py 的模块级循环依赖；若导入失败
+        # 则回退到内置的轻量实现，保证 MemoryHub 仍可独立工作。
+        self.compressor = self._make_compressor(compress_chars)
         self._lock = threading.RLock()
+
+    @staticmethod
+    def _make_compressor(max_chars: int):
+        try:
+            from .engine import ContextCompressor  # 延迟导入，避免循环依赖
+            return ContextCompressor(max_chars=max_chars)
+        except Exception:
+            return _FallbackCompressor(max_chars=max_chars)
 
     def record_user(self, text: str, importance: float = 0.5, tags=None):
         self.short.add("user", text, importance, tags)
@@ -828,7 +857,7 @@ class MemoryHub:
     def search_all(self, query: str, top_k: int = 5) -> dict:
         return {
             "long": [i.to_dict() for i in self.long.search(query, top_k)],
-            "rag": self.rag.search(query, top_k),
+            "rag": self.rag.search_keyword(query, top_k),
             "graph": self.graph.search(query, limit=top_k),
         }
 

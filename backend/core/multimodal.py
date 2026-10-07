@@ -244,6 +244,8 @@ class VisionHub:
         p = screenshot()
         if not p:
             return "截屏失败"
+        if not self.client.available():
+            return "视觉模块未配置（缺少API key），无法识别屏幕内容"
         with self._lock:
             self.last_screenshot = p
         text = self.client.describe(p, prompt)
@@ -251,13 +253,15 @@ class VisionHub:
             with self._lock:
                 self.last_description = text
             return text
-        return "屏幕上没看到什么特别的"
+        return "视觉模块调用失败，未返回识别结果"
 
     def see_camera(self, prompt: str = "描述一下摄像头画面") -> str:
         p = self.camera.capture()
         if not p:
             return "摄像头不可用"
-        return self.client.describe(p, prompt) or "摄像头画面上没什么特别的"
+        if not self.client.available():
+            return "视觉模块未配置（缺少API key），无法识别摄像头画面"
+        return self.client.describe(p, prompt) or "视觉模块调用失败，未返回识别结果"
 
     def generate_image(self, prompt: str) -> str:
         return self.generator.generate(prompt)

@@ -107,7 +107,25 @@ class WebhookChannel(ChannelBase):
         self._running = False
 
     async def send(self, to: str = "", content: str = "") -> bool:
-        return bool(self.config.get("callback_url"))
+        callback_url = self.config.get("callback_url")
+        if not callback_url:
+            return False
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, callback_url, to, content)
+
+    def _send_sync(self, callback_url: str, to: str, content: str) -> bool:
+        """真实向 callback_url 发起 HTTP POST（urllib，避免新增依赖）。"""
+        import urllib.request
+        try:
+            data = json.dumps(
+                {"to": to, "content": content}, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                callback_url, data=data,
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+                return 200 <= getattr(resp, "status", 200) < 300
+        except Exception:
+            return False
 
     async def _handle(self, request):
         from aiohttp import web
