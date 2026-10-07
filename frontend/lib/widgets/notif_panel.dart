@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
 import '../rpc/xiaoling_client_ext.dart';
-import '../rpc/xiaoling_ext.dart';
 import '../theme/theme.dart';
 
 ///铃铛面板：任务进度 + 未读提醒队列。

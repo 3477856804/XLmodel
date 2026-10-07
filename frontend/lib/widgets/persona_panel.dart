@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
 import '../rpc/xiaoling_client_ext.dart';
-import '../rpc/xiaoling_ext.dart';
 import '../theme/theme.dart';
 
 /// 人格 / Agent 面板：情绪画像 + 六维雷达 + 亲密度 + 人格切换。

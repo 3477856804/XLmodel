@@ -865,16 +865,25 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         padding: const EdgeInsets.only(bottom: 12),
         child: Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(18), boxShadow: [BoxShadow(color: p.shDark, offset: const Offset(3,3), blurRadius: 7), BoxShadow(color: p.shLight, offset: const Offset(-3,-3), blurRadius: 7)]),
+          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
           child: Row(children: [
-            Icon(e['icon'] as IconData, color: p.gold, size: 22),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: (e['on'] as bool) ? p.gold.withOpacity(p.isDark ? 0.18 : 0.12) : p.surfaceLo,
+                borderRadius: BorderRadius.circular(XlRadius.md),
+                border: Border.all(color: (e['on'] as bool) ? p.gold.withOpacity(0.30) : p.edgeSoft, width: 1),
+              ),
+              child: Icon(e['icon'] as IconData, color: (e['on'] as bool) ? p.gold : p.text3, size: 18),
+            ),
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(e['name'] as String, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: p.text1)),
-              const SizedBox(height: 2),
-              Text(e['desc'] as String, style: TextStyle(fontSize: 12, color: p.text2)),
+              Text(e['name'] as String, style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.wide)),
+              const SizedBox(height: 3),
+              Text(e['desc'] as String, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
             ])),
-            Switch(value: e['on'] as bool, onChanged: (_) {}, activeColor: p.pink),
+            _toggle(p, e['on'] as bool, p.gold, () {}),
           ]),
         ),
       )).toList(),
