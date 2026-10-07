@@ -31,6 +31,9 @@ from . import search as search_agent
 VERSION = "0.0.1"
 NAME = "小凌"
 
+import logging as _logging
+_logger = _logging.getLogger("xiaoling.engine")
+
 DEFAULT_SYSTEM_PROMPT = (
     f"你是{NAME}，一个住在用户电脑里的AI女孩。"
     "说话简短、自然、友好，不要长篇大论，不要使用列表格式，除非用户明确要求。"
@@ -307,6 +310,13 @@ class XiaoLing:
         except Exception as e:
             self.log(f"  [{name}] 初始化失败：{type(e).__name__}: {e}")
             return None
+
+    @staticmethod
+    def _safe(fn, default=None):
+        try:
+            return fn()
+        except Exception:
+            return default
 
     def _memory_long(self):
         if self.memory_hub is not None:
@@ -745,6 +755,7 @@ class XiaoLing:
             try:
                 return self.model_replace.ensure_loaded()
             except Exception:
+                _logger.exception('ensure_model failed')
                 return False
             finally:
                 self._model_loading = False
@@ -795,19 +806,19 @@ class XiaoLing:
             "relationship": self._relationship_label(),
             "conversation_len": len(self.conversation),
             "model_ready": self.model_ready(),
-            "model_status": (self.model_replace.status_text()
-                             if self.model_replace else "未加载"),
-            "tools": (len(self.toolkit.tools.tools) if self.toolkit else 0),
-            "skills": (len(self.toolkit.skills.skills) if self.toolkit else 0),
-            "goals": (self.toolkit.goals.stats() if self.toolkit else {}),
-            "plugins": (len(self.plugins.list_plugins()) if self.plugins else 0),
-            "memory": (self.memory_hub.stats() if self.memory_hub else {}),
-            "persona": (self.persona.snapshot() if self.persona else {}),
-            "growth": (self.growth.status() if self.growth else {}),
-            "network": (self.offline.status_text() if self.offline else "未知"),
-            "queue": self.rq.stats(),
-            "bus_events": self.bus.events(),
-            "paths": describe_paths(),
+            "model_status": self._safe(
+                lambda: self.model_replace.status_text(), "未加载") if self.model_replace else "未加载",
+            "tools": self._safe(lambda: len(self.toolkit.tools.tools), 0) if self.toolkit else 0,
+            "skills": self._safe(lambda: len(self.toolkit.skills.skills), 0) if self.toolkit else 0,
+            "goals": self._safe(lambda: self.toolkit.goals.stats(), {}) if self.toolkit else {},
+            "plugins": self._safe(lambda: len(self.plugins.list_plugins()), 0) if self.plugins else 0,
+            "memory": self._safe(lambda: self.memory_hub.stats(), {}) if self.memory_hub else {},
+            "persona": self._safe(lambda: self.persona.snapshot(), {}) if self.persona else {},
+            "growth": self._safe(lambda: self.growth.status(), {}) if self.growth else {},
+            "network": self._safe(lambda: self.offline.status_text(), "未知") if self.offline else "未知",
+            "queue": self._safe(lambda: self.rq.stats(), {}),
+            "bus_events": self._safe(lambda: self.bus.events(), []),
+            "paths": self._safe(lambda: describe_paths(), {}),
         }
 
     def health(self) -> dict:
@@ -820,7 +831,7 @@ class XiaoLing:
             "voice": self.voice is not None,
             "plugins": self.plugins is not None,
             "scheduler": self.scheduler is not None,
-            "offline": (self.offline.is_online() if self.offline else False),
+            "offline": self._safe(lambda: self.offline.is_online(), False) if self.offline else False,
             "updater": self.updater is not None,
         }
         ok = sum(1 for v in checks.values() if v)

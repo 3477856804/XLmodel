@@ -297,8 +297,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 Row(
                   children: [
                     Expanded(
-                      child: GestureDetector(
+                      child: _Pressable(
                         onTap: () => Navigator.pop(ctx),
+                        scale: 0.95,
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: AppTheme.ghost(context, r: XlRadius.pill),
@@ -315,7 +316,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: GestureDetector(
+                      child: _Pressable(
+                        scale: 0.95,
                         onTap: () {
                           Navigator.pop(ctx);
                           setState(() {
@@ -452,12 +454,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             Container(
               width: 52,
               height: 52,
-              decoration: BoxDecoration(
-                gradient: p.gradBrand,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 2),
-                boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 22, spreadRadius: -4)],
-              ),
+              decoration: AppTheme.brandOrb(context, size: 52),
               child: Icon(Icons.favorite_rounded, color: p.btnInk, size: 20),
             ),
             if (_busy)
@@ -467,11 +464,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 child: Container(
                   width: 16,
                   height: 16,
-                  decoration: BoxDecoration(
-                    color: p.green,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: p.bg, width: 2),
-                  ),
+                  decoration: AppTheme.glowDot(p.green, size: 16),
                 ),
               ),
           ],
@@ -495,11 +488,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           Container(
             width: 5,
             height: 5,
-            decoration: BoxDecoration(
-              color: c,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: c.withOpacity(0.6), blurRadius: 6, spreadRadius: -1)],
-            ),
+            decoration: AppTheme.glowDot(c, size: 5),
           ),
           const SizedBox(width: 5),
           Text(_connected ? 'ONLINE' : 'OFFLINE',
@@ -515,17 +504,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _headerBtn(XlPalette p, IconData icon, Color color, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        child: Container(
-          width: 42,
-          height: 42,
-          decoration: AppTheme.neuXs(context, r: XlRadius.md),
-          child: Icon(icon, size: 17, color: color),
-        ),
+    return _Pressable(
+      onTap: onTap,
+      scale: 0.92,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: AppTheme.neuXs(context, r: XlRadius.md),
+        child: Icon(icon, size: 17, color: color),
       ),
     );
   }
@@ -669,11 +655,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       child: Center(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: p.surfaceLo,
-            borderRadius: BorderRadius.circular(XlRadius.pill),
-            border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.24 : 0.10), width: 1),
-          ),
+          decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
           child: Text(formatRelative(t),
               style: TextStyle(
                 fontSize: XlFont.micro,
@@ -787,9 +769,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   BoxDecoration _aiBubble(XlPalette p, _MsgStatus s) {
-    final border = s == _MsgStatus.error ? p.red.withOpacity(0.42) : p.edge;
+    final border = s == _MsgStatus.error ? p.red.withOpacity(0.42) : p.shDark.withOpacity(p.isDark ? 0.22 : 0.10);
     return BoxDecoration(
-      gradient: p.face,
+      color: p.screenSoft,
       borderRadius: const BorderRadius.only(
         topLeft: Radius.circular(XlRadius.lg),
         topRight: Radius.circular(XlRadius.lg),
@@ -797,7 +779,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         bottomRight: Radius.circular(XlRadius.lg),
       ),
       border: Border.all(color: border, width: 1),
-      boxShadow: p.raisedXs,
+      boxShadow: p.sunkenSm,
     );
   }
 
@@ -805,12 +787,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     return Container(
       width: 32,
       height: 32,
-      decoration: BoxDecoration(
-        gradient: p.gradBrand,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.5),
-        boxShadow: p.raisedXxs,
-      ),
+      decoration: AppTheme.brandOrb(context, size: 32),
       child: Icon(Icons.favorite_rounded, size: 13, color: p.btnInk),
     );
   }
@@ -912,15 +889,12 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _bubbleAction(XlPalette p, IconData icon, String label, Color color, VoidCallback? onTap) {
-    return GestureDetector(
+    return _Pressable(
       onTap: onTap,
+      scale: 0.92,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          color: p.surface.withOpacity(p.isDark ? 0.6 : 0.5),
-          borderRadius: BorderRadius.circular(XlRadius.pill),
-          border: Border.all(color: p.edge, width: 1),
-        ),
+        decoration: AppTheme.ghost(context, r: XlRadius.pill),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -940,14 +914,12 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _scrollDownBtn(XlPalette p) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _scrollBottom(force: true),
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: AppTheme.neu(context, r: XlRadius.pill),
+    return _Pressable(
+      onTap: () => _scrollBottom(force: true),
+      scale: 0.93,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: AppTheme.neu(context, r: XlRadius.pill),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -963,8 +935,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _inputBar(XlPalette p) {
@@ -997,22 +968,19 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
           final q = _quickReplies[i];
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _busy ? null : () => _send(q),
-              borderRadius: BorderRadius.circular(XlRadius.pill),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                decoration: AppTheme.neuXs(context, r: XlRadius.pill),
-                child: Text(q,
-                    style: TextStyle(
-                      fontSize: XlFont.label,
-                      fontWeight: FontWeight.w700,
-                      color: _busy ? p.decor : p.text2,
-                      letterSpacing: XlLetterSpacing.wide,
-                    )),
-              ),
+          return _Pressable(
+            onTap: _busy ? null : () => _send(q),
+            scale: 0.93,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: AppTheme.neuXs(context, r: XlRadius.pill),
+              child: Text(q,
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    fontWeight: FontWeight.w700,
+                    color: _busy ? p.decor : p.text2,
+                    letterSpacing: XlLetterSpacing.wide,
+                  )),
             ),
           );
         },
@@ -1073,7 +1041,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 fontFeatures: const [FontFeature.tabularFigures()],
               )),
           const SizedBox(width: 10),
-          GestureDetector(
+          _Pressable(
+            scale: 0.9,
             onTap: () async {
               await _player.stop();
               if (mounted) {
@@ -1099,7 +1068,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   Widget _inputField(XlPalette p) {
     return Container(
-      decoration: AppTheme.sunken(context, r: XlRadius.xl),
+      decoration: AppTheme.screen(context, r: XlRadius.xl),
       padding: const EdgeInsets.fromLTRB(18, 6, 8, 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -1138,8 +1107,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _focusBtn(XlPalette p) {
-    return GestureDetector(
+    return _Pressable(
       onTap: () => _inputFocus.requestFocus(),
+      scale: 0.9,
       child: Container(
         width: 32,
         height: 32,
@@ -1150,32 +1120,51 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _sendButton(XlPalette p) {
-    return GestureDetector(
+    return _SendButton(
+      busy: _busy,
       onTap: _busy ? null : () => _send(),
-      child: AnimatedContainer(
-        duration: XlDuration.fast,
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          gradient: _busy ? LinearGradient(colors: [p.surfaceLo, p.surface]) : p.gradBrand,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.45),
-            width: 1.5,
-          ),
-          boxShadow: _busy
-              ? p.sunkenXs
-              : [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 20, spreadRadius: -4)],
+    );
+  }
+}
+
+class _SendButton extends StatefulWidget {
+  final bool busy;
+  final VoidCallback? onTap;
+  const _SendButton({required this.busy, this.onTap});
+  @override
+  State<_SendButton> createState() => _SendButtonState();
+}
+
+class _SendButtonState extends State<_SendButton> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? 0.9 : 1.0,
+        duration: XlDuration.micro,
+        child: AnimatedContainer(
+          duration: XlDuration.fast,
+          width: 52,
+          height: 52,
+          decoration: widget.busy
+              ? AppTheme.sunkenXs(context, r: 999)
+              : (_down ? AppTheme.btnPressed(context, r: 999) : AppTheme.btn(context, r: 999)),
+          child: widget.busy
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: p.pink.withOpacity(0.75),
+                  ),
+                )
+              : Icon(Icons.send_rounded, color: p.btnInk, size: 20),
         ),
-        child: _busy
-            ? Padding(
-                padding: const EdgeInsets.all(16),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: p.pink.withOpacity(0.75),
-                ),
-              )
-            : Icon(Icons.send_rounded, color: p.btnInk, size: 20),
       ),
     );
   }
@@ -1212,4 +1201,34 @@ class _MiniStat {
   final IconData icon;
   final Color color;
   const _MiniStat(this.label, this.value, this.unit, this.icon, this.color);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.95});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: () {
+        if (mounted) setState(() => _down = false);
+      },
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: XlDuration.micro,
+        curve: XlCurve.standard,
+        child: widget.child,
+      ),
+    );
+  }
 }

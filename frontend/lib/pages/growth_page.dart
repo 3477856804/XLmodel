@@ -230,12 +230,9 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   }
 
   Widget _refreshBtn(XlPalette p) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _load,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        child: Container(
+    return _Pressable(
+      onTap: _load,
+      child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: AppTheme.neuXs(context, r: XlRadius.lg),
           child: Row(
@@ -253,8 +250,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _heroCard(XlPalette p) {
@@ -262,12 +258,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     final prog = g.normalizedProgress;
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: p.gradBrand,
-        borderRadius: BorderRadius.circular(XlRadius.xxxl),
-        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.28 : 0.42), width: 1.5),
-        boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.38), blurRadius: 30, spreadRadius: -6)],
-      ),
+      decoration: AppTheme.brand(context, r: XlRadius.xxxl),
       child: Stack(
         children: [
           Positioned(
@@ -543,11 +534,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
-            color: c,
-            shape: BoxShape.circle,
-            boxShadow: [BoxShadow(color: c.withOpacity(0.5), blurRadius: 6, spreadRadius: -1)],
-          ),
+          decoration: AppTheme.glowDot(c, size: 8),
         ),
         const SizedBox(width: 6),
         Text(label,
@@ -613,12 +600,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: current
-            ? BoxDecoration(
-                color: p.surfaceLo,
-                borderRadius: BorderRadius.circular(XlRadius.md),
-                border: Border.all(color: color.withOpacity(0.4), width: 1.4),
-                boxShadow: p.sunkenSm,
-              )
+            ? AppTheme.sunkenSm(context, r: XlRadius.md)
             : (r.unlocked ? AppTheme.neuXs(context, r: XlRadius.md) : null),
         child: Row(
           children: [
@@ -801,15 +783,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                   letterSpacing: XlLetterSpacing.wider,
                 )),
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: s.progress,
-                minHeight: 5,
-                backgroundColor: p.surfaceLo,
-                valueColor: AlwaysStoppedAnimation(color),
-              ),
-            ),
+            _neuProgress(p, s.progress, height: 5, color: color),
           ],
         ),
       ),
@@ -846,20 +820,13 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
           ),
           Container(
             padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: p.surfaceLo,
-              borderRadius: BorderRadius.circular(XlRadius.pill),
-              border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
-            ),
+            decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
             child: Row(
               children: List.generate(_ranges.length, (i) {
                 final selected = _rangeIndex == i;
-                return Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => setState(() => _rangeIndex = i),
-                    borderRadius: BorderRadius.circular(XlRadius.pill),
-                    child: AnimatedContainer(
+                return _Pressable(
+                  onTap: () => setState(() => _rangeIndex = i),
+                  child: AnimatedContainer(
                       duration: XlDuration.fast,
                       curve: XlCurve.standard,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -878,8 +845,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                             letterSpacing: XlLetterSpacing.wide,
                           )),
                     ),
-                  ),
-                );
+                  );
               }),
             ),
           ),
@@ -1077,6 +1043,29 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     return '${-diff} 天前';
   }
 
+  Widget _neuProgress(XlPalette p, double value, {double height = 5, Color? color}) {
+    final c = color ?? p.pink;
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: p.surfaceLo,
+        borderRadius: BorderRadius.circular(99),
+        boxShadow: p.sunkenXxs,
+      ),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: value.clamp(0.0, 1.0),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [c.withOpacity(0.7), c]),
+            borderRadius: BorderRadius.circular(99),
+            boxShadow: [BoxShadow(color: c.withOpacity(0.35), blurRadius: 8, spreadRadius: -2)],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _tinyChip(XlPalette p, String text, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
@@ -1177,7 +1166,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                   fontWeight: FontWeight.w500,
                 )),
             const SizedBox(height: 20),
-            GestureDetector(
+            _Pressable(
               onTap: _load,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
@@ -1399,4 +1388,34 @@ class _GrowthStat {
   final double progress;
   final String hint;
   const _GrowthStat(this.label, this.value, this.unit, this.icon, this.color, this.progress, this.hint);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => setState(() => _down = true),
+      onPointerUp: (_) => setState(() => _down = false),
+      onPointerCancel: (_) => setState(() => _down = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _down ? widget.scale : 1.0,
+          duration: XlDuration.micro,
+          curve: XlCurve.standard,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
 }

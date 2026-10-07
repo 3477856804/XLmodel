@@ -290,28 +290,24 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   Widget _iconBtn(XlPalette p, IconData icon, String label, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: p.pink),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w700,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: p.pink),
+            const SizedBox(width: 8),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w700,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
       ),
     );
@@ -689,11 +685,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             alignment: Alignment.centerLeft,
             child: Container(
               padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: p.surfaceLo,
-                borderRadius: BorderRadius.circular(XlRadius.pill),
-                border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
-              ),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: _categories.entries.map((e) {
@@ -708,11 +700,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                         curve: XlCurve.standard,
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: selected
-                            ? BoxDecoration(
-                                gradient: p.gradBrand,
-                                borderRadius: BorderRadius.circular(XlRadius.pill),
-                                boxShadow: p.raisedXxs,
-                              )
+                            ? AppTheme.brand(context, r: XlRadius.pill)
                             : null,
                         child: Text(e.value,
                             style: TextStyle(
@@ -890,43 +878,58 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             ),
             const SizedBox(height: 16),
             if (downloading) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 6,
-                  backgroundColor: p.surfaceLo,
-                  valueColor: AlwaysStoppedAnimation(color),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: AppTheme.screenSoft(context, r: XlRadius.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 8,
+                      decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: progress.clamp(0.0, 1.0),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: p.gradBrand,
+                            borderRadius: BorderRadius.circular(XlRadius.pill),
+                            boxShadow: [BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 8, spreadRadius: -2)],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(Icons.download_rounded, size: 12, color: color),
+                        const SizedBox(width: 6),
+                        Text('下载中 ${(progress * 100).toStringAsFixed(0)}%',
+                            style: TextStyle(
+                              fontSize: XlFont.micro,
+                              fontWeight: FontWeight.w800,
+                              color: color,
+                              letterSpacing: XlLetterSpacing.wider,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            )),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => setState(() {
+                            _downloading.remove(m.name);
+                            _progress.remove(m.name);
+                          }),
+                          child: Text('取消',
+                              style: TextStyle(
+                                fontSize: XlFont.micro,
+                                fontWeight: FontWeight.w800,
+                                color: p.red,
+                                letterSpacing: XlLetterSpacing.wider,
+                              )),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.download_rounded, size: 12, color: color),
-                  const SizedBox(width: 6),
-                  Text('下载中 ${(progress * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        fontSize: XlFont.micro,
-                        fontWeight: FontWeight.w800,
-                        color: color,
-                        letterSpacing: XlLetterSpacing.wider,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      )),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _downloading.remove(m.name);
-                      _progress.remove(m.name);
-                    }),
-                    child: Text('取消',
-                        style: TextStyle(
-                          fontSize: XlFont.micro,
-                          fontWeight: FontWeight.w800,
-                          color: p.red,
-                          letterSpacing: XlLetterSpacing.wider,
-                        )),
-                  ),
-                ],
               ),
             ] else
               _actionBtn(p, m, installed, color),
@@ -1065,12 +1068,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     if (!m.canRun) {
       return Container(
         padding: const EdgeInsets.symmetric(vertical: 13),
-        decoration: BoxDecoration(
-          color: p.surfaceLo,
-          borderRadius: BorderRadius.circular(XlRadius.pill),
-          border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.32 : 0.14), width: 1),
-          boxShadow: p.sunkenXs,
-        ),
+        decoration: AppTheme.sunkenSm(context, r: XlRadius.pill),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1097,45 +1095,37 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   Widget _btn(XlPalette p, IconData icon, String label, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          decoration: AppTheme.btn(context, r: XlRadius.pill),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 14, color: p.btnInk),
-              const SizedBox(width: 6),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w800,
-                    color: p.btnInk,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        decoration: AppTheme.btn(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: p.btnInk),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w800,
+                  color: p.btnInk,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
       ),
     );
   }
 
   Widget _iconAction(XlPalette p, IconData icon, Color color, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: AppTheme.neuXs(context, r: XlRadius.pill),
-          child: Icon(icon, size: 15, color: color),
-        ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: AppTheme.neuXs(context, r: XlRadius.pill),
+        child: Icon(icon, size: 15, color: color),
       ),
     );
   }
@@ -1262,22 +1252,18 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => Navigator.pop(ctx),
-                        borderRadius: BorderRadius.circular(XlRadius.pill),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          decoration: AppTheme.btn(context, r: XlRadius.pill),
-                          child: Text('知道了',
-                              style: TextStyle(
-                                fontSize: XlFont.captionSm,
-                                fontWeight: FontWeight.w800,
-                                color: p.btnInk,
-                                letterSpacing: XlLetterSpacing.wider,
-                              )),
-                        ),
+                    _Pressable(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        decoration: AppTheme.btn(context, r: XlRadius.pill),
+                        child: Text('知道了',
+                            style: TextStyle(
+                              fontSize: XlFont.captionSm,
+                              fontWeight: FontWeight.w800,
+                              color: p.btnInk,
+                              letterSpacing: XlLetterSpacing.wider,
+                            )),
                       ),
                     ),
                   ],
@@ -1433,12 +1419,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                   Container(
                     width: 72,
                     height: 72,
-                    decoration: BoxDecoration(
-                      gradient: p.gradBrand,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
-                      boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
-                    ),
+                    decoration: AppTheme.brandOrbLg(context, size: 72),
                     child: Icon(Icons.shopping_bag_outlined, size: 28, color: p.btnInk),
                   ),
                 ],
@@ -1527,4 +1508,31 @@ class _Sum {
   final String color;
   final double progress;
   const _Sum(this.label, this.value, this.unit, this.icon, this.color, this.progress);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: widget.child,
+      ),
+    );
+  }
 }

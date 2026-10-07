@@ -287,11 +287,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
               Container(
                 width: 6,
                 height: 6,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: color.withOpacity(0.7), blurRadius: 6, spreadRadius: -1)],
-                ),
+                decoration: AppTheme.glowDot(color, size: 6),
               ),
               const SizedBox(width: 6),
               Text(training ? 'TRAINING' : 'IDLE',
@@ -309,12 +305,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _refreshBtn(XlPalette p) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _load,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        child: Container(
+    return _Pressable(
+      onTap: _load,
+      child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: AppTheme.neuXs(context, r: XlRadius.lg),
           child: Row(
@@ -332,8 +325,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _statusBanner(XlPalette p) {
@@ -445,27 +437,16 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         const SizedBox(height: 6),
         SizedBox(
           width: 120,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: pct,
-              minHeight: 5,
-              backgroundColor: p.surfaceLo,
-              valueColor: AlwaysStoppedAnimation(p.pink),
-            ),
-          ),
+          child: _neuProgress(p, pct, height: 5),
         ),
       ],
     );
   }
 
   Widget _startBtn(XlPalette p) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _startTraining,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        child: Container(
+    return _Pressable(
+      onTap: _startTraining,
+      child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
           decoration: AppTheme.btn(context, r: XlRadius.pill),
           child: Row(
@@ -483,8 +464,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   void _startTraining() {
@@ -652,11 +632,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
               Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 8, spreadRadius: -1)],
-                ),
+                decoration: AppTheme.glowDot(color, size: 8),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -757,22 +733,14 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   Widget _presetTile(XlPalette p, _Preset preset, int i) {
     final selected = _selectedPreset == i;
     final color = _colorOf(p, preset.color);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => setState(() => _selectedPreset = i),
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        child: AnimatedContainer(
+    return _Pressable(
+      onTap: () => setState(() => _selectedPreset = i),
+      child: AnimatedContainer(
           duration: XlDuration.fast,
           curve: XlCurve.standard,
           padding: const EdgeInsets.all(14),
           decoration: selected
-              ? BoxDecoration(
-                  color: p.surfaceLo,
-                  borderRadius: BorderRadius.circular(XlRadius.md),
-                  border: Border.all(color: color.withOpacity(0.4), width: 1.4),
-                  boxShadow: p.sunkenSm,
-                )
+              ? AppTheme.sunkenSm(context, r: XlRadius.md)
               : AppTheme.neuXs(context, r: XlRadius.md),
           child: Row(
             children: [
@@ -828,8 +796,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _logCard(XlPalette p) {
@@ -849,7 +816,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                     letterSpacing: XlLetterSpacing.normal,
                   )),
               const Spacer(),
-              GestureDetector(
+              _Pressable(
                 onTap: () => setState(() => _autoScroll = !_autoScroll),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -882,7 +849,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                 ),
               ),
               const SizedBox(width: 8),
-              GestureDetector(
+              _Pressable(
                 onTap: () => setState(() => _logs.clear()),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1122,16 +1089,31 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           ],
         ),
         const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: LinearProgressIndicator(
-            value: progress.clamp(0.0, 1.0),
-            minHeight: 4,
-            backgroundColor: p.surfaceLo,
-            valueColor: AlwaysStoppedAnimation(color),
+        _neuProgress(p, progress, height: 4, color: color),
+      ],
+    );
+  }
+
+  Widget _neuProgress(XlPalette p, double value, {double height = 5, Color? color}) {
+    final c = color ?? p.pink;
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: p.surfaceLo,
+        borderRadius: BorderRadius.circular(99),
+        boxShadow: p.sunkenXxs,
+      ),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: value.clamp(0.0, 1.0),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [c.withOpacity(0.7), c]),
+            borderRadius: BorderRadius.circular(99),
+            boxShadow: [BoxShadow(color: c.withOpacity(0.35), blurRadius: 8, spreadRadius: -2)],
           ),
         ),
-      ],
+      ),
     );
   }
 
@@ -1253,7 +1235,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                   fontWeight: FontWeight.w500,
                 )),
             const SizedBox(height: 20),
-            GestureDetector(
+            _Pressable(
               onTap: _load,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
@@ -1418,4 +1400,34 @@ class _Milestone {
   final bool done;
   final String color;
   const _Milestone(this.name, this.status, this.done, this.color);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => setState(() => _down = true),
+      onPointerUp: (_) => setState(() => _down = false),
+      onPointerCancel: (_) => setState(() => _down = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _down ? widget.scale : 1.0,
+          duration: XlDuration.micro,
+          curve: XlCurve.standard,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
 }

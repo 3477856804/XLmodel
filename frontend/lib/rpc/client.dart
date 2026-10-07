@@ -268,27 +268,27 @@ class XlClient {
   static void _ensureChannel() {
     if (_chan != null && _stub != null) return;
     _setState(XlConnectionState.connecting, detail: _endpoint.address);
-    _chan = ClientChannel(
-      _endpoint.host,
-      port: _endpoint.port,
-      options: ChannelOptions(
-        // 【关键】必须显式声明明文凭证（h2c）。
-        // grpc-dart 的 ChannelOptions.credentials 默认值是 ChannelCredentials.secure()，
-        // 会先发 TLS ClientHello；而Python 后端是 add_insecure_port()（明文 h2c），
-        // 于是 BoringSSL 把HTTP/2 帧当成 TLS 响应 → HandshakeException:
-        // WRONG_VERSION_NUMBER (tls_record.cc:127)，所有 RPC 报 UNAVAILABLE(14)。
-        credentials: ChannelCredentials.insecure(),
-        connectTimeout: Duration(seconds: 5),
-        idleTimeout: Duration(minutes: 10),
-        keepAlive: ClientKeepAliveOptions(
-          pingInterval: Duration(seconds: _keepAlive ? 30 : 86400),
-          timeout: Duration(seconds: 10),
-          permitWithoutCalls: true,
+    try {
+      _chan = ClientChannel(
+        _endpoint.host,
+        port: _endpoint.port,
+        options: ChannelOptions(
+          credentials: ChannelCredentials.insecure(),
+          connectTimeout: Duration(seconds: 5),
+          idleTimeout: Duration(minutes: 10),
+          keepAlive: ClientKeepAliveOptions(
+            pingInterval: Duration(seconds: _keepAlive ? 30 : 86400),
+            timeout: Duration(seconds: 10),
+            permitWithoutCalls: true,
+          ),
         ),
-      ),
-    );
-    _stub = XiaoLingClient(_chan!);
-    _startMetricsTimer();
+      );
+      _stub = XiaoLingClient(_chan!);
+      _startMetricsTimer();
+    } catch (e) {
+      _setState(XlConnectionState.failed, detail: 'channel init failed: $e');
+      rethrow;
+    }
   }
 
   static void _setState(XlConnectionState s, {String? detail, Duration? latency}) {
@@ -406,6 +406,19 @@ class XlClient {
     bool silent = false,
   }) =>
       withRetry(call, policy: policy, timeout: timeout, label: label, silent: silent);
+
+  static Future<T?> safeCall<T>(
+    Future<T> Function(XiaoLingClient stub) call, {
+    XlRetryPolicy? policy,
+    Duration? timeout,
+    String? label,
+  }) async {
+    try {
+      return await withRetry(call, policy: policy, timeout: timeout, label: label, silent: true);
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<T> fastCall<T>(
     Future<T> Function(XiaoLingClient stub) call, {

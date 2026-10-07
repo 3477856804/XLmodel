@@ -297,7 +297,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             ),
           ),
           if (_query.isNotEmpty)
-            GestureDetector(
+            _Pressable(
               onTap: () {
                 _searchCtrl.clear();
                 setState(() => _query = '');
@@ -345,12 +345,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
           : const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: selected
-          ? BoxDecoration(
-              color: p.surfaceLo,
-              borderRadius: BorderRadius.circular(XlRadius.md),
-              border: Border.all(color: color.withOpacity(0.35), width: 1.2),
-              boxShadow: p.sunkenSm,
-            )
+          ? AppTheme.sunkenSm(context, r: XlRadius.md)
           : const BoxDecoration(),
       child: Row(
         mainAxisSize: horizontal ? MainAxisSize.min : MainAxisSize.max,
@@ -391,22 +386,14 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             Container(
               width: 6,
               height: 6,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 8, spreadRadius: -1)],
-              ),
+              decoration: AppTheme.glowDot(color, size: 6),
             ),
         ],
       ),
     );
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => setState(() => _activeSection = s.key),
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        child: chip,
-      ),
+    return _Pressable(
+      onTap: () => setState(() => _activeSection = s.key),
+      child: chip,
     );
   }
 
@@ -740,11 +727,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 6, spreadRadius: -1)],
-            ),
+            decoration: AppTheme.glowDot(color, size: 6),
           ),
           const SizedBox(width: 8),
           Text(v.displayName,
@@ -945,12 +928,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   Widget _aboutHero(XlPalette p) {
     return Container(
       padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        gradient: p.gradBrand,
-        borderRadius: BorderRadius.circular(XlRadius.xxl),
-        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.28 : 0.42), width: 1.4),
-        boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 26, spreadRadius: -6)],
-      ),
+      decoration: AppTheme.brand(context, r: XlRadius.xxl),
       child: Row(
         children: [
           AnimatedBuilder(
@@ -1084,12 +1062,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _aboutLink(XlPalette p, String label, IconData icon, Color color) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {},
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        child: Container(
+    return _Pressable(
+      child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: AppTheme.neuXs(context, r: XlRadius.md),
           child: Column(
@@ -1115,8 +1089,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _selectRow(XlPalette p, String title, String sub, IconData icon, List<String> options, String current, Color color, ValueChanged<String> onChanged) {
@@ -1171,12 +1144,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     final safe = options.contains(current) ? current : options.first;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      decoration: BoxDecoration(
-        color: p.surfaceLo,
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
-        boxShadow: p.sunkenXxs,
-      ),
+      decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: safe,
@@ -1393,12 +1361,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
 
   Widget _actionRow(XlPalette p, String title, String sub, IconData icon, Color color, VoidCallback onTap) {
     if (!_matches(title, sub)) return const SizedBox.shrink();
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        child: Container(
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
           padding: const EdgeInsets.all(16),
           decoration: AppTheme.neuXs(context, r: XlRadius.lg),
           child: Row(
@@ -1440,8 +1405,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _infoPanel(XlPalette p, String text) {
@@ -1497,4 +1461,34 @@ class _Section {
   final IconData icon;
   final String color;
   const _Section(this.key, this.label, this.icon, this.color);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => setState(() => _down = true),
+      onPointerUp: (_) => setState(() => _down = false),
+      onPointerCancel: (_) => setState(() => _down = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _down ? widget.scale : 1.0,
+          duration: XlDuration.micro,
+          curve: XlCurve.standard,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
 }

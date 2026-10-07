@@ -127,7 +127,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(context).size.height - 80,
           ),
-          decoration: AppTheme.neuLg(context, r: XlRadius.xxxl),
+          decoration: AppTheme.glassDeep(context, r: XlRadius.xxxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -176,22 +176,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                       Container(
                         width: 62,
                         height: 62,
-                        decoration: BoxDecoration(
-                          gradient: p.gradBrand,
-                          borderRadius: BorderRadius.circular(XlRadius.xl),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5),
-                            width: 2,
-                          ),
-                          boxShadow: [
-                            ...p.raisedSm,
-                            BoxShadow(
-                              color: p.pink.withOpacity(0.42),
-                              blurRadius: 24,
-                              spreadRadius: -4,
-                            ),
-                          ],
-                        ),
+                        decoration: AppTheme.brand(context, r: XlRadius.xl),
                         child: Icon(
                           Icons.rocket_launch_rounded,
                           size: 26,
@@ -364,11 +349,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
   Widget _metaPill(XlPalette p, IconData icon, String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: p.surfaceLo,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        border: Border.all(color: p.edgeSoft, width: 1),
-      ),
+      decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -387,17 +368,13 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
   }
 
   Widget _closeBtn(XlPalette p) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => Navigator.pop(context, _skipNext ? 'skip' : 'close'),
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: AppTheme.neuXs(context, r: XlRadius.md),
-          child: Icon(Icons.close_rounded, size: 17, color: p.text2),
-        ),
+    return _Pressable(
+      onTap: () => Navigator.pop(context, _skipNext ? 'skip' : 'close'),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: AppTheme.neuXs(context, r: XlRadius.md),
+        child: Icon(Icons.close_rounded, size: 17, color: p.text2),
       ),
     );
   }
@@ -419,15 +396,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
                   curve: XlCurve.standard,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: selected
-                      ? BoxDecoration(
-                          color: p.surfaceLo,
-                          borderRadius: BorderRadius.circular(XlRadius.md),
-                          border: Border.all(
-                            color: p.pink.withOpacity(0.28),
-                            width: 1.2,
-                          ),
-                          boxShadow: p.sunkenSm,
-                        )
+                      ? AppTheme.accentSoft(context, r: XlRadius.md)
                       : null,
                   child: Column(
                     children: [
@@ -716,12 +685,7 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
             curve: XlCurve.standard,
             padding: const EdgeInsets.all(12),
             decoration: selected
-                ? BoxDecoration(
-                    color: p.surfaceLo,
-                    borderRadius: BorderRadius.circular(XlRadius.md),
-                    border: Border.all(color: color.withOpacity(0.42), width: 1.4),
-                    boxShadow: p.sunkenSm,
-                  )
+                ? AppTheme.accentSoft(context, r: XlRadius.md)
                 : AppTheme.neuXs(context, r: XlRadius.md),
             child: Row(
               children: [
@@ -1033,56 +997,48 @@ class _UpdateDialogState extends State<UpdateDialog> with TickerProviderStateMix
   }
 
   Widget _secondaryBtn(XlPalette p, IconData icon, String label, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: AppTheme.ghost(context, r: XlRadius.pill),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 15, color: p.text2),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w800,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: AppTheme.ghost(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15, color: p.text2),
+            const SizedBox(width: 8),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
       ),
     );
   }
 
   Widget _primaryBtn(XlPalette p, String label, IconData icon, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: AppTheme.btn(context, r: XlRadius.pill),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 15, color: p.btnInk),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w800,
-                    color: p.btnInk,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: AppTheme.btn(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15, color: p.btnInk),
+            const SizedBox(width: 8),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w800,
+                  color: p.btnInk,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
       ),
     );
@@ -1131,4 +1087,31 @@ Future<String?> showUpdateDialog(BuildContext context, UpdateInfo info) {
     barrierDismissible: true,
     builder: (_) => UpdateDialog(info: info),
   );
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: widget.child,
+      ),
+    );
+  }
 }

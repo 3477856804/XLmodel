@@ -202,11 +202,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     if (g == null) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        gradient: p.gradBrand,
-        borderRadius: BorderRadius.circular(XlRadius.pill),
-        boxShadow: [...p.raisedXxs, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 12, spreadRadius: -3)],
-      ),
+      decoration: AppTheme.brand(context, r: XlRadius.pill),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -225,31 +221,28 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   }
 
   Widget _refreshBtn(XlPalette p) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () async {
-          setState(() => _loading = true);
-          await _bootstrap();
-        },
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.refresh_rounded, size: 15, color: p.pink),
-              const SizedBox(width: 8),
-              Text('刷新',
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w700,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      scale: 0.94,
+      onTap: () async {
+        setState(() => _loading = true);
+        await _bootstrap();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: AppTheme.btn(context, r: XlRadius.lg),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.refresh_rounded, size: 15, color: p.btnInk),
+            const SizedBox(width: 8),
+            Text('刷新',
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w800,
+                  color: p.btnInk,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
       ),
     );
@@ -296,9 +289,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         offset: Offset(0, (1 - t) * 14),
         child: Opacity(opacity: t, child: child),
       ),
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: AppTheme.neu(context, r: XlRadius.xl),
+      child: _HoverScale(
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: AppTheme.neuLg(context, r: XlRadius.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -318,11 +312,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                 const Spacer(),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: p.surfaceLo,
-                    borderRadius: BorderRadius.circular(XlRadius.pill),
-                    border: Border.all(color: p.edgeSoft, width: 1),
-                  ),
+                  decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
                   child: Text('LIVE',
                       style: TextStyle(
                         fontSize: XlFont.micro,
@@ -394,6 +384,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               ],
             ),
           ],
+        ),
         ),
       ),
     );
@@ -617,52 +608,49 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         opacity: t,
         child: Transform.translate(offset: Offset((1 - t) * 12, 0), child: child),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: a.onTap,
-          borderRadius: BorderRadius.circular(XlRadius.md),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: AppTheme.neuXs(context, r: XlRadius.md),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(p.isDark ? 0.14 : 0.10),
-                    borderRadius: BorderRadius.circular(XlRadius.sm),
-                    border: Border.all(color: color.withOpacity(0.28), width: 1),
-                  ),
-                  child: Icon(a.icon, size: 15, color: color),
+      child: _Pressable(
+        onTap: a.onTap,
+        scale: 0.97,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: AppTheme.neuXs(context, r: XlRadius.md),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
+                  borderRadius: BorderRadius.circular(XlRadius.sm),
+                  border: Border.all(color: color.withOpacity(0.28), width: 1),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(a.title,
-                          style: TextStyle(
-                            fontSize: XlFont.caption,
-                            fontWeight: FontWeight.w700,
-                            color: p.text1,
-                            letterSpacing: XlLetterSpacing.wide,
-                          )),
-                      const SizedBox(height: 1),
-                      Text(a.sub,
-                          style: TextStyle(
-                            fontSize: XlFont.micro,
-                            color: p.text3,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: XlLetterSpacing.wider,
-                          )),
-                    ],
-                  ),
+                child: Icon(a.icon, size: 15, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(a.title,
+                        style: TextStyle(
+                          fontSize: XlFont.caption,
+                          fontWeight: FontWeight.w700,
+                          color: p.text1,
+                          letterSpacing: XlLetterSpacing.wide,
+                        )),
+                    const SizedBox(height: 1),
+                    Text(a.sub,
+                        style: TextStyle(
+                          fontSize: XlFont.micro,
+                          color: p.text3,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: XlLetterSpacing.wider,
+                        )),
+                  ],
                 ),
-                Icon(Icons.chevron_right_rounded, size: 16, color: p.decor),
-              ],
-            ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 16, color: p.decor),
+            ],
           ),
         ),
       ),
@@ -868,11 +856,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                   return Container(
                     width: 8,
                     height: 8,
-                    decoration: BoxDecoration(
-                      color: c,
-                      shape: BoxShape.circle,
-                      boxShadow: [BoxShadow(color: c.withOpacity(0.5 + t * 0.3), blurRadius: 8 + t * 4, spreadRadius: -1)],
-                    ),
+                    decoration: AppTheme.glowDot(c, size: 8),
                   );
                 },
               ),
@@ -959,12 +943,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                   Container(
                     width: 72,
                     height: 72,
-                    decoration: BoxDecoration(
-                      gradient: p.gradBrand,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.5), width: 2),
-                      boxShadow: [...p.raised, BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 26, spreadRadius: -5)],
-                    ),
+                    decoration: AppTheme.brandOrbLg(context, size: 72),
                     child: Icon(Icons.auto_awesome_rounded, size: 28, color: p.btnInk),
                   ),
                 ],
@@ -1028,4 +1007,59 @@ class _Sys {
   final Color color;
   final bool active;
   const _Sys(this.name, this.value, this.icon, this.color, this.active);
+}
+
+class _HoverScale extends StatefulWidget {
+  final Widget child;
+  final double scale;
+  const _HoverScale({required this.child, this.scale = 1.02});
+  @override
+  State<_HoverScale> createState() => _HoverScaleState();
+}
+
+class _HoverScaleState extends State<_HoverScale> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        scale: _hover ? widget.scale : 1.0,
+        duration: XlDuration.fast,
+        curve: XlCurve.standard,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: () {
+        if (mounted) setState(() => _down = false);
+      },
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: XlDuration.micro,
+        curve: XlCurve.standard,
+        child: widget.child,
+      ),
+    );
+  }
 }

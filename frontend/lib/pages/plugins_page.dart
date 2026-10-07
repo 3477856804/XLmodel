@@ -293,28 +293,24 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _actionBtn(XlPalette p, IconData icon, String label, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: p.pink),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w700,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.wide,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: p.pink),
+            const SizedBox(width: 8),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w700,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.wide,
+                )),
+          ],
         ),
       ),
     );
@@ -458,11 +454,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
             alignment: Alignment.centerLeft,
             child: Container(
               padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: p.surfaceLo,
-                borderRadius: BorderRadius.circular(XlRadius.pill),
-                border: Border.all(color: p.shDark.withOpacity(p.isDark ? 0.28 : 0.12), width: 1),
-              ),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: _categories.entries.map((e) {
@@ -477,11 +469,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                         curve: XlCurve.standard,
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: selected
-                            ? BoxDecoration(
-                                gradient: p.gradBrand,
-                                borderRadius: BorderRadius.circular(XlRadius.pill),
-                                boxShadow: p.raisedXxs,
-                              )
+                            ? AppTheme.brand(context, r: XlRadius.pill)
                             : null,
                         child: Text(e.value,
                             style: TextStyle(
@@ -695,10 +683,10 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
       child: AnimatedContainer(
         duration: XlDuration.normal,
         curve: XlCurve.springSoft,
-        width: 44,
-        height: 24,
+        width: 50,
+        height: 28,
         decoration: BoxDecoration(
-          gradient: on ? p.gradBrand : null,
+          gradient: on ? LinearGradient(colors: [p.pink, p.pink.withOpacity(0.8)]) : null,
           color: on ? null : p.surfaceLo,
           borderRadius: BorderRadius.circular(XlRadius.pill),
           border: Border.all(
@@ -707,7 +695,9 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                 : p.shDark.withOpacity(p.isDark ? 0.32 : 0.14),
             width: 1,
           ),
-          boxShadow: on ? p.raisedXxs : p.sunkenXs,
+          boxShadow: on
+              ? [...p.raisedXxs, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 12, spreadRadius: -2)]
+              : p.sunkenXs,
         ),
         child: AnimatedAlign(
           duration: XlDuration.normal,
@@ -717,8 +707,8 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
               ? Padding(
                   padding: const EdgeInsets.all(4),
                   child: Container(
-                    width: 16,
-                    height: 16,
+                    width: 18,
+                    height: 18,
                     padding: const EdgeInsets.all(3),
                     child: CircularProgressIndicator(
                       strokeWidth: 1.6,
@@ -728,8 +718,8 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                 )
               : Container(
                   margin: const EdgeInsets.all(3),
-                  width: 18,
-                  height: 18,
+                  width: 20,
+                  height: 20,
                   decoration: BoxDecoration(
                     color: p.surfaceHi,
                     shape: BoxShape.circle,
@@ -742,17 +732,13 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _miniBtn(XlPalette p, IconData icon, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.xs),
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: AppTheme.neuXxs(context, r: XlRadius.xs),
-          child: Icon(icon, size: 13, color: p.text2),
-        ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: AppTheme.neuXxs(context, r: XlRadius.xs),
+        child: Icon(icon, size: 13, color: p.text2),
       ),
     );
   }
@@ -1083,22 +1069,18 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => Navigator.pop(ctx),
-                        borderRadius: BorderRadius.circular(XlRadius.pill),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
-                          decoration: AppTheme.btn(context, r: XlRadius.pill),
-                          child: Text('知道了',
-                              style: TextStyle(
-                                fontSize: XlFont.captionSm,
-                                fontWeight: FontWeight.w800,
-                                color: p.btnInk,
-                                letterSpacing: XlLetterSpacing.wider,
-                              )),
-                        ),
+                    _Pressable(
+                      onTap: () => Navigator.pop(ctx),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+                        decoration: AppTheme.btn(context, r: XlRadius.pill),
+                        child: Text('知道了',
+                            style: TextStyle(
+                              fontSize: XlFont.captionSm,
+                              fontWeight: FontWeight.w800,
+                              color: p.btnInk,
+                              letterSpacing: XlLetterSpacing.wider,
+                            )),
                       ),
                     ),
                   ],
@@ -1131,4 +1113,31 @@ class _Stat {
   final Color color;
   final double progress;
   const _Stat(this.label, this.value, this.icon, this.color, this.progress);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: widget.child,
+      ),
+    );
+  }
 }

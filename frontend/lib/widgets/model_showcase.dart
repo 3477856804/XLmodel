@@ -243,10 +243,8 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
         height: innerSize,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [p.screen, p.surfaceLo, p.surface],
-            stops: const [0.0, 0.62, 1.0],
-          ),
+          color: p.screen,
+          boxShadow: p.sunkenDeep,
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -517,7 +515,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                       letterSpacing: XlLetterSpacing.wider,
                     )),
                 const SizedBox(height: 14),
-                GestureDetector(
+                _Pressable(
                   onTap: _retry,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
@@ -646,37 +644,28 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   }
 
   Widget _controlBtn(XlPalette p, IconData icon, String label, Color color, VoidCallback onTap) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
-                  borderRadius: BorderRadius.circular(XlRadius.sm),
-                  border: Border.all(color: color.withOpacity(0.28), width: 1),
-                  boxShadow: [BoxShadow(color: color.withOpacity(0.18), blurRadius: 10, spreadRadius: -3)],
-                ),
-                child: Icon(icon, size: 15, color: color),
-              ),
-              const SizedBox(height: 5),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: XlFont.micro,
-                    fontWeight: FontWeight.w700,
-                    color: p.text2,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
-          ),
+    return _Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: AppTheme.neuXs(context, r: XlRadius.sm),
+              child: Icon(icon, size: 15, color: color),
+            ),
+            const SizedBox(height: 5),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  fontWeight: FontWeight.w700,
+                  color: p.text2,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
         ),
       ),
     );
@@ -769,11 +758,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                   children: [
                     Container(
                       height: 6,
-                      decoration: BoxDecoration(
-                        color: p.surfaceLo,
-                        borderRadius: BorderRadius.circular(99),
-                        boxShadow: p.sunkenXxs,
-                      ),
+                      decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
                     ),
                     FractionallySizedBox(
                       widthFactor: ((value - min) / (max - min)).clamp(0.0, 1.0),
@@ -922,4 +907,31 @@ class _LoadRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LoadRingPainter old) =>
       old.progress != progress || old.color != color || old.track != track;
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: widget.child,
+      ),
+    );
+  }
 }

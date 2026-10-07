@@ -177,10 +177,7 @@ class _PersonaPanelState extends State<PersonaPanel> {
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(
-              gradient: p.gradBrand,
-              borderRadius: BorderRadius.circular(XlRadius.md),
-            ),
+            decoration: AppTheme.brand(context, r: XlRadius.md),
             child: Center(
               child: Text('凌',
                   style: TextStyle(
@@ -209,11 +206,7 @@ class _PersonaPanelState extends State<PersonaPanel> {
             onTap: widget.onClose,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: p.surfaceLo,
-                borderRadius: BorderRadius.circular(XlRadius.xs),
-                border: Border.all(color: p.edge, width: 1),
-              ),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.xs),
               child: Text('关闭',
                   style: TextStyle(
                       fontSize: XlFont.micro,
@@ -367,10 +360,7 @@ class _PersonaPanelState extends State<PersonaPanel> {
                 onTap: _busy ? null : () => setState(() => _showAdd = true),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    gradient: p.gradBrand,
-                    borderRadius: BorderRadius.circular(XlRadius.xs),
-                  ),
+                  decoration: AppTheme.brand(context, r: XlRadius.xs),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -422,18 +412,9 @@ class _PersonaPanelState extends State<PersonaPanel> {
       onLongPress: deletable && !active ? () => _remove(preset) : null,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: active ? p.gradBrand : null,
-          color: active ? null : p.surfaceLo,
-          borderRadius: BorderRadius.circular(XlRadius.md),
-          border: Border.all(
-            color: active ? Colors.transparent : p.edge,
-            width: 1,
-          ),
-          boxShadow: active
-              ? [BoxShadow(color: p.pink.withOpacity(0.3), blurRadius: 10, spreadRadius: -2)]
-              : null,
-        ),
+        decoration: active
+            ? AppTheme.accent(context, r: XlRadius.md)
+            : AppTheme.neuXs(context, r: XlRadius.md),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -472,11 +453,7 @@ class _PersonaPanelState extends State<PersonaPanel> {
             onTap: _busy ? null : _resetAll,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: p.surfaceLo,
-                borderRadius: BorderRadius.circular(XlRadius.xs),
-                border: Border.all(color: p.red.withOpacity(0.5), width: 1),
-              ),
+              decoration: AppTheme.red(context, r: XlRadius.xs),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -549,10 +526,7 @@ class _PersonaPanelState extends State<PersonaPanel> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 20, vertical: 10),
-                            decoration: BoxDecoration(
-                              gradient: p.gradBrand,
-                              borderRadius: BorderRadius.circular(XlRadius.md),
-                            ),
+                            decoration: AppTheme.btn(context, r: XlRadius.md),
                             child: Text('创建',
                                 style: TextStyle(
                                     fontSize: XlFont.bodySm,
@@ -576,11 +550,7 @@ class _PersonaPanelState extends State<PersonaPanel> {
       {int maxLines = 1, bool autofocus = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: p.surfaceLo,
-        borderRadius: BorderRadius.circular(XlRadius.md),
-        border: Border.all(color: p.edge, width: 1),
-      ),
+      decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
       child: TextField(
         controller: ctrl,
         maxLines: maxLines,
@@ -601,28 +571,22 @@ class _PersonaPanelState extends State<PersonaPanel> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: p.surfaceLo,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        border: Border.all(color: p.edgeSoft, width: 1),
-      ),
+      decoration: AppTheme.neuXs(context, r: XlRadius.lg),
       child: child,
     );
   }
 
   Widget _bar(XlPalette p, double pct, Color color) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(XlRadius.sm),
-      child: Container(
-        height: 6,
-        color: p.surfaceHi,
-        child: FractionallySizedBox(
-          widthFactor: (pct / 100).clamp(0.0, 1.0),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                  colors: [color.withOpacity(0.7), color]),
-            ),
+    return Container(
+      height: 6,
+      decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: (pct / 100).clamp(0.0, 1.0),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [color.withOpacity(0.7), color]),
+            borderRadius: BorderRadius.circular(XlRadius.pill),
           ),
         ),
       ),
@@ -722,4 +686,31 @@ class _RadarPainter extends CustomPainter {
   @override
   bool shouldRepaint(_RadarPainter old) =>
       old.axes != axes || old.color != color;
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: widget.child,
+      ),
+    );
+  }
 }

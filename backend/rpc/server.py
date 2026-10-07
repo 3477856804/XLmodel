@@ -16,11 +16,14 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
 import time
 from concurrent import futures
+
+logger = logging.getLogger("xiaoling.rpc")
 
 # 让 rpc/ 目录里生成的 pb2 能被 import
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -59,10 +62,10 @@ def _get_engine(log=print):
             from core.engine import XiaoLing
             _engine = XiaoLing()
             if not _engine_logged:
-                log('  [gRPC] XiaoLing 引擎就绪')
+                logger.info('XiaoLing engine ready')
                 _engine_logged = True
         except Exception as e:                                          # noqa: BLE001
-            log(f'  [gRPC] 引擎初始化失败（降级为规则回复）：{type(e).__name__}: {e}')
+            logger.exception('Engine init failed, falling back to rule-based reply')
             _engine = None
     return _engine
 
@@ -119,6 +122,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 time.sleep(0.02)
             yield pb.ChatChunk(done=True)
         except Exception as e:                                              # noqa: BLE001
+            logger.exception('Chat stream error')
             yield pb.ChatChunk(done=True, error=f'{type(e).__name__}: {e}')
 
     # ---------------- GetStatus ----------------
@@ -138,6 +142,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 version=str((cfg.get('version') or '0.0.1')),
             )
         except Exception as e:                                              # noqa: BLE001
+            logger.exception('GetStatus failed')
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}',
                                   version='0.0.1')
 
@@ -154,6 +159,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                         out.append(pb.ModelInfo(name=p.stem, path=str(p)))
             return pb.ModelList(models=out)
         except Exception as e:
+            logger.exception('ListModels failed')
             context.set_details(f'列出模型失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.ModelList()
@@ -168,9 +174,11 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             if r is not None:
                 try: r.switch_model(path)
                 except Exception as e:
+                    logger.exception('Renderer switch_model failed')
                     return pb.StatusReply(ok=False, message=f'配置已写但切换失败：{e}')
             return pb.StatusReply(ok=True, message=f'已切换到 {os.path.basename(path)}')
         except Exception as e:                                              # noqa: BLE001
+            logger.exception('SwitchModel failed')
             return pb.StatusReply(ok=False, message=str(e))
 
     # ---------------- ExecuteCommand ----------------
@@ -187,6 +195,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             out = _fusion.try_command(engine, cmd)
             return pb.CommandReply(output=str(out) if out is not None else f'未知指令：{cmd}')
         except Exception as e:                                              # noqa: BLE001
+            logger.exception('ExecuteCommand failed: %s', cmd)
             return pb.CommandReply(output=f'指令错误：{type(e).__name__}: {e}')
 
     # ---------------- ListActions ----------------
@@ -203,6 +212,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                                          idle=('待机' in name) or ('idle' in name.lower())))
             return pb.ActionList(actions=out)
         except Exception as e:                                              # noqa: BLE001
+            logger.exception('ListActions failed')
             context.set_details(f'列出动作失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.ActionList()
@@ -216,6 +226,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             r.play_action(request.path)
             return pb.StatusReply(ok=True, message=f'正在播放：{os.path.basename(request.path)}')
         except Exception as e:
+            logger.exception('PlayAction failed: %s', request.path)
             return pb.StatusReply(ok=False, message=f'播放失败：{e}')
 
     # ---------------- Shutdown ----------------
@@ -249,6 +260,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 training_paused=bool(st.get('paused', False)),
             )
         except Exception as e:
+            logger.exception('GetGrowthStatus failed')
             return pb.GrowthStatusReply(stage='未知', status_text=f'{type(e).__name__}: {e}')
 
     # ---------------- GetTrainingStatus（Flutter 训练五维可视化） ----------------
@@ -275,6 +287,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 status_text=f"成长进度 {prog:.1f}% · {st.get('stage', '初始化')}",
             )
         except Exception as e:
+            logger.exception('GetTrainingStatus failed')
             return pb.TrainingStatusReply(status_text=f'{type(e).__name__}: {e}')
 
     # ---------------- ListPlugins（Flutter 插件管理） ----------------
@@ -293,6 +306,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 ))
             return pb.PluginList(plugins=out)
         except Exception as e:
+            logger.exception('ListPlugins failed')
             return pb.PluginList()
 
     # ---------------- StartTraining（LoRA 微调） ----------------
@@ -355,6 +369,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             yield pb.TrainingProgress(step=steps, total_steps=steps,
                 status=f'done: 适配器已保存到 {save_dir}')
         except Exception as e:
+            logger.exception('StartTraining failed')
             yield pb.TrainingProgress(status=f'failed: {e}')
 
     # ==================== v0.0.1 新增 ====================
@@ -379,6 +394,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 has_metal=bool(getattr(hw, 'has_metal', False)),
             )
         except Exception as e:
+            logger.exception('DetectHardware failed')
             context.set_details(f'硬件检测失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.HardwareInfo()
@@ -406,6 +422,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 ))
             return pb.RecommendedModelList(models=out)
         except Exception as e:
+            logger.exception('ListRecommendedModels failed')
             context.set_details(f'获取推荐模型失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.RecommendedModelList()
@@ -430,6 +447,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             else:
                 yield pb.DownloadProgress(status='failed: 下载失败')
         except Exception as e:
+            logger.exception('DownloadModel failed: %s', model_name)
             yield pb.DownloadProgress(status=f'failed: {e}')
 
     # ---------------- ListInstalledModels ----------------
@@ -441,6 +459,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             out = [pb.ModelInfo(name=n, path=str(store.store_dir / n)) for n in installed]
             return pb.ModelList(models=out)
         except Exception as e:
+            logger.exception('ListInstalledModels failed')
             context.set_details(f'列出已安装模型失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.ModelList()
@@ -457,6 +476,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 return pb.StatusReply(ok=True, message=f'已删除 {request.name}')
             return pb.StatusReply(ok=False, message='未找到该模型')
         except Exception as e:
+            logger.exception('DeleteModel failed: %s', request.name)
             return pb.StatusReply(ok=False, message=str(e))
 
     # ---------------- ListVoices ----------------
@@ -467,6 +487,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                                 lang=str(v.get("lang", "zh-CN"))) for v in VOICES]
             return pb.VoiceList(voices=out)
         except Exception as e:
+            logger.exception('ListVoices failed')
             context.set_details(f'列出音色失败：{e}')
             context.set_code(grpc.StatusCode.INTERNAL)
             return pb.VoiceList()
@@ -478,6 +499,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             _cfg.patch({'voice': {'id': request.voice_id}})
             return pb.StatusReply(ok=True, message=f'已切换音色：{request.voice_id}')
         except Exception as e:
+            logger.exception('SetVoice failed: %s', request.voice_id)
             return pb.StatusReply(ok=False, message=str(e))
 
     # ---------------- ReadAloud（流式音频） ----------------
@@ -502,14 +524,13 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             result = TTS().synth(text, voice=voice)
             data = bytes(getattr(result, 'data', b'') or b'')
             if not data:
-                print(f"  [ReadAloud] TTS 未产出音频："
-                      f"{getattr(result, 'error', '') or 'empty audio'} voice={voice}")
+                logger.warning('ReadAloud: TTS produced no audio (voice=%s)', voice)
             else:
                 chunk_size = 4096
                 for i in range(0, len(data), chunk_size):
                     yield pb.AudioChunk(data=data[i:i + chunk_size])
         except Exception as e:
-            print(f"  [ReadAloud] 异常：{type(e).__name__}: {e}")
+            logger.exception('ReadAloud failed')
         finally:
             yield pb.AudioChunk(done=True)
 
@@ -531,6 +552,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 user_name=str(cfg.get('user_name') or '你'),
             )
         except Exception as e:
+            logger.exception('GetSettings failed')
             return pb.SettingsReply()
 
     # ---------------- UpdateSettings ----------------
@@ -568,6 +590,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             _cfg.patch(patch)
             return pb.StatusReply(ok=True, message='设置已更新')
         except Exception as e:
+            logger.exception('UpdateSettings failed')
             return pb.StatusReply(ok=False, message=str(e))
 
     # ======================================================================== #
@@ -639,6 +662,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                     reply.axes.add(name=axis_name, label=label, value=0.0)
             return reply
         except Exception as e:                                             # noqa: BLE001
+            logger.exception('GetPersona failed')
             return pb.PersonaReply(emotion='平静', relationship='陌生人')
 
     def ListPersonas(self, request, context):
@@ -656,7 +680,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 )
             return out
         except Exception as e:                                             # noqa: BLE001
-            print(f'  [ListPersonas] {type(e).__name__}: {e}')
+            logger.exception('ListPersonas failed')
             return pb.PersonaList()
 
     def SetPersona(self, request, context):
@@ -673,6 +697,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             _cfg.patch({'persona': str(p['name'])})
             return pb.StatusReply(ok=True, message=f'已切换为「{p["name"]}」人格')
         except Exception as e:                                             # noqa: BLE001
+            logger.exception('SetPersona failed: %s', key)
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
 
     def AddPersona(self, request, context):
@@ -685,6 +710,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             )
             return pb.StatusReply(ok=ok, message=msg)
         except Exception as e:                                             # noqa: BLE001
+            logger.exception('AddPersona failed: %s', request.name)
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
 
     def DeletePersona(self, request, context):
@@ -698,6 +724,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 msg += f"，已回落到「{_pp.DEFAULT_PERSONA}」"
             return pb.StatusReply(ok=ok, message=msg)
         except Exception as e:                                             # noqa: BLE001
+            logger.exception('DeletePersona failed: %s', request.name)
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
 
     def ResetPersona(self, request, context):
@@ -711,6 +738,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                     pass
             return pb.StatusReply(ok=True, message='人格画像已重置')
         except Exception as e:                                             # noqa: BLE001
+            logger.exception('ResetPersona failed')
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
 
     # ======================================================================== #
@@ -741,7 +769,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             out.unread = sum(1 for i in out.items if i.seconds_left <= 0)
             return out
         except Exception as e:                                             # noqa: BLE001
-            print(f'  [ListReminders] {type(e).__name__}: {e}')
+            logger.exception('ListReminders failed')
             return pb.ReminderList()
 
     def CompleteReminder(self, request, context):
@@ -767,9 +795,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 pass
             return pb.StatusReply(ok=True, message='提醒已完成')
         except Exception as e:                                             # noqa: BLE001
+            logger.exception('CompleteReminder failed: due_at=%s', request.due_at)
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
-        except Exception as e:
-            return pb.StatusReply(ok=False, message=str(e))
 
 
 # --------------------------------------------------------------------------- #
@@ -778,17 +805,26 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
 def serve(port: int = 50051):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     pb_grpc.add_XiaoLingServicer_to_server(XiaoLingServicer(), server)
-    server.add_insecure_port(f'[::]:{port}')
+    bound = server.add_insecure_port(f'[::]:{port}')
+    if bound != port:
+        logger.warning('gRPC bound to unexpected port: %s (requested %s)', bound, port)
     server.start()
+    logger.info('XiaoLing gRPC backend started on localhost:%s', port)
     print(f'  [gRPC] 小凌后端已启动：localhost:{port}')
     print(f'  [gRPC] 等待 Flutter 前端连接…')
     try:
         server.wait_for_termination()
     except KeyboardInterrupt:
-        server.stop(5)
+        logger.info('gRPC server interrupted, shutting down gracefully')
+    finally:
+        stopped = server.stop(grace=5)
+        stopped.wait(timeout=10)
+        logger.info('gRPC server stopped')
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
     port = 50051
     if '--port' in sys.argv:
         i = sys.argv.index('--port')

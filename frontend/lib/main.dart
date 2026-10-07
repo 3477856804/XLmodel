@@ -46,33 +46,85 @@ Future<void> _killBackend() async {
   } catch (_) {}
 }
 
-/// 启动时主动探测后端，并开启健康探针。
-///
-/// 此前 App **从不主动连后端**——只有切到某个页面、该页面调 RPC 时才建连，
-/// 于是聊天页顶部的「未连接后端」会一直挂着，哪怕后端其实好好的。
-/// 这里在 runApp 之前先探一次，把状态摆正。
 Future<void> _probeBackend() async {
   if (Platform.environment['FLUTTER_TEST'] == '1') return;
   try {
     await XlClient.ping();
-    // 探活通过后开健康探针：断线自动重连（含端点故障转移）
     XlClient.setAutoReconnect(true);
   } catch (_) {
-    XlClient.setAutoReconnect(true); // 也开启，后端可能稍后才起
+    XlClient.setAutoReconnect(true);
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    systemNavigationBarColor: Colors.transparent,
-  ));
-  await _startBackend();
-  // 给后端一点启动时间，再探测（最多等 3 秒）
-  await Future.delayed(const Duration(milliseconds: 800));
-  await _probeBackend();
-  runApp(const XiaoLingApp());
+void main() {
+  runZonedGuarded<Future<void>>(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+    };
+    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      return true;
+    };
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+    ));
+    try {
+      await _startBackend();
+      await Future.delayed(const Duration(milliseconds: 800));
+      await _probeBackend();
+    } catch (_) {}
+    runApp(const XiaoLingApp());
+  }, (Object error, StackTrace stack) {
+    runApp(_ErrorApp(error: error));
+  });
+}
+
+class _ErrorApp extends StatelessWidget {
+  final Object error;
+  const _ErrorApp({required this.error});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '小凌',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF1A1A2E),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 48),
+                const SizedBox(height: 16),
+                const Text(
+                  '启动遇到问题',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '请尝试重启应用，或检查后端服务是否正常运行。',
+                  style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    runApp(const XiaoLingApp());
+                  },
+                  child: const Text('重试'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class XiaoLingApp extends StatefulWidget {

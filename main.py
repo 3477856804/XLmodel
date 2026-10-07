@@ -20,6 +20,7 @@
 import sys
 import os
 import time
+import logging
 
 # 兼容开发态与 PyInstaller 打包态：把项目根（含 backend/ 包）加入 sys.path。
 if getattr(sys, 'frozen', False):
@@ -97,6 +98,12 @@ def main():
                         help="不启动 gRPC（仅跑 Web 面板）")
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+    )
+    log = logging.getLogger('xiaoling.main')
+
     try:
         if args.status:
             from backend.core.engine import XiaoLing
@@ -119,9 +126,8 @@ def main():
                     from backend.rpc.server import serve
                     serve(port=args.port)
                 except Exception as e:
+                    log.exception('gRPC server failed to start')
                     print(f"  [gRPC] 启动失败：{e}")
-                    import traceback
-                    traceback.print_exc()
 
             threading.Thread(target=_grpc_worker, daemon=True).start()
             print(f"  [gRPC] 后端已启动：localhost:{args.port}（等待 Flutter 前端连接）")
@@ -142,11 +148,11 @@ def main():
                 time.sleep(3600)
 
     except KeyboardInterrupt:
+        log.info('Received interrupt, shutting down')
         print("\n已退出。")
     except Exception as e:
+        log.exception('Fatal error in main')
         print(f"\n错误：{e}")
-        import traceback
-        traceback.print_exc()
         sys.exit(1)
 
 

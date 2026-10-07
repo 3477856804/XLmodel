@@ -151,11 +151,7 @@ class _NotifPanelState extends State<NotifPanel> {
       onTap: widget.onClose,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: p.surfaceLo,
-          borderRadius: BorderRadius.circular(XlRadius.xs),
-          border: Border.all(color: p.edge, width: 1),
-        ),
+        decoration: AppTheme.sunkenXs(context, r: XlRadius.xs),
         child: Text('关闭',
             style: TextStyle(
                 fontSize: XlFont.micro,
@@ -198,11 +194,7 @@ class _NotifPanelState extends State<NotifPanel> {
 
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: p.surfaceLo,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        border: Border.all(color: p.edgeSoft, width: 1),
-      ),
+      decoration: AppTheme.neuXs(context, r: XlRadius.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -314,11 +306,7 @@ class _NotifPanelState extends State<NotifPanel> {
     final items = list?.items ?? const <ReminderItem>[];
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: p.surfaceLo,
-        borderRadius: BorderRadius.circular(XlRadius.lg),
-        border: Border.all(color: p.edgeSoft, width: 1),
-      ),
+      decoration: AppTheme.neuXs(context, r: XlRadius.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -391,11 +379,7 @@ class _NotifPanelState extends State<NotifPanel> {
             onTap: _busy ? null : () => _complete(r),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                color: p.surfaceHi,
-                borderRadius: BorderRadius.circular(XlRadius.xs),
-                border: Border.all(color: p.edge, width: 1),
-              ),
+              decoration: AppTheme.neuXxs(context, r: XlRadius.xs),
               child: Text('完成',
                   style: TextStyle(
                       fontSize: XlFont.micro,
@@ -430,21 +414,45 @@ class _NotifPanelState extends State<NotifPanel> {
   }
 
   Widget _bar(XlPalette p, double pct, Color color, {bool slim = false}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(XlRadius.sm),
-      child: Container(
-        height: slim ? 4 : 7,
-        color: p.surfaceHi,
-        child: FractionallySizedBox(
-          widthFactor: (pct / 100).clamp(0.0, 1.0),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [color.withOpacity(0.75), color],
-              ),
-            ),
+    return Container(
+      height: slim ? 4 : 7,
+      decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: (pct / 100).clamp(0.0, 1.0),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [color.withOpacity(0.75), color]),
+            borderRadius: BorderRadius.circular(XlRadius.pill),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.96});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: widget.onTap == null ? null : () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: widget.child,
       ),
     );
   }
