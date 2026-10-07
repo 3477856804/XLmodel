@@ -417,11 +417,11 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _heroRow(XlPalette p) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
+    return LayoutBuilder(
+      builder: (context, c) {
+        final narrow = c.maxWidth < 500;
+        if (narrow) {
+          return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -445,12 +445,47 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                     fontWeight: FontWeight.w500,
                     letterSpacing: XlLetterSpacing.wide,
                   )),
+              const SizedBox(height: 14),
+              _searchBox(p),
             ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        _searchBox(p),
-      ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('设置',
+                          style: TextStyle(
+                            fontSize: XlFont.h2,
+                            fontWeight: FontWeight.w800,
+                            color: p.text1,
+                            letterSpacing: XlLetterSpacing.normal,
+                          )),
+                      const SizedBox(width: 12),
+                      _statusChip(p),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text('调整小凌的行为、声音与外观',
+                      style: TextStyle(
+                        fontSize: XlFont.caption,
+                        color: p.text2,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: XlLetterSpacing.wide,
+                      )),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            _searchBox(p),
+          ],
+        );
+      },
     );
   }
 
@@ -496,7 +531,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
 
   Widget _searchBox(XlPalette p) {
     return Container(
-      width: 280,
+      constraints: const BoxConstraints(maxWidth: 280),
       height: 42,
       decoration: AppTheme.sunkenXs(context, r: XlRadius.lg),
       padding: const EdgeInsets.symmetric(horizontal: 14),

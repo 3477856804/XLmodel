@@ -32,7 +32,7 @@ Future<void> _startBackend() async {
     if (!await f.exists()) return;
     _backendProc = await Process.start(
       backendPath,
-      ['--port', '50051'],
+      ['--port', '50051', '--no-web'],
       workingDirectory: exeDir.path,
       mode: ProcessStartMode.detached,
     );
@@ -298,6 +298,16 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   final List<int> _history = [];
 
   static const _titles = ['聊天', '工作台', '训练', '成长', '设置'];
+  static const _allTitles = ['聊天', '工作台', '训练', '成长', '设置', '模型商店', '插件管理'];
+  static const _allSubtitles = [
+    '和小凌说说话',
+    '一眼看全所有状态',
+    'LoRA 微调面板',
+    '她的成长轨迹',
+    '一切都可以调',
+    '挑选适合的模型',
+    '扩展能力边界',
+  ];
   static const _subtitles = [
     '和小凌说说话',
     '一眼看全所有状态',
@@ -425,6 +435,8 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
     final pages = <Widget>[
       const ChatPage(),
       DashboardPage(
@@ -490,16 +502,18 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
           autofocus: true,
           child: Scaffold(
             backgroundColor: p.bg,
+            bottomNavigationBar: isMobile ? _mobileBottomNav(p) : null,
             body: Stack(
               children: [
                 _ambientBackground(p),
                 Row(
                   children: [
-                    AnimatedBuilder(
-                      animation: _sidebarAnim,
-                      builder: (context, _) => _sidebar(p, pages),
-                    ),
-                    Expanded(child: _mainArea(p, pages)),
+                    if (!isMobile)
+                      AnimatedBuilder(
+                        animation: _sidebarAnim,
+                        builder: (context, _) => _sidebar(p, pages),
+                      ),
+                    Expanded(child: _mainArea(p, pages, isMobile: isMobile)),
                   ],
                 ),
                 if (_searchOpen) _searchOverlay(p),
@@ -829,10 +843,10 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     );
   }
 
-  Widget _mainArea(XlPalette p, List<Widget> pages) {
-    return Column(
+  Widget _mainArea(XlPalette p, List<Widget> pages, {bool isMobile = false}) {
+    Widget body = Column(
       children: [
-        _topBar(p),
+        _topBar(p, isMobile: isMobile),
         Expanded(
           child: AnimatedSwitcher(
             duration: XlDuration.slow,
@@ -853,17 +867,23 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
         ),
       ],
     );
+    if (isMobile) {
+      body = SafeArea(top: true, bottom: false, child: body);
+    }
+    return body;
   }
 
-  Widget _topBar(XlPalette p) {
+  Widget _topBar(XlPalette p, {bool isMobile = false}) {
     return Container(
-      height: 76,
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+      height: isMobile ? 56 : 76,
+      padding: EdgeInsets.fromLTRB(isMobile ? 16 : 24, isMobile ? 6 : 18, isMobile ? 16 : 24, 8),
       child: Row(
         children: [
-          _menuBtn(p),
-          const SizedBox(width: 12),
-          _breadcrumb(p),
+          if (!isMobile) ...[
+            _menuBtn(p),
+            const SizedBox(width: 12),
+          ],
+          _breadcrumb(p, isMobile: isMobile),
           const Spacer(),
           _topSearch(p),
           const SizedBox(width: 10),
@@ -896,14 +916,17 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     );
   }
 
-  Widget _breadcrumb(XlPalette p) {
+  Widget _breadcrumb(XlPalette p, {bool isMobile = false}) {
+    final idx = _index.clamp(0, _allTitles.length - 1);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(_titles[_index.clamp(0, _titles.length - 1)], style: TextStyle(fontSize: XlFont.h4, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
-        const SizedBox(height: 2),
-        Text(_subtitles[_index.clamp(0, _subtitles.length - 1)], style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wider)),
+        Text(_allTitles[idx], style: TextStyle(fontSize: isMobile ? XlFont.h5 : XlFont.h4, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
+        if (!isMobile) ...[
+          const SizedBox(height: 2),
+          Text(_allSubtitles[idx], style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wider)),
+        ],
       ],
     );
   }
@@ -1018,6 +1041,53 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     );
   }
 
+  Widget _mobileBottomNav(XlPalette p) {
+    return Container(
+      decoration: BoxDecoration(
+        color: p.surfaceLo,
+        border: Border(top: BorderSide(color: p.edge, width: 1)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: [
+              for (int i = 0; i < _titles.length; i++)
+                Expanded(child: _mobileNavItem(p, i)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileNavItem(XlPalette p, int i) {
+    final selected = _index == i;
+    final color = selected ? _colorOf(p, _iconColors[i]) : p.text3;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _navigate(i),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(selected ? _iconsActive[i] : _icons[i], size: 22, color: color),
+            const SizedBox(height: 3),
+            Text(
+              _titles[i],
+              style: TextStyle(
+                fontSize: XlFont.labelSm,
+                color: color,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _searchOverlay(XlPalette p) {
     final items = <_SearchItem>[
       _SearchItem('聊天', '和小凌说话', Icons.chat_bubble_outline_rounded, () => _navigate(0)),
@@ -1044,8 +1114,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
             child: GestureDetector(
               onTap: () {},
               child: Container(
-                width: 520,
-                constraints: const BoxConstraints(maxHeight: 520),
+                constraints: const BoxConstraints(maxWidth: 520, maxHeight: 520),
                 margin: const EdgeInsets.all(24),
                 decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
                 child: Column(

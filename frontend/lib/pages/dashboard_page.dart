@@ -207,13 +207,15 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             children: [
               Row(
                 children: [
-                  Text('$_greeting，欢迎回来',
-                      style: TextStyle(
-                        fontSize: XlFont.h2,
-                        fontWeight: FontWeight.w800,
-                        color: p.text1,
-                        letterSpacing: XlLetterSpacing.normal,
-                      )),
+                  Flexible(
+                    child: Text('$_greeting，欢迎回来',
+                        style: TextStyle(
+                          fontSize: XlFont.h2,
+                          fontWeight: FontWeight.w800,
+                          color: p.text1,
+                          letterSpacing: XlLetterSpacing.normal,
+                        )),
+                  ),
                   const SizedBox(width: 12),
                   _stageChip(p),
                 ],
