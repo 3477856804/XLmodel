@@ -93,6 +93,191 @@ def _get_project_context():
     return ProjectContext(_PROJECT_ROOT)
 
 
+_security_center = None
+_security_center_lock = threading.Lock()
+_mcp_manager = None
+_mcp_manager_lock = threading.Lock()
+_workflow_engine = None
+_workflow_engine_lock = threading.Lock()
+
+
+def _get_security_center():
+    global _security_center
+    if _security_center is not None:
+        return _security_center
+    with _security_center_lock:
+        if _security_center is None:
+            from core.security_center import SecurityCenter
+            _security_center = SecurityCenter()
+    return _security_center
+
+
+def _get_mcp_manager():
+    global _mcp_manager
+    if _mcp_manager is not None:
+        return _mcp_manager
+    with _mcp_manager_lock:
+        if _mcp_manager is None:
+            from core.mcp_client import MCPManager
+            _mcp_manager = MCPManager()
+    return _mcp_manager
+
+
+def _get_workflow_engine():
+    global _workflow_engine
+    if _workflow_engine is not None:
+        return _workflow_engine
+    with _workflow_engine_lock:
+        if _workflow_engine is None:
+            from core.workflow_engine import WorkflowEngine
+            _workflow_engine = WorkflowEngine()
+    return _workflow_engine
+
+
+def _handle_ext_command(cmd: str) -> str:
+    """轻量扩展命令路由：插件 / 工作流 / 安全 / MCP。返回 JSON 字符串。"""
+    import json as _json
+
+    def _ok(**kw):
+        d = {"ok": True}
+        d.update(kw)
+        return _json.dumps(d, ensure_ascii=False)
+
+    def _err(msg):
+        return _json.dumps({"ok": False, "error": str(msg)}, ensure_ascii=False)
+
+    try:
+        if cmd.startswith("plugin:"):
+            rest = cmd[len("plugin:"):].strip()
+            op, _, arg = (rest + " ").partition(" ")
+            arg = arg.strip()
+            from core.config import PluginManager
+            pmgr = PluginManager()
+            if op == "list":
+                return _ok(plugins=pmgr.list_plugins())
+            if op == "enable":
+                return _ok(message=f"已启用 {arg}") if pmgr.enable(arg) else _err(f"未找到插件 {arg}")
+            if op == "disable":
+                return _ok(message=f"已禁用 {arg}") if pmgr.disable(arg) else _err(f"未找到插件 {arg}")
+            if op == "install":
+                name = arg
+                if not name:
+                    return _err("插件名不能为空")
+                import os as _os
+                from core.config import PLUGINS_DIR
+                pdir = _os.path.join(str(PLUGINS_DIR), name)
+                _os.makedirs(pdir, exist_ok=True)
+                manifest = {
+                    "name": name,
+                    "version": "1.0.0",
+                    "description": f"社区插件 {name}",
+                    "category": "community",
+                    "enabled": True,
+                }
+                with open(_os.path.join(pdir, "manifest.json"), "w", encoding="utf-8") as f:
+                    _json.dump(manifest, f, ensure_ascii=False, indent=2)
+                pmgr._load_external()  # noqa: SLF001
+                pmgr.enable(name)
+                return _ok(message=f"插件 {name} 已安装并启用")
+            return _err(f"未知插件操作: {op}")
+
+        if cmd.startswith("workflow:"):
+            rest = cmd[len("workflow:"):].strip()
+            op, _, payload = rest.partition(" ")
+            payload = payload.strip()
+            eng = _get_workflow_engine()
+            if op == "list":
+                return _ok(workflows=eng.list_workflows())
+            if op == "run":
+                spec = _json.loads(payload) if payload else {}
+                wf_name = spec.get("name") or "ui_workflow"
+                nodes = spec.get("nodes") or []
+                wf = eng.create_workflow(wf_name, spec.get("description", ""))
+                from core.workflow_engine import WorkflowNode
+                id_map = {}
+                for n in nodes:
+                    node = WorkflowNode(
+                        n.get("id"), n.get("type", "action"),
+                        config=dict(n.get("config") or {}),
+                    )
+                    wf.add_node(node)
+                    id_map[n.get("id")] = node
+                for n in nodes:
+                    node = id_map.get(n.get("id"))
+                    nxt = n.get("next")
+                    if node is not None and nxt and nxt in id_map:
+                        wf.connect(node.id, id_map[nxt].id)
+                result = eng.execute(wf_name, context=dict(spec.get("context") or {}))
+                return _json.dumps(result, ensure_ascii=False)
+            return _err(f"未知工作流操作: {op}")
+
+        if cmd.startswith("security:"):
+            rest = cmd[len("security:"):].strip()
+            op, _, arg = (rest + " ").partition(" ")
+            arg = arg.strip()
+            sc = _get_security_center()
+            if op == "config":
+                cfg = sc.get_config()
+                return _ok(
+                    permissions=cfg.get("tool_permissions", {}),
+                    require_approval=list(cfg.get("require_approval", [])),
+                    protected_dirs=list(cfg.get("protected_dirs", [])),
+                    audit_log=sc.get_audit_log(limit=50),
+                )
+            if op == "set":
+                tool, _, val = arg.partition(" ")
+                sc.set_permission(tool.strip(), val.strip().lower() == "true")
+                sc.audit("set_permission", f"{tool}={val}")
+                return _ok(message=f"{tool} 权限已更新")
+            if op == "add_dir":
+                sc.add_protected_dir(arg)
+                sc.audit("add_protected_dir", arg)
+                return _ok(message=f"已保护 {arg}")
+            if op == "remove_dir":
+                sc.remove_protected_dir(arg)
+                sc.audit("remove_protected_dir", arg)
+                return _ok(message=f"已移除保护 {arg}")
+            return _err(f"未知安全操作: {op}")
+
+        if cmd.startswith("mcp:"):
+            rest = cmd[len("mcp:"):].strip()
+            op, _, payload = rest.partition(" ")
+            payload = payload.strip()
+            mgr = _get_mcp_manager()
+            if op == "list":
+                return _ok(servers=mgr.list_servers())
+            if op == "tools":
+                return _ok(tools=mgr.get_all_tools())
+            if op == "add":
+                spec = _json.loads(payload) if payload else {}
+                name = (spec.get("name") or "").strip()
+                if not name:
+                    return _err("服务器名不能为空")
+                cfg = {
+                    "type": spec.get("type", "stdio"),
+                    "command": spec.get("command", ""),
+                    "url": spec.get("url", ""),
+                    "args": spec.get("args", []),
+                }
+                ok = mgr.add_server(name, cfg)
+                return _ok(message=f"已添加 {name}") if ok else _err(f"添加 {name} 失败")
+            if op == "remove":
+                ok = mgr.remove_server(payload)
+                return _ok(message=f"已删除 {payload}") if ok else _err(f"未找到 {payload}")
+            if op == "connect":
+                ok = mgr.connect_server(payload)
+                return _ok(message=f"已连接 {payload}") if ok else _err(f"连接 {payload} 失败")
+            if op == "disconnect":
+                mgr.disconnect_server(payload)
+                return _ok(message=f"已断开 {payload}")
+            return _err(f"未知 MCP 操作: {op}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("ext command failed: %s", cmd)
+        return _err(f"{type(e).__name__}: {e}")
+
+    return _err(f"未知命令: {cmd}")
+
+
 def _get_engine(log=print):
     """懒加载 XiaoLing 引擎。任何异常都吞掉并返回 None，由调用方降级。"""
     global _engine, _engine_logged
@@ -165,6 +350,44 @@ def _avg_request_ms() -> float:
     if not total:
         return 0.0
     return sum(s["total_ms"] for s in _request_stats.values()) / total
+
+
+# --------------------------------------------------------------------------- #
+#  训练实时状态跟踪（server 层维护，供 GetTrainingStatus 轮询）
+#  XiaoLing.train_stream 是纯生成器，不在自身实例上记录运行状态；
+#  由于只能改动本文件，这里在 gRPC 层维护一份实时训练快照，
+#  StartTraining 流式过程中持续更新，GetTrainingStatus 读取真实值。
+# --------------------------------------------------------------------------- #
+_train_state: dict = {
+    "active": False,     # 当前是否有训练任务在跑
+    "step": 0,           # 当前步数（epoch）
+    "total_steps": 0,    # 总步数
+    "loss": 0.0,         # 最近一步 loss
+    "final_loss": 0.0,   # 最近一次训练的最终 loss
+    "real": False,       # 是否为真实权重训练（否则为模拟曲线）
+    "status": "",        # 人类可读状态
+    "started_at": 0.0,
+}
+_train_state_lock = threading.Lock()
+
+
+def _train_state_update(**kw) -> None:
+    """线程安全地更新训练实时快照；任何异常都被吞掉，绝不影响训练流。"""
+    try:
+        with _train_state_lock:
+            _train_state.update(kw)
+    except Exception:                                                          # noqa: BLE001
+        pass
+
+
+def _train_state_snapshot() -> dict:
+    """返回训练实时快照的副本；失败时返回一份安全默认值。"""
+    try:
+        with _train_state_lock:
+            return dict(_train_state)
+    except Exception:                                                          # noqa: BLE001
+        return {"active": False, "step": 0, "total_steps": 0, "loss": 0.0,
+                "final_loss": 0.0, "real": False, "status": "", "started_at": 0.0}
 
 
 # --------------------------------------------------------------------------- #
@@ -279,6 +502,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def ExecuteCommand(self, request, context):
         cmd = (request.command or '').strip()
         try:
+            if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:')):
+                return pb.CommandReply(output=_handle_ext_command(cmd))
             engine = _get_engine()
             if engine is None:
                 return pb.CommandReply(output='引擎未就绪，无法执行指令。')
@@ -335,23 +560,71 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def GetGrowthStatus(self, request, context):
         try:
             from core.growth import GrowthEngine
-            from core.config import APP_DIR
             eng = GrowthEngine()
             st = eng.status()
-            rank = '青铜'
+            prog = float(st.get('progress_percent', 0.0) or 0.0)
+            stage = str(st.get('stage', '初始化'))
+
+            # rank：GrowthEngine.rank 是 RankManager，正确方法是 .status()（返回 dict），
+            # 不存在 eng.rank_status()。LoRA r 值映射为段位名。
+            rank_name = '青铜'
             try:
-                rank = str(eng.rank_status().get('rank', '青铜'))
-            except Exception:
+                rinfo = eng.rank.status() or {}
+                r = int(rinfo.get('rank', 0) or 0)
+                tier_map = [(0, '青铜'), (8, '黑铁'), (16, '白银'), (32, '黄金'),
+                            (64, '铂金'), (128, '钻石'), (256, '王者')]
+                for threshold, name in tier_map:
+                    if r >= threshold:
+                        rank_name = name
+            except Exception:                                                   # noqa: BLE001
                 pass
+
+            # 总互动数：优先取引擎累计对话轮次，回落到成长数据仓库记录数
+            total_inter = 0
+            try:
+                e = _get_engine()
+                if e is not None:
+                    total_inter = int(getattr(e, 'interaction_count', 0) or 0)
+            except Exception:                                                   # noqa: BLE001
+                total_inter = 0
+            if total_inter <= 0:
+                try:
+                    total_inter = int(eng.store.stats().get('total', 0) or 0)
+                except Exception:                                               # noqa: BLE001
+                    total_inter = int(st.get('rounds', 0) or 0)
+
+            # 代数：生命周期注册表中的代次
+            cur_gen, max_gen = 1, 1
+            try:
+                gens = eng.lifecycle.generations() or []
+                if gens:
+                    cur_gen = max(int(g.get('gen', 1) or 1) for g in gens)
+                try:
+                    max_gen = int(eng.cfg('max_generations', 5) or 5)
+                except Exception:                                               # noqa: BLE001
+                    max_gen = max(len(gens), 1)
+            except Exception:                                                   # noqa: BLE001
+                pass
+
+            # 情绪：来自人格引擎（GrowthEngine 本身不含情绪）
+            emotion = '平静'
+            try:
+                e = _get_engine()
+                if e is not None and getattr(e, 'persona', None) is not None:
+                    emotion = str(e.persona.emotion.get_emotion_label() or '平静')
+            except Exception:                                                   # noqa: BLE001
+                pass
+
             return pb.GrowthStatusReply(
-                stage=str(st.get('stage', '初始化')),
-                progress_percent=float(st.get('progress_percent', 0.0)),
-                total_interactions=int(st.get('total_interactions', 0)),
-                current_generation=int(st.get('current_generation', 1)),
-                total_generations=int(st.get('total_generations', 1)),
-                current_rank=rank,
-                emotion=str(st.get('emotion', '平静')),
+                stage=stage,
+                progress_percent=prog,
+                total_interactions=int(total_inter),
+                current_generation=int(cur_gen),
+                total_generations=int(max_gen),
+                current_rank=rank_name,
+                emotion=emotion,
                 training_paused=bool(st.get('paused', False)),
+                status_text=f'{stage} · 段位 {rank_name} · {prog:.1f}%',
             )
         except Exception as e:
             logger.exception('GetGrowthStatus failed')
@@ -360,25 +633,63 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- GetTrainingStatus（Flutter 训练五维可视化） ----------------
     def GetTrainingStatus(self, request, context):
         try:
-            from core.growth import GrowthEngine
-            from core.config import APP_DIR
-            eng = GrowthEngine()
-            st = eng.status()
-            prog = float(st.get('progress_percent', 0.0))
-            dims = [
-                pb.TrainingDimension(name='感知', value=min(100.0, prog * 1.1), label='环境感知'),
-                pb.TrainingDimension(name='理解', value=min(100.0, prog * 0.95), label='语义理解'),
-                pb.TrainingDimension(name='决策', value=min(100.0, prog * 0.85), label='行为决策'),
-                pb.TrainingDimension(name='进化', value=min(100.0, prog * 0.7), label='自我进化'),
-                pb.TrainingDimension(name='守护', value=min(100.0, prog * 0.6), label='安全守护'),
-            ]
+            snap = _train_state_snapshot()
+            is_training = bool(snap.get('active', False))
+            cur_step = int(snap.get('step', 0) or 0)
+            total_steps = int(snap.get('total_steps', 0) or 0)
+            loss = float(snap.get('loss', 0.0) or 0.0)
+
+            # 五维雷达：基于真实子系统统计量（数据仓库总量 / 已消化样本 /
+            # 平均质量分 / 成长进度 / 训练轮次），不再是 progress_percent 乘固定系数。
+            dims = []
+            status_text = str(snap.get('status') or '暂无训练数据')
+            try:
+                from core.growth import GrowthEngine
+                eng = GrowthEngine()
+                st = eng.status()
+                prog = float(st.get('progress_percent', 0.0) or 0.0)
+                rounds = int(st.get('rounds', 0) or 0)
+                try:
+                    ds = eng.store.stats() or {}
+                except Exception:                                               # noqa: BLE001
+                    ds = {}
+                total_data = int(ds.get('total', 0) or 0)
+                trained = int(ds.get('used_in_training', 0) or 0)
+                avg_q = float(ds.get('avg_quality', 0.0) or 0.0)
+                # 感知：观察到的对话/数据量（平方根封顶到 100，避免早期为 0）
+                percept = min(100.0, (max(0, total_data) ** 0.5) * 2.0)
+                # 理解：已进入训练消化的样本占比
+                understand = (trained / total_data * 100.0) if total_data > 0 else 0.0
+                # 决策：样本平均质量分（0-1 -> 0-100）
+                decide = max(0.0, min(100.0, avg_q * 100.0))
+                # 进化：成长进度
+                evolve = min(100.0, prog)
+                # 守护：训练轮次积累带来的成熟度（初始 10，每轮 +8 封顶）
+                guard = min(100.0, 10.0 + rounds * 8.0)
+                dims = [
+                    pb.TrainingDimension(name='感知', value=round(percept, 1), label='环境感知'),
+                    pb.TrainingDimension(name='理解', value=round(understand, 1), label='语义理解'),
+                    pb.TrainingDimension(name='决策', value=round(decide, 1), label='行为决策'),
+                    pb.TrainingDimension(name='进化', value=round(evolve, 1), label='自我进化'),
+                    pb.TrainingDimension(name='守护', value=round(guard, 1), label='安全守护'),
+                ]
+                status_text = (f"成长进度 {prog:.1f}% · {st.get('stage', '初始化')}"
+                               + (f" · 训练中 {cur_step}/{total_steps}" if is_training else ""))
+            except Exception:                                                   # noqa: BLE001
+                dims = [
+                    pb.TrainingDimension(name='感知', value=0.0, label='环境感知'),
+                    pb.TrainingDimension(name='理解', value=0.0, label='语义理解'),
+                    pb.TrainingDimension(name='决策', value=0.0, label='行为决策'),
+                    pb.TrainingDimension(name='进化', value=0.0, label='自我进化'),
+                    pb.TrainingDimension(name='守护', value=0.0, label='安全守护'),
+                ]
             return pb.TrainingStatusReply(
-                is_training=False,
-                current_epoch=0,
-                total_epochs=0,
-                loss=0.0,
+                is_training=is_training,
+                current_epoch=cur_step,
+                total_epochs=total_steps,
+                loss=loss,
                 dimensions=dims,
-                status_text=f"成长进度 {prog:.1f}% · {st.get('stage', '初始化')}",
+                status_text=str(status_text),
             )
         except Exception as e:
             logger.exception('GetTrainingStatus failed')
@@ -449,6 +760,10 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             rank = max(1, request.lora_rank or 8)
             ds_name = (request.dataset_name or "").strip()
 
+            # 标记训练开始，实时快照供 GetTrainingStatus 轮询
+            _train_state_update(active=True, step=0, total_steps=steps,
+                                loss=0.0, final_loss=0.0, real=False,
+                                status='准备训练...', started_at=time.time())
             eng = _get_engine()
             if eng is None:
                 # 引擎不可用时仍跑通模拟训练（数据集 + loss 曲线 + 历史）
@@ -462,6 +777,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                     base = 0.3 + (2.0 - 0.3) * math.exp(-3.0 * step / steps)
                     loss = round(max(0.15, base + __import__('random').gauss(0, 0.05)), 4)
                     curve.append(loss)
+                    _train_state_update(active=True, step=step, total_steps=steps,
+                                        loss=loss, status=f'训练中 {step}/{steps} loss={loss:.3f}')
                     yield pb.TrainingProgress(step=step, total_steps=steps, loss=loss,
                         status=f'训练中 {step}/{steps} loss={loss:.3f}')
                     time.sleep(0.05)
@@ -470,6 +787,9 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                     "final_loss": curve[-1], "loss_curve": curve,
                     "learning_rate": lr, "batch_size": bs, "lora_rank": rank,
                     "dataset": ds_name or "training_data.jsonl", "real": False})
+                _train_state_update(active=False, step=steps, total_steps=steps,
+                                    loss=curve[-1], final_loss=curve[-1], real=False,
+                                    status=f'done: 训练完成 {steps} 步，最终 loss={curve[-1]:.3f}')
                 yield pb.TrainingProgress(step=steps, total_steps=steps, loss=curve[-1],
                     status=f'done: 训练完成 {steps} 步，最终 loss={curve[-1]:.3f}')
                 return
@@ -477,13 +797,17 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             for info in eng.train_stream(steps=steps, learning_rate=lr,
                                          batch_size=bs, lora_rank=rank,
                                          dataset_name=ds_name):
+                s = int(info.get("step", 0))
+                t = int(info.get("total_steps", steps))
+                l = float(info.get("loss", 0.0))
+                _train_state_update(active=(s < t), step=s, total_steps=t, loss=l,
+                                    real=True, status=str(info.get("status", "")))
                 yield pb.TrainingProgress(
-                    step=int(info.get("step", 0)),
-                    total_steps=int(info.get("total_steps", steps)),
-                    loss=float(info.get("loss", 0.0)),
+                    step=s, total_steps=t, loss=l,
                     status=str(info.get("status", "")))
         except Exception as e:
             logger.exception('StartTraining failed')
+            _train_state_update(active=False, status=f'failed: {e}')
             yield pb.TrainingProgress(status=f'failed: {e}')
 
     # ---------------- GetTrainingHistory ----------------
@@ -1247,7 +1571,9 @@ class ServerMetrics:
     _BUCKETS_MS = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
 
     def __init__(self):
-        self._lock = threading.Lock()
+        # 用可重入锁：snapshot() 持锁后会调用 qps()/error_rate()/latency_percentile()，
+        # 这些方法内部也会再次加锁；普通 Lock 会死锁。
+        self._lock = threading.RLock()
         self._total = 0
         self._errors = 0
         self._hist = {b: 0 for b in self._BUCKETS_MS}
@@ -1371,6 +1697,119 @@ class InFlightTracker:
 _rate_limiter = RateLimiter()
 _server_metrics = ServerMetrics()
 _inflight_tracker = InFlightTracker()
+
+
+# --------------------------------------------------------------------------- #
+#  RPC 自动埋点：限流 / 指标 / 在途跟踪（统一包装 XiaoLingServicer 全部 RPC 方法）
+#  - 入口：_rate_limiter.allow(client_ip, method)，超限 context.abort(PERMISSION_DENIED)
+#  - finally：_server_metrics.observe(method, duration_ms, ok)
+#  - 流式方法：_inflight_tracker.track() 包裹整个生成器
+#  - client IP 从 context.peer() 解析；限流/指标自身异常一律不影响业务
+# --------------------------------------------------------------------------- #
+import functools as _functools                                  # noqa: E402
+import inspect as _inspect                                      # noqa: E402
+
+
+def _client_ip(context) -> str:
+    """从 gRPC context.peer() 解析客户端 IP；失败返回 'unknown'。"""
+    try:
+        peer = ''
+        try:
+            peer = str(context.peer() or '')
+        except Exception:                                           # noqa: BLE001
+            peer = ''
+        # peer 形如 "ipv4:127.0.0.1:54321" / "ipv6:[::1]:12345" / "unix:/path"
+        if ':' in peer:
+            host = peer.rsplit(':', 1)[0]
+            if host.startswith('ipv4:'):
+                host = host[len('ipv4:'):]
+            elif host.startswith('ipv6:'):
+                host = host[len('ipv6:'):].strip('[]')
+            return host or 'unknown'
+        return peer or 'unknown'
+    except Exception:                                                  # noqa: BLE001
+        return 'unknown'
+
+
+def _enforce_rate_limit(method_name: str, context) -> None:
+    """超限则 context.abort 抛出 PERMISSION_DENIED（gRPC 据此回错，无需构造返回值）。
+    限流判断自身任何异常都视为放行（fail-open），绝不误伤正常请求。"""
+    allowed = True
+    try:
+        allowed = bool(_rate_limiter.allow(_client_ip(context), method_name))
+    except Exception:                                                  # noqa: BLE001
+        allowed = True
+    if not allowed:
+        try:
+            context.abort(grpc.StatusCode.PERMISSION_DENIED,
+                          f'请求过于频繁：{method_name}，请稍后再试')
+        except Exception:                                              # noqa: BLE001
+            raise  # abort 必然抛异常以中断本次 RPC；其余异常继续上抛
+
+
+def _wrap_unary_rpc(method_name: str, fn):
+    """一元 RPC 包装：限流 -> 在途跟踪 -> finally 指标采集。"""
+    @_functools.wraps(fn)
+    def wrapper(self, request, context):
+        t0 = time.time()
+        ok = False
+        try:
+            _enforce_rate_limit(method_name, context)
+            with _inflight_tracker.track(method_name):
+                result = fn(self, request, context)
+            ok = True
+            return result
+        finally:
+            try:
+                _server_metrics.observe(method_name,
+                                        (time.time() - t0) * 1000.0, ok)
+            except Exception:                                          # noqa: BLE001
+                pass
+    return wrapper
+
+
+def _wrap_stream_rpc(method_name: str, fn):
+    """流式 RPC 包装：限流 -> 在途跟踪包裹整个生成器 -> finally 指标采集。"""
+    @_functools.wraps(fn)
+    def wrapper(self, request, context):
+        t0 = time.time()
+        ok = False
+        try:
+            _enforce_rate_limit(method_name, context)
+            with _inflight_tracker.track(method_name):
+                for item in fn(self, request, context):
+                    yield item
+                ok = True
+        finally:
+            try:
+                _server_metrics.observe(method_name,
+                                        (time.time() - t0) * 1000.0, ok)
+            except Exception:                                          # noqa: BLE001
+                pass
+    return wrapper
+
+
+# 统一包装：遍历 XiaoLingServicer 自定义的公开方法，按是否为生成器区分一元/流式。
+# 只包装本类定义的方法（__qualname__ 以 XiaoLingServicer. 开头），
+# 避免误包装继承自 grpc 基类 / object 的内容；_plugin_manager 以下划线开头自动跳过。
+for _m_name in dir(XiaoLingServicer):
+    if _m_name.startswith('_'):
+        continue
+    try:
+        _orig = getattr(XiaoLingServicer, _m_name)
+    except Exception:                                                  # noqa: BLE001
+        continue
+    if not callable(_orig):
+        continue
+    if not (getattr(_orig, '__qualname__', '') or '').startswith('XiaoLingServicer.'):
+        continue
+    try:
+        if _inspect.isgeneratorfunction(_orig):
+            setattr(XiaoLingServicer, _m_name, _wrap_stream_rpc(_m_name, _orig))
+        else:
+            setattr(XiaoLingServicer, _m_name, _wrap_unary_rpc(_m_name, _orig))
+    except Exception:                                                  # noqa: BLE001
+        continue
 
 
 def _disk_free_gb(path: str) -> float:
