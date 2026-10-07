@@ -17,6 +17,7 @@ import 'widgets/persona_panel.dart';
 import 'rpc/client.dart';
 import 'rpc/xiaoling_client_ext.dart';
 import 'rpc/xiaoling_ext.dart';
+import 'services/sandbox.dart';
 
 Process? _backendProc;
 
@@ -56,6 +57,13 @@ Future<void> _probeBackend() async {
   }
 }
 
+Future<void> _startSandbox() async {
+  if (!Platform.isAndroid) return;
+  try {
+    await SandboxService.start();
+  } catch (_) {}
+}
+
 void main() {
   runZonedGuarded<Future<void>>(() async {
     WidgetsFlutterBinding.ensureInitialized();
@@ -71,6 +79,7 @@ void main() {
     ));
     try {
       await _startBackend();
+      await _startSandbox();
       await Future.delayed(const Duration(milliseconds: 800));
       await _probeBackend();
     } catch (_) {}

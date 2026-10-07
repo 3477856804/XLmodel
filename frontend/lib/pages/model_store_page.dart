@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
+import '../services/sandbox.dart';
 
 class ModelStorePage extends StatefulWidget {
   const ModelStorePage({super.key});
@@ -1320,6 +1322,10 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
 
   void _startDownload(_ModelItem m) {
     if (_downloading.contains(m.name)) return;
+    if (Platform.isAndroid) {
+      _startSandboxDownload(m);
+      return;
+    }
     setState(() {
       _downloading.add(m.name);
       _dlInfo[m.name] = const _DlInfo(percent: 0);
@@ -1393,6 +1399,75 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
       },
     );
     _dlSubs[m.name] = sub;
+  }
+
+  void _startSandboxDownload(_ModelItem m) async {
+    if (_downloading.contains(m.name)) return;
+    setState(() {
+      _downloading.add(m.name);
+      _dlInfo[m.name] = const _DlInfo(percent: 0, status: 'starting');
+    });
+    try {
+      await SandboxService.downloadModel(m.name, quant: m.quant);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _downloading.remove(m.name);
+          _dlInfo[m.name] = _DlInfo(percent: 0, error: e.toString());
+        });
+      }
+      return;
+    }
+    for (int i = 0; i < 60 * 60; i++) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      final st = await SandboxService.status();
+      final snap = st['snapshot'];
+      Map<String, dynamic>? prog;
+      if (snap is Map && snap['progress'] is Map) {
+        final p = snap['progress'] as Map;
+        final v = p[m.name];
+        if (v is Map) prog = Map<String, dynamic>.from(v);
+      }
+      final status = prog?['status']?.toString() ?? '';
+      if (status == 'error') {
+        setState(() {
+          _downloading.remove(m.name);
+          _dlInfo[m.name] = _DlInfo(
+            percent: (prog?['percent'] as num?)?.toDouble() ?? 0,
+            error: prog?['error']?.toString() ?? '下载失败',
+          );
+        });
+        return;
+      }
+      if (status == 'installed') {
+        setState(() {
+          _downloading.remove(m.name);
+          _installedName = m.name;
+          _dlInfo[m.name] = _DlInfo(
+            percent: 100,
+            downloadedMb: (prog?['downloaded_mb'] as num?)?.toDouble() ?? 0,
+            totalMb: (prog?['total_mb'] as num?)?.toDouble() ?? 0,
+            status: 'done',
+          );
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${m.name} 下载完成'),
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+        return;
+      }
+      setState(() {
+        _dlInfo[m.name] = _DlInfo(
+          percent: (prog?['percent'] as num?)?.toDouble() ?? 0,
+          downloadedMb: (prog?['downloaded_mb'] as num?)?.toDouble() ?? 0,
+          totalMb: (prog?['total_mb'] as num?)?.toDouble() ?? 0,
+          status: status,
+        );
+      });
+    }
   }
 
   Widget _compareBar(XlPalette p) {
