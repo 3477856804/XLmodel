@@ -8,10 +8,35 @@ on:
 env:
   FLUTTER_VERSION: "3.24.0"
   APP_VERSION: "0.0.1"
+  RELEASE_TAG: "v0.0.1"
 
 jobs:
-  build-linux:
+  prepare-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "XiaoLing v${{ env.APP_VERSION }}"
+          body: |
+            XiaoLing AI Companion v${{ env.APP_VERSION }}
+            
+            全平台构建产物（Flutter UI + Python gRPC 后端）：
+            - Linux x64 (tar.gz)
+            - Windows x64 (zip)
+            - macOS (dmg)
+            - Android (apk, 含 Chaquopy Python 沙箱)
+            
+            后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。
+
+  build-linux:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,13 +71,19 @@ jobs:
           mkdir -p release
           tar -czf release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz -C $(dirname $BUNDLE) $(basename $BUNDLE)
           ls -lh release/
-      - uses: actions/upload-artifact@v4
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: linux
-          path: release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz
 
   build-windows:
+    needs: prepare-release
     runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      CMAKE_GENERATOR: "Visual Studio 17 2022"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -72,6 +103,7 @@ jobs:
           channel: stable
       - name: Regenerate Windows project
         run: |
+          Remove-Item -Recurse -Force frontend\windows -ErrorAction SilentlyContinue
           cd frontend
           flutter create --platforms=windows .
       - name: Build Flutter Windows
@@ -86,13 +118,17 @@ jobs:
           if (!(Test-Path "release")) { New-Item -ItemType Directory -Path "release" }
           Compress-Archive -Path "$releaseDir\*" -DestinationPath "release\xiaoling-windows-${{ env.APP_VERSION }}.zip" -Force
           dir release
-      - uses: actions/upload-artifact@v4
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: windows
-          path: release/xiaoling-windows-${{ env.APP_VERSION }}.zip
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: release/xiaoling-windows-${{ env.APP_VERSION }}.zip
 
   build-macos:
+    needs: prepare-release
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -125,13 +161,17 @@ jobs:
           mkdir -p release
           hdiutil create -volname "XiaoLing" -srcfolder "$(dirname $APP)" -ov -format UDZO release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
           ls -lh release/
-      - uses: actions/upload-artifact@v4
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: macos
-          path: release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
 
   build-android:
+    needs: prepare-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -152,39 +192,8 @@ jobs:
         run: |
           cp frontend/build/app/outputs/flutter-apk/app-release.apk xiaoling-android-${{ env.APP_VERSION }}.apk
           ls -lh xiaoling-android-${{ env.APP_VERSION }}.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: xiaoling-android-${{ env.APP_VERSION }}.apk
-
-  create-release:
-    needs: [build-linux, build-windows, build-macos, build-android]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Display files
-        run: ls -lhR artifacts/
-      - name: Create Release
+      - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.APP_VERSION }}
-          name: "XiaoLing v${{ env.APP_VERSION }}"
-          body: |
-            XiaoLing AI Companion v${{ env.APP_VERSION }}
-            
-            全平台构建产物（Flutter UI + Python gRPC 后端）：
-            - Linux x64 (tar.gz)
-            - Windows x64 (zip)
-            - macOS (dmg)
-            - Android (apk, 含 Chaquopy Python 沙箱)
-            
-            后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。
-          files: |
-            artifacts/linux/*.tar.gz
-            artifacts/windows/*.zip
-            artifacts/macos/*.dmg
-            artifacts/android/*.apk
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: xiaoling-android-${{ env.APP_VERSION }}.apk
