@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 
 class LocalStore {
   LocalStore._();
@@ -39,7 +40,7 @@ class LocalStore {
       final dir = await _storageDir();
       final file = File(p.join(dir.path, name));
       await file.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   static Future<List<String>> readStringList(String name) async {

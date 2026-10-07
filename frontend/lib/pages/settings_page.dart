@@ -154,7 +154,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       await for (final e in d.list(recursive: true, followLinks: false)) {
         if (e is File) total += await e.length();
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return total;
   }
 
@@ -187,7 +187,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         await for (final e in tmp.list()) {
           e.delete(recursive: true);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('操作失败: $e'); }
       await Future.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
       setState(() {

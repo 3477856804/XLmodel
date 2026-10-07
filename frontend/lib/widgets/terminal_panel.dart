@@ -46,7 +46,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
           (s) => s.terminalClose(pb.TerminalSessionId(id: id)),
           label: 'terminalClose',
         );
-      } catch (_) {}
+      } catch (e) { debugPrint('操作失败: $e'); }
     }
   }
 

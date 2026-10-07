@@ -990,7 +990,7 @@ class XiaoLing:
                     return f"算出来是 {result}。"
             except Exception:
                 pass
-        return random.choice(FALLBACK_TEMPLATES)
+        return "（离线模式）" + random.choice(FALLBACK_TEMPLATES)
 
     def _post_chat(self, text: str, reply: str, tool_calls: list = None):
         self.interaction_count += 1

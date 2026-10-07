@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:grpc/grpc.dart';
 import '../rpc/xiaoling.pbgrpc.dart';
+import 'package:flutter/foundation.dart';
 
 enum XlConnectionState {
   idle,
@@ -580,7 +581,7 @@ class XlClient {
   static Future<void> _shutdownChannel() async {
     try {
       await _chan?.shutdown();
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     _chan = null;
     _stub = null;
   }

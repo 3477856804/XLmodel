@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 class SandboxService {
   static const MethodChannel _channel = MethodChannel('xiaoling/sandbox');
@@ -21,7 +22,7 @@ class SandboxService {
     if (!isSupported) return;
     try {
       await _channel.invokeMethod('stopSandbox');
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   static Future<Map<String, dynamic>> status() async {
@@ -34,17 +35,17 @@ class SandboxService {
         if (s is String && s.isNotEmpty) {
           try {
             out.addAll(jsonDecode(s) as Map<String, dynamic>);
-          } catch (_) {}
+          } catch (e) { debugPrint('操作失败: $e'); }
         }
         final snap = r['snapshot'];
         if (snap is String && snap.isNotEmpty) {
           try {
             out['snapshot'] = jsonDecode(snap);
-          } catch (_) {}
+          } catch (e) { debugPrint('操作失败: $e'); }
         }
         return out;
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return {'started': false, 'supported': true};
   }
 
@@ -61,7 +62,7 @@ class SandboxService {
         if (res is String && res.isNotEmpty) {
           try {
             return jsonDecode(res) as Map<String, dynamic>;
-          } catch (_) {}
+          } catch (e) { debugPrint('操作失败: $e'); }
         }
         return {'ok': r['ok'] == true};
       }

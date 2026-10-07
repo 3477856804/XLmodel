@@ -127,7 +127,7 @@ class _SecurityPanelState extends State<SecurityPanel> {
             }));
         }
       });
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   @override

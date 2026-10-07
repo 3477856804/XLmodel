@@ -50,7 +50,7 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
     try {
       final r = await XlClient.stub.projectContext(Empty());
       if (mounted) setState(() => _project = r);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   String get _kindParam {

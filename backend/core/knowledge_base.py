@@ -1,6 +1,8 @@
 import os, re, json, math, logging
 from collections import Counter, defaultdict
 
+logger = logging.getLogger(__name__)
+
 # jieba 中文分词：不可用时降级到正则分词
 try:
     import jieba
@@ -52,7 +54,8 @@ class KnowledgeBase:
                         if content.strip():
                             self._add_document(fpath, content)
                             count += 1
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"[knowledge_base] 读取文档失败 {fpath}: {e}")
         self._save_index()
         return count
 
@@ -168,4 +171,5 @@ class KnowledgeBase:
                 for path, doc in data.get("documents", {}).items():
                     content = doc.get("content", "")
                     self.documents[path] = {**doc, "tokens": self._tokenize(content)}
-            except: pass
+            except Exception as e:
+                logger.warning(f"[knowledge_base] 加载索引失败: {e}")

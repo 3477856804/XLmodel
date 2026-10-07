@@ -99,7 +99,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
         'growth:set_daily_goal $value',
         opt: XlCallOptions(silent: true),
       );
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   void _adjustDailyGoal(int delta) {

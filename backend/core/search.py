@@ -16,6 +16,7 @@ from __future__ import annotations
 import gzip
 import html
 import json
+import logging
 import os
 import re
 import time
@@ -23,6 +24,8 @@ import urllib.parse
 import urllib.request
 import zlib
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 try:
     from .config import DATA_DIR
@@ -34,9 +37,7 @@ KNOWLEDGE_DIR = DATA_DIR / "knowledge"
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
 
-# ---- 搜索结果缓存（LRU，最多 50 条，5 分钟 TTL）----
-_cache: dict = {}            # query -> (timestamp, results)
-_cache_lock = __import__('threading').Lock()
+# ---- 搜索结果缓存配置（实际缓存由下方 LruTtlCache 实例 _result_cache 提供）----
 _CACHE_TTL = 300.0
 _CACHE_MAX = 50
 # ---- 搜索历史（最近 20 条 query）----
@@ -47,10 +48,7 @@ _HISTORY_MAX = 20
 
 def clear_cache() -> int:
     """清空搜索结果缓存，返回清除条数。"""
-    with _cache_lock:
-        n = len(_cache)
-        _cache.clear()
-        return n
+    return _result_cache.clear()
 
 
 def get_history() -> list:
@@ -138,7 +136,8 @@ def local_search(query: str, n: int = 5) -> list:
             out.append({"title": fname, "url": "", "snippet": snip,
                         "source": "local"})
         return out
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[search] 本地知识库搜索失败: {e}")
         return []
 
 
@@ -146,12 +145,12 @@ def search_web(query: str, n: int = 5, engine: str = 'duckduckgo',
                sort_by: str = 'relevance'):
     """免 Key 联网搜索；联网失败时回退本地知识库。"""
     key = f'{engine}|{n}|{query.strip()}'
-    # 命中缓存（5 分钟内）直接返回
-    with _cache_lock:
-        hit = _cache.get(key)
-        if hit and (time.time() - hit[0]) < _CACHE_TTL:
-            return _sort_results(hit[1], sort_by)
+    # 命中缓存（LRU + 5 分钟 TTL）直接返回
+    hit = _result_cache.get(key)
+    if hit is not None:
+        return _sort_results(hit, sort_by)
     _remember_history(query)
+    _hot_words.record(query)
     if engine == 'duckduckgo':
         res = _ddg(query, n)
     elif engine == 'searx':
@@ -159,10 +158,7 @@ def search_web(query: str, n: int = 5, engine: str = 'duckduckgo',
     else:
         res = _ddg(query, n)
     if res:
-        with _cache_lock:
-            _cache[key] = (time.time(), res)
-            if len(_cache) > _CACHE_MAX:
-                _cache.pop(next(iter(_cache)))
+        _result_cache.put(key, res)
         return _sort_results(res, sort_by)
     local = local_search(query, n)
     if local:
@@ -204,14 +200,16 @@ def _searx(query: str, n: int = 5, instance='https://searx.be'):
         data = json.loads(_open(url, timeout=10))
         return [{'title': r.get('title'), 'url': r.get('url'), 'snippet': r.get('content', '')[:300]}
                 for r in data.get('results', [])[:n]]
-    except Exception:                                                 # noqa: BLE001
+    except Exception as e:                                                 # noqa: BLE001
+        logger.warning(f"[search] searx 搜索失败 {instance}: {e}")
         return []
 
 
 def fetch_text(url: str, max_chars: int = 3000):
     try:
         page = _open(url, timeout=10)
-    except Exception:                                                 # noqa: BLE001
+    except Exception as e:                                                 # noqa: BLE001
+        logger.warning(f"[search] 抓取网页正文失败 {url}: {e}")
         return ''
     page = re.sub(r'<(script|style|noscript)[^>]*>.*?</\1>', ' ', page, flags=re.S | re.I)
     text = re.sub(r'<[^>]+>', ' ', page)
@@ -314,8 +312,8 @@ def search_code(query: str, path: str = ".", max_results: int = 50) -> list:
                                 return out
                 except OSError:
                     continue
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[search] 代码搜索遍历失败: {e}")
     return out
 
 
@@ -354,7 +352,8 @@ class LruTtlCache:
                     return None
                 self._store.move_to_end(key)
                 return value
-        except Exception:                                                  # noqa: BLE001
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] LruTtlCache.get 失败: {e}")
             return None
 
     def put(self, key: str, value) -> None:
@@ -365,8 +364,19 @@ class LruTtlCache:
                 self._store.move_to_end(key)
                 while len(self._store) > self.max_size:
                     self._store.popitem(last=False)
-        except Exception:                                                  # noqa: BLE001
-            pass
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] LruTtlCache.put 失败: {e}")
+
+    def clear(self) -> int:
+        """清空全部缓存项，返回清除条数。"""
+        try:
+            with self._lock:
+                n = len(self._store)
+                self._store.clear()
+                return n
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] LruTtlCache.clear 失败: {e}")
+            return 0
 
     def evict_expired(self) -> int:
         """主动清理过期项，返回清理条数。"""
@@ -380,14 +390,16 @@ class LruTtlCache:
                     self._store.pop(k, None)
                     n += 1
             return n
-        except Exception:                                                  # noqa: BLE001
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] LruTtlCache.evict_expired 失败: {e}")
             return 0
 
     def __len__(self) -> int:
         try:
             with self._lock:
                 return len(self._store)
-        except Exception:                                                  # noqa: BLE001
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] LruTtlCache.__len__ 失败: {e}")
             return 0
 
 
@@ -411,8 +423,8 @@ class HotWordTracker:
                     drop = sorted(self._freq.items(), key=lambda kv: kv[1])
                     for k, _ in drop[:max(1, len(self._freq) // 2)]:
                         self._freq.pop(k, None)
-        except Exception:                                                  # noqa: BLE001
-            pass
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] HotWordTracker.record 失败: {e}")
 
     def top(self, n: int = 10) -> list:
         """返回 [(word, count), ...] 按频次降序。"""
@@ -421,12 +433,16 @@ class HotWordTracker:
                 items = sorted(self._freq.items(),
                                key=lambda kv: kv[1], reverse=True)
                 return [(w, c) for w, c in items[:max(1, n)]]
-        except Exception:                                                  # noqa: BLE001
+        except Exception as e:                                                  # noqa: BLE001
+            logger.warning(f"[search] HotWordTracker.top 失败: {e}")
             return []
 
 
 # 全局热词跟踪器（与既有 _history 并存，互不影响）
 _hot_words = HotWordTracker()
+
+# 全局搜索结果缓存（真正的 LRU + TTL，替换原先的简单字典缓存）
+_result_cache = LruTtlCache(max_size=_CACHE_MAX, ttl=_CACHE_TTL)
 
 
 def search_suggestions(prefix: str, limit: int = 5) -> list:
@@ -444,7 +460,8 @@ def search_suggestions(prefix: str, limit: int = 5) -> list:
             if w.lower().startswith(p) and w not in sug:
                 sug.append(w)
         return sug[:max(1, limit)]
-    except Exception:                                                  # noqa: BLE001
+    except Exception as e:                                                  # noqa: BLE001
+        logger.warning(f"[search] 搜索建议生成失败: {e}")
         return []
 
 
@@ -484,7 +501,8 @@ def search_multi_source(query: str, n: int = 5,
         out = list(merged.values())
         out.sort(key=lambda r: r.get("score", 1.0), reverse=True)
         return out[:max(1, n)]
-    except Exception:                                                  # noqa: BLE001
+    except Exception as e:                                                  # noqa: BLE001
+        logger.warning(f"[search] 多源聚合搜索失败: {e}")
         return []
 
 

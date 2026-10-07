@@ -1,5 +1,6 @@
 """小凌 · MCP（Model Context Protocol）客户端"""
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 import requests
 
 from .config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 MCP_CONFIG_PATH = DATA_DIR / "mcp_servers.json"
 
@@ -84,8 +87,8 @@ class MCPServer:
             raise RuntimeError("initialize 无响应")
         try:
             self._send_notification("notifications/initialized", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[mcp_client] 发送 initialized 通知失败: {e}")
         tools_result = self._send_request("tools/list", {})
         tools = []
         if isinstance(tools_result, dict):
@@ -116,8 +119,8 @@ class MCPServer:
                         slot["result"] = msg.get("result")
                         slot["error"] = msg.get("error")
                         slot["event"].set()
-        except (ValueError, OSError):
-            pass
+        except (ValueError, OSError) as e:
+            logger.warning(f"[mcp_client] 读取子进程输出循环退出: {e}")
 
     def _next_id(self) -> int:
         with self._lock:
@@ -172,8 +175,8 @@ class MCPServer:
             headers = self.config.get("headers", {}) or {}
             try:
                 requests.post(url, json=msg, headers=headers, timeout=10)
-            except requests.RequestException:
-                pass
+            except requests.RequestException as e:
+                logger.warning(f"[mcp_client] HTTP 通知发送失败 {url}: {e}")
 
     def call_tool(self, tool_name: str, arguments: dict | None = None) -> str:
         """调用 MCP 工具，返回结果文本。"""
@@ -201,8 +204,8 @@ class MCPServer:
                     self._process.wait(timeout=3)
                 except Exception:
                     self._process.kill()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[mcp_client] 断开连接时出错: {e}")
         finally:
             self._process = None
             self.connected = False
@@ -230,7 +233,8 @@ class MCPManager:
                     self._config = [s for s in data if isinstance(s, dict)]
             else:
                 self._config = []
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[mcp_client] 加载 MCP 配置失败，使用空配置: {e}")
             self._config = []
 
     def _save_config(self):
@@ -243,8 +247,8 @@ class MCPManager:
                 json.dumps(payload, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning(f"[mcp_client] 保存 MCP 配置失败: {e}")
 
     def add_server(self, name: str, config: dict) -> bool:
         """添加服务器配置，返回是否成功。"""
@@ -269,8 +273,8 @@ class MCPManager:
         if name in self.servers:
             try:
                 self.servers[name].disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[mcp_client] 删除服务器 {name} 时断开连接失败: {e}")
             del self.servers[name]
         return changed
 
@@ -306,8 +310,8 @@ class MCPManager:
         for name in names:
             try:
                 self.connect_server(name)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[mcp_client] 连接服务器 {name} 失败: {e}")
 
     def list_servers(self) -> list[dict]:
         """返回所有服务器状态列表。"""
@@ -369,6 +373,6 @@ class MCPManager:
         for srv in list(self.servers.values()):
             try:
                 srv.disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[mcp_client] 关闭服务器 {srv.name} 失败: {e}")
         self.servers.clear()

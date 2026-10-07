@@ -7,9 +7,12 @@
 惰性解析，以避免与 config.py 的再导出形成循环导入。
 """
 import json
+import logging
 import threading
 import time
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 REPO = "3477856804/XLmodel-release"
 CURRENT_VERSION = "0.0.1"
@@ -200,8 +203,8 @@ class UpdateChecker:
                 return
             data = json.loads(p.read_text(encoding="utf-8"))
             self._skipped = data.get("skip", "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[updater] 读取跳过版本文件失败: {e}")
 
     def _save_skip(self):
         try:
@@ -211,8 +214,8 @@ class UpdateChecker:
                                      "updated_at": time.time()},
                                     ensure_ascii=False),
                          encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning(f"[updater] 写入跳过版本文件失败: {e}")
 
     def skip_version(self, version: str):
         with self._lock:
@@ -269,7 +272,8 @@ class UpdateChecker:
             if not isinstance(raw, dict):
                 return None
             return self._parse(raw, url)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[updater] 检查更新镜像失败 {url}: {type(e).__name__}: {e}")
             return None
 
     def _parse(self, raw: dict, source: str) -> UpdateInfo | None:

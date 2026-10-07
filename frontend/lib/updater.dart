@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 class UpdateInfo {
   final bool hasUpdate;
@@ -259,7 +260,7 @@ class Updater {
         if (x > y) return true;
         if (x < y) return false;
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return false;
   }
 

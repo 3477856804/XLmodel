@@ -36,7 +36,7 @@ Future<void> _startBackend() async {
       workingDirectory: exeDir.path,
       mode: ProcessStartMode.detached,
     );
-  } catch (_) {}
+  } catch (e) { debugPrint('操作失败: $e'); }
 }
 
 Future<void> _killBackend() async {
@@ -44,7 +44,7 @@ Future<void> _killBackend() async {
     _backendProc?.kill(ProcessSignal.sigterm);
     await Future.delayed(const Duration(milliseconds: 200));
     _backendProc?.kill(ProcessSignal.sigkill);
-  } catch (_) {}
+  } catch (e) { debugPrint('操作失败: $e'); }
 }
 
 Future<void> _probeBackend() async {
@@ -61,7 +61,7 @@ Future<void> _startSandbox() async {
   if (!Platform.isAndroid) return;
   try {
     await SandboxService.start();
-  } catch (_) {}
+  } catch (e) { debugPrint('操作失败: $e'); }
 }
 
 void main() {
@@ -82,7 +82,7 @@ void main() {
       await _startSandbox();
       await Future.delayed(const Duration(milliseconds: 800));
       await _probeBackend();
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     runApp(const XiaoLingApp());
   }, (Object error, StackTrace stack) {
     runApp(_ErrorApp(error: error));
@@ -215,7 +215,7 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     try {
       PlatformDispatcher.instance;
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   @override

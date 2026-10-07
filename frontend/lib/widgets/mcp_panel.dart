@@ -75,7 +75,7 @@ class _McpPanelState extends State<McpPanel> with TickerProviderStateMixin {
             );
           }));
       });
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
   }
 
   @override

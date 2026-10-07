@@ -214,6 +214,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           text: '你好呀，我是小凌。今天想聊点什么？',
           time: DateTime.now(),
           status: _MsgStatus.done,
+          system: true,
         ));
       });
       _persistHistory();
@@ -1179,6 +1180,17 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
+          if (m.system)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4, left: 2),
+              child: Text('系统',
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
@@ -1850,12 +1862,14 @@ class _Msg {
   final String text;
   final DateTime time;
   final _MsgStatus status;
+  final bool system;
   const _Msg({
     required this.id,
     required this.who,
     required this.text,
     required this.time,
     required this.status,
+    this.system = false,
   });
   _Msg copyWith({String? text, _MsgStatus? status}) => _Msg(
         id: id,
@@ -1863,6 +1877,7 @@ class _Msg {
         text: text ?? this.text,
         time: time,
         status: status ?? this.status,
+        system: system,
       );
 
   Map<String, dynamic> toJson() => {
@@ -1871,6 +1886,7 @@ class _Msg {
         'text': text,
         'time': time.toIso8601String(),
         'status': status.name,
+        'system': system,
       };
 
   factory _Msg.fromJson(Map<String, dynamic> json) {
@@ -1885,6 +1901,7 @@ class _Msg {
       text: json['text'].toString(),
       time: DateTime.tryParse(json['time'].toString()) ?? DateTime.now(),
       status: st,
+      system: json['system'] == true,
     );
   }
 }

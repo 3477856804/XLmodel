@@ -4,6 +4,7 @@ import 'package:grpc/grpc.dart';
 import 'xiaoling.pb.dart';
 import 'xiaoling.pbgrpc.dart';
 import 'client.dart';
+import 'package:flutter/foundation.dart';
 
 class XlCallOptions {
   final Duration? timeout;
@@ -776,10 +777,10 @@ extension XlApiRefresh on XiaoLingClient {
     TrainingStatusReply? training;
     try {
       growth = await this.growth(opt: opt);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     try {
       training = await this.training(opt: opt);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return (growth: growth, training: training);
   }
 
@@ -790,10 +791,10 @@ extension XlApiRefresh on XiaoLingClient {
     RecommendedModelList? models;
     try {
       hw = await hardware(opt: opt);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     try {
       models = await recommended(opt: opt);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return (hw: hw, models: models);
   }
 
@@ -804,10 +805,10 @@ extension XlApiRefresh on XiaoLingClient {
     SettingsReply? settings;
     try {
       voices = await this.voices(opt: opt);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     try {
       settings = await this.settings(opt: opt);
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return (voices: voices, settings: settings);
   }
 }
