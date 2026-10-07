@@ -242,6 +242,43 @@ class GrowthStore:
         except Exception:
             pass
 
+    # ---- kv 键值存储（用于每日目标等配置） ----
+    def kv_get(self, key: str, default: str = "") -> str:
+        try:
+            with self._lock:
+                row = self.conn.execute(
+                    "SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+            return row["v"] if row else default
+        except Exception:
+            return default
+
+    def kv_set(self, key: str, value: str) -> bool:
+        try:
+            with self._lock:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)",
+                    (key, str(value)))
+                self.conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def kv_incr(self, key: str, n: int = 1) -> int:
+        """原子递增计数器，返回递增后的值。"""
+        try:
+            with self._lock:
+                row = self.conn.execute(
+                    "SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+                cur = int(row["v"]) if row and row["v"] else 0
+                cur += int(n)
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)",
+                    (key, str(cur)))
+                self.conn.commit()
+            return cur
+        except Exception:
+            return 0
+
     def _archive(self, row: dict):
         if not self.archive:
             return
@@ -1916,15 +1953,67 @@ class GrowthEngine:
         2000: ("挚友", "你们已经是最好的伙伴了！"),
     }
 
+    # ---- 每日目标追踪 ----
+    DEFAULT_DAILY_GOAL = 20
+
+    def _today_key(self) -> str:
+        return f"daily_count_{now_iso()[:10]}"
+
+    def set_daily_goal(self, n: int) -> bool:
+        """设置每日互动目标（次数）。"""
+        try:
+            n = max(1, int(n))
+            return self.store.kv_set("daily_goal", str(n))
+        except Exception:
+            return False
+
+    def get_daily_goal(self) -> int:
+        """获取当前每日目标，默认 20 次互动。"""
+        try:
+            v = self.store.kv_get("daily_goal", "")
+            return int(v) if v else self.DEFAULT_DAILY_GOAL
+        except Exception:
+            return self.DEFAULT_DAILY_GOAL
+
+    def record_interaction(self, n: int = 1) -> int:
+        """记录一次今日互动，返回今日累计次数。"""
+        try:
+            return self.store.kv_incr(self._today_key(), n)
+        except Exception:
+            return 0
+
+    def get_daily_progress(self) -> dict:
+        """返回今日目标完成进度。"""
+        try:
+            today = now_iso()[:10]
+            done = int(self.store.kv_get(self._today_key(), "0") or 0)
+            goal = self.get_daily_goal()
+            pct = round(done / goal * 100.0, 1) if goal > 0 else 0.0
+            return {
+                "date": today,
+                "completed": done,
+                "goal": goal,
+                "percent": pct,
+                "achieved": done >= goal,
+            }
+        except Exception:
+            today = now_iso()[:10]
+            return {"date": today, "completed": 0, "goal": self.DEFAULT_DAILY_GOAL,
+                    "percent": 0.0, "achieved": False}
+
     def calc_exp(self, action_type: str, duration: float = 1.0) -> float:
-        """根据互动类型和时长计算经验值。"""
-        if action_type == "chat":
-            return round(2.0 * duration, 2)
-        if action_type == "train":
-            return round(0.5 * duration, 2)
-        if action_type == "game":
-            return round(3.0 * duration, 2)
-        return round(1.0 * duration, 2)
+        """根据互动类型和时长计算经验值。chat 类型自动累加今日目标计数。"""
+        try:
+            if action_type == "chat":
+                self.record_interaction(1)
+                return round(2.0 * duration, 2)
+            if action_type == "train":
+                return round(0.5 * duration, 2)
+            if action_type == "game":
+                return round(3.0 * duration, 2)
+            return round(1.0 * duration, 2)
+        except Exception:
+            return 1.0
 
     def check_milestones(self, score: float = None) -> dict | None:
         """检测亲密度是否达到新等级阈值，返回里程碑信息或 None。"""
@@ -1941,17 +2030,18 @@ class GrowthEngine:
         """返回今日成长摘要。"""
         st = self.state()
         today = now_iso()[:10]
-        journal = self.recent_journal(limit=200)
-        today_events = [j for j in journal if j.get("time", "").startswith(today)]
-        exp_earned = sum(self.calc_exp("chat", 1) for _ in today_events)
+        progress = self.get_daily_progress()
+        interactions_today = progress["completed"]
+        exp_earned = round(2.0 * interactions_today, 1)
         return {
             "date": today,
-            "interactions_today": len(today_events),
-            "exp_earned": round(exp_earned, 1),
+            "interactions_today": interactions_today,
+            "exp_earned": exp_earned,
             "rounds": int(st.get("rounds", 0)),
             "promotions": int(st.get("promotions", 0)),
             "progress_percent": round(self.progress_percent(), 1),
             "milestone": self.check_milestones(),
+            "daily_goal": progress,
         }
 
     def close(self):

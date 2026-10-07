@@ -1,6 +1,29 @@
 import os, re, json, math, logging
 from collections import Counter, defaultdict
 
+# jieba 中文分词：不可用时降级到正则分词
+try:
+    import jieba
+    jieba.setLogLevel(logging.WARNING)
+    _JIEBA_AVAILABLE = True
+except ImportError:
+    jieba = None  # type: ignore
+    _JIEBA_AVAILABLE = False
+
+# 常见中文停用词
+CHINESE_STOPWORDS = {
+    "的", "了", "是", "在", "我", "有", "和", "就", "不", "人",
+    "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去",
+    "你", "会", "着", "没有", "看", "好", "自己", "这",
+    "他", "她", "它", "们", "那", "些", "什么", "怎么", "如何",
+    "呢", "吧", "吗", "啊", "呀", "嘛", "把", "被", "让", "向",
+    "从", "对", "为", "以", "及", "或", "而", "且", "但", "如",
+    "之", "于", "其", "此", "该", "各", "每", "等", "更", "最",
+    "可", "可以", "能", "能够", "将", "已", "已经", "正", "刚",
+    "过", "来", "去", "起", "开", "下", "中", "间", "内", "外",
+    "时", "时候", "地方", "东西", "觉得", "知道", "想", "做",
+}
+
 class KnowledgeBase:
     """项目知识库：索引文档，支持关键词检索和简单语义匹配"""
 
@@ -47,7 +70,15 @@ class KnowledgeBase:
 
     def _tokenize(self, text):
         text = text.lower()
-        tokens = re.findall(r'[a-z0-9_\u4e00-\u9fff]+', text)
+        if _JIEBA_AVAILABLE and jieba is not None:
+            # 英文用正则提取单词，中文用 jieba 精确分词
+            en_tokens = re.findall(r'[a-z0-9_]+', text)
+            zh_text = re.sub(r'[a-z0-9_]+', ' ', text)
+            zh_tokens = [t.strip() for t in jieba.cut(zh_text, cut_all=False) if t.strip()]
+            tokens = en_tokens + zh_tokens
+        else:
+            # 降级：正则整段匹配（中文会被当作一个 token）
+            tokens = re.findall(r'[a-z0-9_\u4e00-\u9fff]+', text)
         stop_words = {"the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
                        "have", "has", "had", "do", "does", "did", "will", "would", "could",
                        "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -62,7 +93,22 @@ class KnowledgeBase:
                        "i", "me", "my", "we", "our", "you", "your", "he", "him", "his", "she",
                        "her", "they", "them", "their", "return", "def", "class", "import",
                        "final", "const", "void", "null", "true", "false", "self"}
-        return [t for t in tokens if t not in stop_words and len(t) > 1]
+        stop_words = stop_words | CHINESE_STOPWORDS
+        result = []
+        for t in tokens:
+            if t in stop_words:
+                continue
+            # 过滤纯标点/空白 token：必须包含中文或字母数字
+            if not re.search(r'[\u4e00-\u9fff a-z0-9]', t):
+                continue
+            # 英文/数字要求长度>1；中文允许单字（jieba 已过滤停用词）
+            if re.match(r'^[a-z0-9_]+$', t):
+                if len(t) > 1:
+                    result.append(t)
+            else:
+                if len(t) >= 1:
+                    result.append(t)
+        return result
 
     def search(self, query, top_k=5) -> list:
         """TF-IDF 检索"""
