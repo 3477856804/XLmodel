@@ -27,7 +27,7 @@ jobs:
 
   build-linux:
     needs: prepare-release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
@@ -41,10 +41,11 @@ jobs:
           sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
       - name: Install Python deps
         run: |
-          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Bundle backend
         run: |
-          pyinstaller --onefile --name backend --clean main.py
+          pyinstaller --onefile --name backend --clean --collect-all torch --collect-all transformers --collect-all edge_tts main.py
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -78,10 +79,10 @@ jobs:
           python-version: "3.11"
       - name: Install Python deps
         run: |
-          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
       - name: Bundle backend
         run: |
-          pyinstaller --onefile --name backend --clean main.py
+          pyinstaller --onefile --name backend --clean --collect-all torch --collect-all transformers --collect-all edge_tts main.py
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -123,10 +124,10 @@ jobs:
           python-version: "3.11"
       - name: Install Python deps
         run: |
-          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
       - name: Bundle backend
         run: |
-          pyinstaller --onefile --name backend --clean main.py
+          pyinstaller --onefile --name backend --clean --collect-all torch --collect-all transformers --collect-all edge_tts main.py
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
