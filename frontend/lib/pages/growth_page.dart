@@ -90,7 +90,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
 
   List<_TimelineNode> _buildTimeline() {
     final g = _data!;
-    return [
+    final all = [
       _TimelineNode('初识', '第一次和你说话', '已完成', true, 'pink', DateTime.now().subtract(const Duration(days: 30)), Icons.waving_hand_rounded),
       _TimelineNode('第一次成长', '累计对话达到 10 次', '已达成', true, 'gold', DateTime.now().subtract(const Duration(days: 22)), Icons.trending_up_rounded),
       _TimelineNode('记忆突破', '知识图谱节点超过 50', '已达成', true, 'violet', DateTime.now().subtract(const Duration(days: 14)), Icons.hub_rounded),
@@ -98,6 +98,10 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
       _TimelineNode('深度共鸣', '亲密度达到 80%', '未解锁', false, 'blue', DateTime.now().add(const Duration(days: 10)), Icons.favorite_rounded),
       _TimelineNode('灵魂契合', '完成 1000 次对话', '未解锁', false, 'pink', DateTime.now().add(const Duration(days: 30)), Icons.psychology_rounded),
     ];
+    final now = DateTime.now();
+    final cutoffDays = _rangeIndex == 0 ? 7 : _rangeIndex == 1 ? 30 : 100000;
+    final cutoff = now.subtract(Duration(days: cutoffDays));
+    return all.where((n) => n.done || n.date.isAfter(cutoff)).toList();
   }
 
   @override
@@ -825,7 +829,10 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               children: List.generate(_ranges.length, (i) {
                 final selected = _rangeIndex == i;
                 return _Pressable(
-                  onTap: () => setState(() => _rangeIndex = i),
+                  onTap: () {
+                    setState(() => _rangeIndex = i);
+                    _timelineCtrl.forward(from: 0);
+                  },
                   child: AnimatedContainer(
                       duration: XlDuration.fast,
                       curve: XlCurve.standard,

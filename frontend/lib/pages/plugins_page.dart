@@ -743,45 +743,60 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     );
   }
 
-  Future<void> _togglePlugin(_Plugin plugin, bool next) async {
-    setState(() => _busy.add(plugin.name));
-    await Future.delayed(const Duration(milliseconds: 420));
+  void _showPluginSnack(String message, Color color) {
     if (!mounted) return;
-    setState(() {
-      final idx = _local.indexWhere((it) => it.name == plugin.name);
-      if (idx >= 0) {
-        _local[idx] = _local[idx].copyWith(enabled: next);
-      }
-      _busy.remove(plugin.name);
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
         behavior: SnackBarBehavior.floating,
         backgroundColor: XlPalette.of(context).surface,
         elevation: 0,
-        duration: const Duration(milliseconds: 1400),
+        duration: const Duration(milliseconds: 1600),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
         content: Row(
           children: [
             Container(
               width: 8,
               height: 8,
-              decoration: BoxDecoration(
-                color: next ? XlPalette.of(context).green : XlPalette.of(context).decor,
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
             const SizedBox(width: 10),
-            Text('${plugin.name} ${next ? "已启用" : "已禁用"}',
-                style: TextStyle(
-                  color: XlPalette.of(context).text1,
-                  fontWeight: FontWeight.w700,
-                  fontSize: XlFont.captionSm,
-                )),
+            Expanded(
+              child: Text(message,
+                  style: TextStyle(
+                    color: XlPalette.of(context).text1,
+                    fontWeight: FontWeight.w700,
+                    fontSize: XlFont.captionSm,
+                  )),
+            ),
           ],
         ),
       ));
+  }
+
+  Future<void> _togglePlugin(_Plugin plugin, bool next) async {
+    setState(() => _busy.add(plugin.name));
+    try {
+      final req = pb.PluginToggleRequest(name: plugin.name);
+      final r = next
+          ? await XlClient.stub.enablePlugin(req)
+          : await XlClient.stub.disablePlugin(req);
+      if (!mounted) return;
+      if (r.ok) {
+        setState(() {
+          final idx = _local.indexWhere((it) => it.name == plugin.name);
+          if (idx >= 0) _local[idx] = _local[idx].copyWith(enabled: next);
+          _busy.remove(plugin.name);
+        });
+        _showPluginSnack('${plugin.name} ${next ? "已启用" : "已禁用"}', XlPalette.of(context).green);
+      } else {
+        setState(() => _busy.remove(plugin.name));
+        _showPluginSnack(r.message.isNotEmpty ? r.message : '操作失败', XlPalette.of(context).red);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy.remove(plugin.name));
+      _showPluginSnack('操作失败：$e', XlPalette.of(context).red);
     }
   }
 

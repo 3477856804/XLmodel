@@ -27,6 +27,15 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   final ScrollController _logScroll = ScrollController();
   int _selectedPreset = 1;
   bool _autoScroll = true;
+  final _lrCtrl = TextEditingController(text: '0.0002');
+  final _bsCtrl = TextEditingController(text: '4');
+  final _rankCtrl = TextEditingController(text: '8');
+  final _stepsCtrl = TextEditingController(text: '100');
+  bool _trainingActive = false;
+  int _rtStep = 0;
+  int _rtTotalSteps = 0;
+  double _rtLoss = 0.0;
+  List<pb.TrainingHistoryEntry> _history = [];
 
   static const _presets = <_Preset>[
     _Preset('轻量', 'r=4 · 3 epochs', 'pink', Icons.bolt_rounded, 0.30),
@@ -62,6 +71,10 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     _pulseCtrl.dispose();
     _logCtrl.dispose();
     _logScroll.dispose();
+    _lrCtrl.dispose();
+    _bsCtrl.dispose();
+    _rankCtrl.dispose();
+    _stepsCtrl.dispose();
     super.dispose();
   }
 
@@ -73,10 +86,12 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     try {
       final r = await XlClient.stub.training();
       final g = await XlClient.stub.safe(() => XlClient.stub.growth());
+      final h = await XlClient.stub.safe(() => XlClient.stub.getTrainingHistory(pb.Empty()));
       if (!mounted) return;
       setState(() {
         _data = r;
         _growth = g;
+        _history = h?.entries.toList() ?? [];
         _loading = false;
       });
       _radarCtrl.forward(from: 0);
@@ -153,6 +168,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           const SizedBox(height: 22),
           _statusBanner(p),
           const SizedBox(height: 20),
+          _paramsCard(p),
+          const SizedBox(height: 20),
           LayoutBuilder(
             builder: (context, c) {
               final stacked = c.maxWidth < 1000;
@@ -221,6 +238,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
               );
             },
           ),
+          const SizedBox(height: 20),
+          _historyCard(p),
         ],
       ),
     );
@@ -329,77 +348,152 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _statusBanner(XlPalette p) {
-    final training = _data!.isTraining;
+    final training = _data!.isTraining || _trainingActive;
     final color = training ? p.green : p.gold;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AnimatedBuilder(
-            animation: _pulseCtrl,
-            builder: (_, __) {
-              final t = _pulseCtrl.value;
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 48 + t * 12,
-                    height: 48 + t * 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: color.withOpacity((1 - t) * 0.20),
-                    ),
-                  ),
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [color, color.withOpacity(0.75)]),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.5),
-                      boxShadow: [...p.raisedXs, BoxShadow(color: color.withOpacity(0.4), blurRadius: 18, spreadRadius: -4)],
-                    ),
-                    child: Icon(
-                      training ? Icons.auto_awesome_rounded : Icons.pause_rounded,
-                      color: p.isDark ? p.btnInk : Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Row(
+            children: [
+              AnimatedBuilder(
+                animation: _pulseCtrl,
+                builder: (_, __) {
+                  final t = _pulseCtrl.value;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 48 + t * 12,
+                        height: 48 + t * 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color.withOpacity((1 - t) * 0.20),
+                        ),
+                      ),
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [color, color.withOpacity(0.75)]),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.32 : 0.48), width: 1.5),
+                          boxShadow: [...p.raisedXs, BoxShadow(color: color.withOpacity(0.4), blurRadius: 18, spreadRadius: -4)],
+                        ),
+                        child: Icon(
+                          training ? Icons.auto_awesome_rounded : Icons.pause_rounded,
+                          color: p.isDark ? p.btnInk : Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(training ? '正在训练' : '等待指令',
+                    Row(
+                      children: [
+                        Text(training ? '正在训练' : '等待指令',
+                            style: TextStyle(
+                              fontSize: XlFont.h6,
+                              fontWeight: FontWeight.w800,
+                              color: p.text1,
+                              letterSpacing: XlLetterSpacing.normal,
+                            )),
+                        const SizedBox(width: 10),
+                        _tinyChip(p, training ? 'ACTIVE' : 'STANDBY', color),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(_data!.displayStatus,
                         style: TextStyle(
-                          fontSize: XlFont.h6,
-                          fontWeight: FontWeight.w800,
-                          color: p.text1,
-                          letterSpacing: XlLetterSpacing.normal,
+                          fontSize: XlFont.caption,
+                          color: p.text2,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: XlLetterSpacing.wide,
                         )),
-                    const SizedBox(width: 10),
-                    _tinyChip(p, training ? 'ACTIVE' : 'STANDBY', color),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(_data!.displayStatus,
-                    style: TextStyle(
-                      fontSize: XlFont.caption,
-                      color: p.text2,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: XlLetterSpacing.wide,
-                    )),
-              ],
-            ),
+              ),
+              if (training) _epochIndicator(p) else _startBtn(p),
+            ],
           ),
-          if (training) _epochIndicator(p) else _startBtn(p),
+          if (_trainingActive) ...[
+            const SizedBox(height: 16),
+            _rtProgress(p),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _rtProgress(XlPalette p) {
+    final total = _rtTotalSteps <= 0 ? 1 : _rtTotalSteps;
+    final pct = (_rtStep / total).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.screen(context, r: XlRadius.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Step',
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+              const SizedBox(width: 8),
+              Text('$_rtStep',
+                  style: TextStyle(
+                    fontSize: XlFont.h6,
+                    color: p.pink,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  )),
+              Text('/$_rtTotalSteps',
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                  )),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+                child: Text('Loss ${_rtLoss.toStringAsFixed(3)}',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.violet,
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _neuProgress(p, pct, height: 6),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text('${(pct * 100).toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.gold,
+                  fontWeight: FontWeight.w800,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ),
         ],
       ),
     );
@@ -467,32 +561,57 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       );
   }
 
-  void _startTraining() {
+  Future<void> _startTraining() async {
+    if (_trainingActive) return;
+    final lr = double.tryParse(_lrCtrl.text.trim()) ?? 0.0002;
+    final bs = int.tryParse(_bsCtrl.text.trim()) ?? 4;
+    final rank = int.tryParse(_rankCtrl.text.trim()) ?? 8;
+    final steps = int.tryParse(_stepsCtrl.text.trim()) ?? 100;
     setState(() {
-      _logs.add(_LogLine('[start] 初始化 LoRA 适配器 · 预设 ${_presets[_selectedPreset].name}', _LogLevel.warn));
+      _trainingActive = true;
+      _rtStep = 0;
+      _rtTotalSteps = steps;
+      _rtLoss = 0.0;
+      _logs.add(_LogLine('[start] 初始化 LoRA 适配器 · lr=$lr bs=$bs r=$rank steps=$steps', _LogLevel.warn));
       _logs.add(_LogLine('[preset] ${_presets[_selectedPreset].desc}', _LogLevel.dim));
     });
     _scrollLogBottom();
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: XlPalette.of(context).surface,
-      elevation: 0,
-      duration: const Duration(milliseconds: 1400),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
-      content: Row(
-        children: [
-          Icon(Icons.auto_awesome_rounded, size: 16, color: XlPalette.of(context).pink),
-          const SizedBox(width: 10),
-          Text('训练任务已提交',
-              style: TextStyle(
-                color: XlPalette.of(context).text1,
-                fontSize: XlFont.captionSm,
-                fontWeight: FontWeight.w700,
-              )),
-        ],
-      ),
-    ));
+    try {
+      final req = pb.TrainingRequest(
+        learningRate: lr,
+        batchSize: bs,
+        loraRank: rank,
+        steps: steps,
+        datasetName: 'default',
+      );
+      final stream = XlClient.stub.startTraining(req);
+      await for (final p in stream) {
+        if (!mounted) break;
+        setState(() {
+          _rtStep = p.step;
+          _rtTotalSteps = p.totalSteps <= 0 ? steps : p.totalSteps;
+          _rtLoss = p.loss;
+        });
+        if (p.step % 10 == 0 || p.step == _rtTotalSteps) {
+          _logs.add(_LogLine('[step] ${p.step}/${p.totalSteps} loss=${p.loss.toStringAsFixed(3)}', _LogLevel.info));
+          _scrollLogBottom();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _logs.add(_LogLine('[error] $e', _LogLevel.error)));
+        _scrollLogBottom();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _trainingActive = false;
+          _logs.add(_LogLine('[done] 训练流程结束', _LogLevel.ok));
+        });
+        _scrollLogBottom();
+        _load();
+      }
+    }
   }
 
   void _scrollLogBottom() {
@@ -1153,6 +1272,228 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     );
   }
 
+  Widget _paramsCard(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('训练参数',
+                  style: TextStyle(
+                    fontSize: XlFont.h6,
+                    fontWeight: FontWeight.w800,
+                    color: p.text1,
+                    letterSpacing: XlLetterSpacing.normal,
+                  )),
+              const Spacer(),
+              _tinyChip(p, 'LoRA', p.pink),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('自定义本次微调的超参数',
+              style: TextStyle(
+                fontSize: XlFont.label,
+                color: p.text3,
+                fontWeight: FontWeight.w500,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, c) {
+              final wide = c.maxWidth > 620;
+              final fields = [
+                _ParamField('学习率', '0.0002', _lrCtrl, p.pink),
+                _ParamField('Batch Size', '4', _bsCtrl, p.gold),
+                _ParamField('LoRA Rank', '8', _rankCtrl, p.violet),
+                _ParamField('训练步数', '100', _stepsCtrl, p.green),
+              ];
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (var i = 0; i < fields.length; i++) ...[
+                      Expanded(child: _paramField(p, fields[i])),
+                      if (i != fields.length - 1) const SizedBox(width: 12),
+                    ],
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  for (var i = 0; i < fields.length; i++) ...[
+                    _paramField(p, fields[i]),
+                    if (i != fields.length - 1) const SizedBox(height: 12),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _paramField(XlPalette p, _ParamField f) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(width: 6, height: 6, decoration: AppTheme.glowDot(f.color, size: 6)),
+            const SizedBox(width: 6),
+            Text(f.label,
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.text3,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Container(
+          decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          child: TextField(
+            controller: f.controller,
+            enabled: !_trainingActive,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: TextStyle(
+              fontSize: XlFont.caption,
+              color: p.text1,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+            decoration: InputDecoration(
+              hintText: f.hint,
+              hintStyle: TextStyle(fontSize: XlFont.caption, color: p.decor),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _historyCard(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('训练历史',
+                  style: TextStyle(
+                    fontSize: XlFont.h6,
+                    fontWeight: FontWeight.w800,
+                    color: p.text1,
+                    letterSpacing: XlLetterSpacing.normal,
+                  )),
+              const Spacer(),
+              Text('${_history.length} 次',
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.text3,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('历次微调的 loss 收敛曲线',
+              style: TextStyle(
+                fontSize: XlFont.label,
+                color: p.text3,
+                fontWeight: FontWeight.w500,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
+          const SizedBox(height: 16),
+          if (_history.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text('暂无训练记录',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.decor,
+                      fontWeight: FontWeight.w500,
+                    )),
+              ),
+            )
+          else
+            for (var i = 0; i < _history.length; i++)
+              Padding(
+                padding: EdgeInsets.only(bottom: i == _history.length - 1 ? 0 : 14),
+                child: _historyTile(p, _history[i]),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _historyTile(XlPalette p, pb.TrainingHistoryEntry e) {
+    final ts = e.timestamp.toInt();
+    final ms = ts > 1000000000000 ? ts : ts * 1000;
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final curve = e.lossCurve.toList();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.sunkenSm(context, r: XlRadius.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.text1,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+                const SizedBox(height: 4),
+                Text('步数 ${e.steps} · 最终 Loss ${e.finalLoss.toStringAsFixed(3)}',
+                    style: TextStyle(
+                      fontSize: XlFont.label,
+                      color: p.text3,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 4,
+            child: Container(
+              height: 44,
+              decoration: AppTheme.screen(context, r: XlRadius.sm),
+              padding: const EdgeInsets.all(4),
+              child: curve.length >= 2
+                  ? CustomPaint(
+                      painter: _LossCurvePainter(points: curve, palette: p),
+                    )
+                  : Center(
+                      child: Text('—',
+                          style: TextStyle(fontSize: XlFont.label, color: p.decor)),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _loadingView(XlPalette p) {
     return Center(
       child: Column(
@@ -1400,6 +1741,54 @@ class _Milestone {
   final bool done;
   final String color;
   const _Milestone(this.name, this.status, this.done, this.color);
+}
+
+class _ParamField {
+  final String label;
+  final String hint;
+  final TextEditingController controller;
+  final Color color;
+  const _ParamField(this.label, this.hint, this.controller, this.color);
+}
+
+class _LossCurvePainter extends CustomPainter {
+  final List<double> points;
+  final XlPalette palette;
+  _LossCurvePainter({required this.points, required this.palette});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    var minV = points.reduce(math.min);
+    var maxV = points.reduce(math.max);
+    if ((maxV - minV).abs() < 0.001) {
+      maxV = minV + 1.0;
+    }
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final x = size.width * i / (points.length - 1);
+      final v = (points[i] - minV) / (maxV - minV);
+      final y = size.height - 4 - v * (size.height - 8);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    final stroke = Paint()
+      ..color = palette.pink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(path, stroke);
+    final lastY = size.height - 4 - ((points.last - minV) / (maxV - minV)) * (size.height - 8);
+    canvas.drawCircle(Offset(size.width - 1, lastY), 2.5, Paint()..color = palette.gold);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LossCurvePainter old) =>
+      old.points != points || old.palette != palette;
 }
 
 class _Pressable extends StatefulWidget {

@@ -62,10 +62,25 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.Empty.SerializeToString,
                 response_deserializer=xiaoling__pb2.PluginList.FromString,
                 _registered_method=True)
+        self.EnablePlugin = channel.unary_unary(
+                '/xiaoling.XiaoLing/EnablePlugin',
+                request_serializer=xiaoling__pb2.PluginToggleRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
+        self.DisablePlugin = channel.unary_unary(
+                '/xiaoling.XiaoLing/DisablePlugin',
+                request_serializer=xiaoling__pb2.PluginToggleRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
         self.StartTraining = channel.unary_stream(
                 '/xiaoling.XiaoLing/StartTraining',
                 request_serializer=xiaoling__pb2.TrainingRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.TrainingProgress.FromString,
+                _registered_method=True)
+        self.GetTrainingHistory = channel.unary_unary(
+                '/xiaoling.XiaoLing/GetTrainingHistory',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.TrainingHistoryReply.FromString,
                 _registered_method=True)
         self.ListModels = channel.unary_unary(
                 '/xiaoling.XiaoLing/ListModels',
@@ -145,6 +160,16 @@ class XiaoLingStub:
         self.UpdateSettings = channel.unary_unary(
                 '/xiaoling.XiaoLing/UpdateSettings',
                 request_serializer=xiaoling__pb2.SettingsRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
+        self.ExportData = channel.unary_unary(
+                '/xiaoling.XiaoLing/ExportData',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.DataBlob.FromString,
+                _registered_method=True)
+        self.ImportData = channel.unary_unary(
+                '/xiaoling.XiaoLing/ImportData',
+                request_serializer=xiaoling__pb2.DataBlob.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
                 _registered_method=True)
         self.GetPersona = channel.unary_unary(
@@ -229,9 +254,27 @@ class XiaoLingServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def EnablePlugin(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DisablePlugin(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StartTraining(self, request, context):
         """===== 启动训练（流式进度） =====
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTrainingHistory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -346,6 +389,19 @@ class XiaoLingServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ExportData(self, request, context):
+        """===== 数据导出 / 导入 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ImportData(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetPersona(self, request, context):
         """===== 人格画像（情绪 / 亲密度 / 等级） =====
         """
@@ -430,10 +486,25 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     request_deserializer=xiaoling__pb2.Empty.FromString,
                     response_serializer=xiaoling__pb2.PluginList.SerializeToString,
             ),
+            'EnablePlugin': grpc.unary_unary_rpc_method_handler(
+                    servicer.EnablePlugin,
+                    request_deserializer=xiaoling__pb2.PluginToggleRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'DisablePlugin': grpc.unary_unary_rpc_method_handler(
+                    servicer.DisablePlugin,
+                    request_deserializer=xiaoling__pb2.PluginToggleRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
             'StartTraining': grpc.unary_stream_rpc_method_handler(
                     servicer.StartTraining,
                     request_deserializer=xiaoling__pb2.TrainingRequest.FromString,
                     response_serializer=xiaoling__pb2.TrainingProgress.SerializeToString,
+            ),
+            'GetTrainingHistory': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTrainingHistory,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.TrainingHistoryReply.SerializeToString,
             ),
             'ListModels': grpc.unary_unary_rpc_method_handler(
                     servicer.ListModels,
@@ -513,6 +584,16 @@ def add_XiaoLingServicer_to_server(servicer, server):
             'UpdateSettings': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateSettings,
                     request_deserializer=xiaoling__pb2.SettingsRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'ExportData': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExportData,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.DataBlob.SerializeToString,
+            ),
+            'ImportData': grpc.unary_unary_rpc_method_handler(
+                    servicer.ImportData,
+                    request_deserializer=xiaoling__pb2.DataBlob.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
             ),
             'GetPersona': grpc.unary_unary_rpc_method_handler(
@@ -705,6 +786,60 @@ class XiaoLing:
             _registered_method=True)
 
     @staticmethod
+    def EnablePlugin(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/EnablePlugin',
+            xiaoling__pb2.PluginToggleRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DisablePlugin(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/DisablePlugin',
+            xiaoling__pb2.PluginToggleRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def StartTraining(request,
             target,
             options=(),
@@ -721,6 +856,33 @@ class XiaoLing:
             '/xiaoling.XiaoLing/StartTraining',
             xiaoling__pb2.TrainingRequest.SerializeToString,
             xiaoling__pb2.TrainingProgress.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetTrainingHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/GetTrainingHistory',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.TrainingHistoryReply.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1152,6 +1314,60 @@ class XiaoLing:
             target,
             '/xiaoling.XiaoLing/UpdateSettings',
             xiaoling__pb2.SettingsRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExportData(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ExportData',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.DataBlob.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ImportData(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ImportData',
+            xiaoling__pb2.DataBlob.SerializeToString,
             xiaoling__pb2.StatusReply.FromString,
             options,
             channel_credentials,

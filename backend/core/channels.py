@@ -1,15 +1,21 @@
 """通信通道 - 统一管理所有外部消息通道
 
 支持：Webhook / Telegram / Discord / 飞书 / 邮件
+所有外部通道的网络调用均使用 requests，带 10 秒超时与 try-except，
+失败时优雅降级（返回 False / 跳过），不阻塞主程序。
 """
 import asyncio
 import json
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import aiohttp
+import requests
+
+HTTP_TIMEOUT = 10
 
 
 @dataclass
@@ -33,9 +39,10 @@ class ChannelBase(ABC):
     name: str = "base"
 
     def __init__(self, config: dict):
-        self.config = config
+        self.config = config or {}
         self._running = False
         self._message_handler = None
+        self.engine = None
 
     @abstractmethod
     async def start(self): pass
@@ -44,17 +51,32 @@ class ChannelBase(ABC):
     async def stop(self): pass
 
     @abstractmethod
-    async def send(self, to: str, content: str) -> bool: pass
+    async def send(self, to: str = "", content: str = "") -> bool: pass
 
     def set_message_handler(self, handler):
         self._message_handler = handler
+
+    def set_engine(self, engine):
+        self.engine = engine
+
+    def _reply(self, text: str) -> str:
+        """收到外部消息后获取机器人回复（优先 engine.chat，同步）。"""
+        try:
+            if self.engine is not None and hasattr(self.engine, "chat"):
+                out = self.engine.chat(text)
+                if asyncio.iscoroutine(out):
+                    out = asyncio.get_event_loop().run_until_complete(out)
+                return str(out)
+        except Exception as e:
+            print(f"  [{self.name}] 生成回复失败: {e}")
+        return ""
 
     @property
     def is_running(self) -> bool:
         return self._running
 
 
-# ===== Webhook =====
+# ===== Webhook（保留原有 aiohttp 真实实现）=====
 class WebhookChannel(ChannelBase):
     name = "webhook"
 
@@ -80,9 +102,10 @@ class WebhookChannel(ChannelBase):
     async def stop(self):
         if self._runner:
             await self._runner.cleanup()
+        self._runner = None
         self._running = False
 
-    async def send(self, to: str, content: str) -> bool:
+    async def send(self, to: str = "", content: str = "") -> bool:
         return bool(self.config.get("callback_url"))
 
     async def _handle(self, request):
@@ -109,124 +132,172 @@ class WebhookChannel(ChannelBase):
 
 # ===== Telegram =====
 class TelegramChannel(ChannelBase):
+    """Telegram Bot：sendMessage 发送 + getUpdates 长轮询接收（独立线程）。"""
     name = "telegram"
     API_BASE = "https://api.telegram.org"
 
     def __init__(self, config: dict):
         super().__init__(config)
-        self.bot_token = config.get("bot_token", "")
+        self.bot_token = str(config.get("bot_token", "") or "")
+        self.chat_id = str(config.get("chat_id", "") or "")
+        self._thread: Optional[threading.Thread] = None
+        self._stop_flag = threading.Event()
+        self._offset = 0
 
     async def start(self):
         if not self.bot_token:
+            print("  [Telegram] 未配置 bot_token，跳过启动")
             return
+        self._stop_flag.clear()
         self._running = True
-        print(f"  [Telegram] 已启动")
+        self._thread = threading.Thread(
+            target=self._poll_loop, name="telegram-poll", daemon=True)
+        self._thread.start()
+        print("  [Telegram] 已启动（getUpdates 轮询）")
 
     async def stop(self):
+        self._stop_flag.set()
+        t = self._thread
+        if t and t.is_alive():
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, t.join, 5)
+        self._thread = None
         self._running = False
 
-    async def send(self, to: str, content: str) -> bool:
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
         if not self.bot_token:
+            return False
+        chat_id = str(to or self.chat_id or "")
+        if not chat_id:
             return False
         url = f"{self.API_BASE}/bot{self.bot_token}/sendMessage"
         try:
-            async with aiohttp.ClientSession() as s:
-                async with s.post(url, json={"chat_id": to, "text": content}) as r:
-                    return r.status == 200
+            r = requests.post(
+                url,
+                data={"chat_id": chat_id, "text": content},
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code == 200
         except Exception:
             return False
 
+    def _poll_loop(self):
+        offset = self._offset
+        while not self._stop_flag.is_set():
+            url = f"{self.API_BASE}/bot{self.bot_token}/getUpdates"
+            try:
+                r = requests.get(
+                    url,
+                    params={"timeout": 30, "offset": offset},
+                    timeout=HTTP_TIMEOUT + 30,
+                )
+                data = r.json()
+            except Exception:
+                time.sleep(3)
+                continue
+            if not isinstance(data, dict) or not data.get("ok"):
+                time.sleep(3)
+                continue
+            try:
+                for upd in data.get("result", []) or []:
+                    offset = max(offset, int(upd.get("update_id", 0)) + 1)
+                    msg = (upd.get("message")
+                           or upd.get("edited_message")
+                           or upd.get("channel_post")
+                           or {})
+                    chat = msg.get("chat", {}) or {}
+                    text = msg.get("text", "")
+                    if not text:
+                        continue
+                    reply = self._reply(text)
+                    if reply:
+                        self._send_sync(str(chat.get("id", "")), reply)
+            except Exception as e:
+                print(f"  [Telegram] 处理更新异常: {e}")
+        self._offset = offset
 
-# ===== Discord =====
+
+# ===== Discord（Webhook 仅发送模式）=====
 class DiscordChannel(ChannelBase):
+    """Discord 自定义 Webhook：POST JSON 发送，不支持接收。"""
     name = "discord"
-    API_BASE = "https://discord.com/api/v10"
 
     def __init__(self, config: dict):
         super().__init__(config)
-        self.bot_token = config.get("bot_token", "")
+        self.webhook_url = str(config.get("webhook_url", "") or "")
 
     async def start(self):
-        if not self.bot_token:
+        if not self.webhook_url:
+            print("  [Discord] 未配置 webhook_url，跳过启动")
             return
         self._running = True
-        print(f"  [Discord] 已启动")
+        print("  [Discord] 通道已启动（仅发送模式）")
 
     async def stop(self):
         self._running = False
 
-    async def send(self, to: str, content: str) -> bool:
-        if not self.bot_token:
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.webhook_url:
             return False
-        url = f"{self.API_BASE}/channels/{to}/messages"
         try:
-            async with aiohttp.ClientSession(
-                headers={"Authorization": f"Bot {self.bot_token}"}
-            ) as s:
-                async with s.post(url, json={"content": content}) as r:
-                    return r.status == 200
+            r = requests.post(
+                self.webhook_url,
+                json={"content": content, "username": "晓灵"},
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code in (200, 204)
         except Exception:
             return False
 
 
-# ===== 飞书 =====
+# ===== 飞书（自定义机器人 Webhook 仅发送模式）=====
 class FeishuChannel(ChannelBase):
+    """飞书自定义机器人 Webhook：POST msg_type=text 发送，不支持接收。"""
     name = "feishu"
-    API_BASE = "https://open.feishu.cn/open-apis"
 
     def __init__(self, config: dict):
         super().__init__(config)
-        self.app_id = config.get("app_id", "")
-        self.app_secret = config.get("app_secret", "")
-        self._token = None
-        self._token_expire = 0
+        self.webhook_url = str(config.get("webhook_url", "") or "")
 
     async def start(self):
-        if not self.app_id:
+        if not self.webhook_url:
+            print("  [飞书] 未配置 webhook_url，跳过启动")
             return
-        await self._get_token()
         self._running = True
-        print(f"  [飞书] 已启动")
+        print("  [飞书] 通道已启动（仅发送模式）")
 
     async def stop(self):
         self._running = False
 
-    async def _get_token(self) -> str:
-        if self._token and time.time() < self._token_expire:
-            return self._token
-        url = f"{self.API_BASE}/auth/v3/tenant_access_token/internal"
-        async with aiohttp.ClientSession() as s:
-            async with s.post(url, json={
-                "app_id": self.app_id, "app_secret": self.app_secret
-            }) as r:
-                data = await r.json()
-                if data.get("code") == 0:
-                    self._token = data["tenant_access_token"]
-                    self._token_expire = time.time() + data.get("expire", 7200) - 300
-        return self._token or ""
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
 
-    async def send(self, to: str, content: str) -> bool:
-        token = await self._get_token()
-        if not token:
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.webhook_url:
             return False
-        url = f"{self.API_BASE}/im/v1/messages?receive_id_type=chat_id"
         try:
-            async with aiohttp.ClientSession() as s:
-                async with s.post(url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={
-                        "receive_id": to,
-                        "msg_type": "text",
-                        "content": json.dumps({"text": content}),
-                    }
-                ) as r:
-                    data = await r.json()
-                    return data.get("code") == 0
+            r = requests.post(
+                self.webhook_url,
+                json={"msg_type": "text", "content": {"text": content}},
+                timeout=HTTP_TIMEOUT,
+            )
+            data = r.json() if r.headers.get(
+                "Content-Type", "").startswith("application/json") else {}
+            return r.status_code == 200 and data.get("code", 0) == 0
         except Exception:
             return False
 
 
-# ===== 邮件 =====
+# ===== 邮件（保留）=====
 class EmailChannel(ChannelBase):
     name = "email"
 
@@ -246,7 +317,7 @@ class EmailChannel(ChannelBase):
     async def stop(self):
         self._running = False
 
-    async def send(self, to: str, content: str) -> bool:
+    async def send(self, to: str = "", content: str = "") -> bool:
         import smtplib
         from email.mime.text import MIMEText
         msg = MIMEText(content, "plain", "utf-8")
@@ -278,32 +349,70 @@ CHANNEL_REGISTRY = {
 
 
 class ChannelManager:
-    """统一管理所有通信通道"""
+    """统一管理所有通信通道。
+
+    优先从顶层扁平配置（telegram_enabled / discord_enabled / ...）读取，
+    兼容旧的嵌套 channels.<name> 配置。
+    """
 
     def __init__(self, config: dict = None):
         self.config = config or {}
         self.channels: Dict[str, ChannelBase] = {}
         self._message_handler = None
+        self.engine = None
+
+    def _channel_config(self, name: str) -> dict:
+        cfg = dict(self.config.get(name, {}) or {})
+        flat = {
+            "webhook": {
+                "enabled": self.config.get("webhook_enabled", False),
+            },
+            "telegram": {
+                "enabled": self.config.get("telegram_enabled", False),
+                "bot_token": self.config.get("telegram_bot_token", ""),
+                "chat_id": self.config.get("telegram_chat_id", ""),
+            },
+            "discord": {
+                "enabled": self.config.get("discord_enabled", False),
+                "webhook_url": self.config.get("discord_webhook_url", ""),
+            },
+            "feishu": {
+                "enabled": self.config.get("feishu_enabled", False),
+                "webhook_url": self.config.get("feishu_webhook_url", ""),
+            },
+        }.get(name, {})
+        for k, v in flat.items():
+            if k not in cfg or cfg.get(k) in (None, ""):
+                cfg[k] = v
+        return cfg
 
     async def start_all(self):
         for name, cls in CHANNEL_REGISTRY.items():
-            cfg = self.config.get(name, {})
-            if cfg.get("enabled", False):
-                try:
-                    ch = cls(cfg)
-                    ch.set_message_handler(self._message_handler)
-                    await ch.start()
-                    self.channels[name] = ch
-                except Exception as e:
-                    print(f"  [通道] {name} 启动失败: {e}")
+            cfg = self._channel_config(name)
+            if not cfg.get("enabled", False):
+                continue
+            try:
+                ch = cls(cfg)
+                ch.set_message_handler(self._message_handler)
+                if self.engine is not None:
+                    ch.set_engine(self.engine)
+                await ch.start()
+                self.channels[name] = ch
+            except Exception as e:
+                print(f"  [通道] {name} 启动失败: {e}")
 
     async def stop_all(self):
-        for ch in self.channels.values():
+        for ch in list(self.channels.values()):
             try:
                 await ch.stop()
             except Exception:
                 pass
         self.channels.clear()
+
+    def set_engine(self, engine):
+        self.engine = engine
+        for ch in self.channels.values():
+            ch.set_engine(engine)
 
     def set_message_handler(self, handler):
         self._message_handler = handler
@@ -311,4 +420,5 @@ class ChannelManager:
             ch.set_message_handler(handler)
 
     def list_channels(self) -> List[dict]:
-        return [{"name": n, "running": c.is_running} for n, c in self.channels.items()]
+        return [{"name": n, "running": c.is_running}
+                for n, c in self.channels.items()]

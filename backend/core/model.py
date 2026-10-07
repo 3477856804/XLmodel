@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field, asdict
+from fnmatch import fnmatch
 from pathlib import Path
 
 from .config import APP_DIR, STAR_DIR, DATA_DIR
@@ -741,17 +742,54 @@ class ModelStore:
             return {"ok": False, "error": f"未知模型：{model_name}"}
         dest = self.store_dir / model_name
         try:
-            from huggingface_hub import snapshot_download
+            from huggingface_hub import hf_hub_download
+            from huggingface_hub import HfApi
         except ImportError:
             return {"ok": False, "error": "huggingface_hub 未安装"}
+
+        repo = preset["repo"]
+        allow = ["*.json", "*.safetensors", "*.txt", "tokenizer*", "*.model"]
+        # 先枚举仓库文件清单与字节大小，作为总进度分母
+        files = []
+        total_bytes = 0
         try:
-            snapshot_download(repo_id=preset["repo"], local_dir=str(dest),
-                              allow_patterns=["*.json", "*.safetensors", "*.txt",
-                                              "tokenizer*", "*.model"])
-            info = scan_model_dir(dest)
-            return {"ok": bool(info.get("ok")), "path": str(dest), "size": info.get("size", "0 B")}
-        except Exception as e:
-            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            api = HfApi()
+            info = api.repo_info(repo, files_metadata=True)
+            for s in getattr(info, "siblings", []) or []:
+                rf = getattr(s, "rfilename", "") or ""
+                if not rf:
+                    continue
+                if any(fnmatch(rf, pat) for pat in allow):
+                    sz = int(getattr(s, "size", 0) or 0)
+                    files.append((rf, sz))
+                    total_bytes += sz
+        except Exception:
+            files = []
+            total_bytes = 0
+        if not files:
+            # 枚举失败时退化为 snapshot_download（无逐文件进度）
+            try:
+                from huggingface_hub import snapshot_download
+                snapshot_download(repo_id=repo, local_dir=str(dest),
+                                  allow_patterns=allow)
+            except Exception as e:
+                return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        else:
+            downloaded = 0
+            for rf, sz in files:
+                try:
+                    hf_hub_download(repo_id=repo, filename=rf, local_dir=str(dest))
+                except Exception as e:
+                    return {"ok": False, "error": f"下载 {rf} 失败：{e}"}
+                downloaded += sz
+                if progress_cb:
+                    try:
+                        progress_cb(downloaded, total_bytes)
+                    except Exception:
+                        pass
+        info = scan_model_dir(dest)
+        return {"ok": bool(info.get("ok")), "path": str(dest),
+                "size": info.get("size", "0 B")}
 
     def delete(self, name: str) -> bool:
         target = self.store_dir / name

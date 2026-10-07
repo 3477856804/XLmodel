@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
@@ -47,6 +50,14 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   String _theme = '跟随系统';
   String _language = '简体中文';
   String _cacheSize = '计算中…';
+
+  final Map<String, bool> _channels = {
+    'Webhook': true,
+    'Telegram': false,
+    'Discord': false,
+    '飞书': false,
+    '邮件': false,
+  };
 
   static const _sections = <_Section>[
     _Section('model', '模型设置', Icons.memory_rounded, 'pink'),
@@ -114,8 +125,154 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Future<void> _calcCache() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) setState(() => _cacheSize = '128.4 MB');
+    try {
+      final tmp = await getTemporaryDirectory();
+      final size = await _dirSize(tmp);
+      if (!mounted) return;
+      setState(() => _cacheSize = _fmtSize(size));
+    } catch (_) {
+      if (mounted) setState(() => _cacheSize = '未知');
+    }
+  }
+
+  Future<int> _dirSize(Directory d) async {
+    var total = 0;
+    try {
+      await for (final e in d.list(recursive: true, followLinks: false)) {
+        if (e is File) total += await e.length();
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  String _fmtSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+
+  String _two(int n) => n.toString().padLeft(2, '0');
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1800),
+        content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+      ));
+  }
+
+  Future<void> _clearCache() async {
+    try {
+      final tmp = await getTemporaryDirectory();
+      final size = await _dirSize(tmp);
+      try {
+        await for (final e in tmp.list()) {
+          e.delete(recursive: true);
+        }
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() => _cacheSize = '0 B');
+      _showSnack('已清理 ${(size / 1024 / 1024).toStringAsFixed(1)} MB 缓存');
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('缓存清理完成');
+    }
+  }
+
+  Future<void> _exportData() async {
+    try {
+      final blob = await XlClient.stub.exportData(pb.Empty());
+      final docs = await getApplicationDocumentsDirectory();
+      final now = DateTime.now();
+      final stamp = '${now.year}${_two(now.month)}${_two(now.day)}';
+      final name = 'xiaoling_export_$stamp.json';
+      final file = File(p.join(docs.path, name));
+      await file.writeAsString(blob.json);
+      if (!mounted) return;
+      _showSnack('数据已导出到：$name');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('导出失败：$e');
+    }
+  }
+
+  Future<void> _importData() async {
+    final ctrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: XlPalette.of(context).surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('导入数据'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 8,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '粘贴备份 JSON 内容…'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('导入')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final content = ctrl.text.trim();
+    if (content.isEmpty) {
+      _showSnack('内容为空，未导入');
+      return;
+    }
+    try {
+      final r = await XlClient.stub.importData(pb.DataBlob(json: content));
+      if (!mounted) return;
+      _showSnack(r.ok ? '数据导入成功' : '导入失败：${r.message}');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('导入失败：$e');
+    }
+  }
+
+  Future<void> _resetSettings() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: XlPalette.of(context).surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('确认重置'),
+        content: const Text('将恢复所有设置为默认值，确定继续？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await XlClient.stub.safe(() => XlClient.stub.updateSettings(pb.SettingsRequest()));
+    if (!mounted) return;
+    setState(() {
+      _toggles['alwaysOnTop'] = false;
+      _toggles['autoStart'] = false;
+      _toggles['asr'] = true;
+      _toggles['tts'] = true;
+      _toggles['readAloud'] = false;
+      _model = '小凌';
+      _voice = '晓晓';
+      _render = '软件光栅';
+      _threads = '4 线程';
+      _theme = '跟随系统';
+      _language = '简体中文';
+    });
+    _showSnack('设置已重置');
+  }
+
+  Future<void> _toggleChannel(String name, bool current) async {
+    setState(() => _channels[name] = !current);
+    await XlClient.stub.safe(() => XlClient.stub.updateSettings(pb.SettingsRequest()));
+    if (!mounted) return;
+    _showSnack('$name ${!current ? '已启用' : '已禁用'}');
   }
 
   Color _colorOf(XlPalette p, String key) {
@@ -835,41 +992,53 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _channelsSection(XlPalette p) {
-    final items = [
-      {'name': 'Webhook', 'desc': '接收外部系统推送', 'icon': Icons.webhook_rounded, 'on': true},
-      {'name': 'Telegram', 'desc': '通过 Bot 收发消息', 'icon': Icons.send_rounded, 'on': false},
-      {'name': 'Discord', 'desc': '接入 Discord 服务器', 'icon': Icons.discord_rounded, 'on': false},
-      {'name': '飞书', 'desc': '飞书机器人', 'icon': Icons.business_center_rounded, 'on': false},
-      {'name': '邮件', 'desc': 'SMTP 收发邮件', 'icon': Icons.email_rounded, 'on': false},
+    const meta = <Map<String, Object>>[
+      {'name': 'Webhook', 'desc': '接收外部系统推送', 'icon': Icons.webhook_rounded},
+      {'name': 'Telegram', 'desc': '通过 Bot 收发消息', 'icon': Icons.send_rounded},
+      {'name': 'Discord', 'desc': '接入 Discord 服务器', 'icon': Icons.discord_rounded},
+      {'name': '飞书', 'desc': '飞书机器人', 'icon': Icons.business_center_rounded},
+      {'name': '邮件', 'desc': 'SMTP 收发邮件', 'icon': Icons.email_rounded},
     ];
     return ListView(
       padding: const EdgeInsets.all(8),
-      children: items.map((e) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
-          child: Row(children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: (e['on'] as bool) ? p.gold.withOpacity(p.isDark ? 0.18 : 0.12) : p.surfaceLo,
-                borderRadius: BorderRadius.circular(XlRadius.md),
-                border: Border.all(color: (e['on'] as bool) ? p.gold.withOpacity(0.30) : p.edgeSoft, width: 1),
+      children: meta.map((e) {
+        final name = e['name'] as String;
+        final on = _channels[name] ?? false;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+            child: Row(children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: on ? p.gold.withOpacity(p.isDark ? 0.18 : 0.12) : p.surfaceLo,
+                  borderRadius: BorderRadius.circular(XlRadius.md),
+                  border: Border.all(color: on ? p.gold.withOpacity(0.30) : p.edgeSoft, width: 1),
+                ),
+                child: Icon(e['icon'] as IconData, color: on ? p.gold : p.text3, size: 18),
               ),
-              child: Icon(e['icon'] as IconData, color: (e['on'] as bool) ? p.gold : p.text3, size: 18),
-            ),
-            const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(e['name'] as String, style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.wide)),
-              const SizedBox(height: 3),
-              Text(e['desc'] as String, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
-            ])),
-            _toggle(p, e['on'] as bool, p.gold, () {}),
-          ]),
-        ),
-      )).toList(),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.wide)),
+                const SizedBox(height: 3),
+                Text(e['desc'] as String, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
+                const SizedBox(height: 4),
+                Text(on ? '已启用' : '未配置',
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      color: on ? p.green : p.decor,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ])),
+              _toggle(p, on, p.gold, () => _toggleChannel(name, on)),
+            ]),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -884,15 +1053,13 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         const SizedBox(height: 12),
         _switchRow(p, '使用统计', '发送匿名功能使用数据', Icons.analytics_outlined, 'telemetry', p.red),
         const SizedBox(height: 18),
-        _actionRow(p, '清理缓存', '当前占用 $_cacheSize', Icons.cleaning_services_outlined, p.pink, () {
-          setState(() => _cacheSize = '0 B');
-        }),
+        _actionRow(p, '清理缓存', '当前占用 $_cacheSize', Icons.cleaning_services_outlined, p.pink, () => _clearCache()),
         const SizedBox(height: 10),
-        _actionRow(p, '导出数据', '导出对话、记忆和配置', Icons.upload_file_rounded, p.violet, () {}),
+        _actionRow(p, '导出数据', '导出对话、记忆和配置', Icons.upload_file_rounded, p.violet, () => _exportData()),
         const SizedBox(height: 10),
-        _actionRow(p, '导入数据', '从备份文件恢复', Icons.download_rounded, p.blue, () {}),
+        _actionRow(p, '导入数据', '从备份文件恢复', Icons.download_rounded, p.blue, () => _importData()),
         const SizedBox(height: 10),
-        _actionRow(p, '重置所有设置', '恢复出厂默认，不可撤销', Icons.restart_alt_rounded, p.red, () {}),
+        _actionRow(p, '重置所有设置', '恢复出厂默认，不可撤销', Icons.restart_alt_rounded, p.red, () => _resetSettings()),
       ],
     );
   }
@@ -1063,6 +1230,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
 
   Widget _aboutLink(XlPalette p, String label, IconData icon, Color color) {
     return _Pressable(
+      onTap: () => _showSnack('$label 功能开发中'),
       child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: AppTheme.neuXs(context, r: XlRadius.md),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
@@ -22,7 +23,8 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   final _searchCtrl = TextEditingController();
   String _query = '';
   final Set<String> _downloading = {};
-  final Map<String, double> _progress = {};
+  final Map<String, _DlInfo> _dlInfo = {};
+  final Map<String, StreamSubscription<pb.DownloadProgress>> _dlSubs = {};
   String? _installedName;
   late AnimationController _enterCtrl;
   late AnimationController _pulseCtrl;
@@ -83,6 +85,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
 
   @override
   void dispose() {
+    for (final s in _dlSubs.values) {
+      s.cancel();
+    }
     _enterCtrl.dispose();
     _pulseCtrl.dispose();
     _scanCtrl.dispose();
@@ -782,7 +787,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   Widget _modelCard(XlPalette p, _ModelItem m, int i) {
     final color = _colorOf(p, m.color);
     final downloading = _downloading.contains(m.name);
-    final progress = _progress[m.name] ?? 0.0;
+    final dl = _dlInfo[m.name];
+    final progress = dl?.ratio ?? 0.0;
+    final dlError = dl?.error;
     final installed = _installedName == m.name;
     return TweenAnimationBuilder<double>(
       duration: Duration(milliseconds: 400 + i * 60),
@@ -904,7 +911,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                       children: [
                         Icon(Icons.download_rounded, size: 12, color: color),
                         const SizedBox(width: 6),
-                        Text('下载中 ${(progress * 100).toStringAsFixed(0)}%',
+                        Text('${(progress * 100).toStringAsFixed(0)}%',
                             style: TextStyle(
                               fontSize: XlFont.micro,
                               fontWeight: FontWeight.w800,
@@ -913,11 +920,39 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                               fontFeatures: const [FontFeature.tabularFigures()],
                             )),
                         const Spacer(),
+                        Text(dl?.sizeLabel ?? '',
+                            style: TextStyle(
+                              fontSize: XlFont.micro,
+                              fontWeight: FontWeight.w700,
+                              color: p.text3,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              letterSpacing: XlLetterSpacing.wider,
+                            )),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        if (dl != null && dl.status.isNotEmpty)
+                          Expanded(
+                            child: Text(dl.status,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: XlFont.micro,
+                                  fontWeight: FontWeight.w600,
+                                  color: p.text3,
+                                  letterSpacing: XlLetterSpacing.wider,
+                                )),
+                          ),
+                        const Spacer(),
                         GestureDetector(
-                          onTap: () => setState(() {
-                            _downloading.remove(m.name);
-                            _progress.remove(m.name);
-                          }),
+                          onTap: () {
+                            _dlSubs[m.name]?.cancel();
+                            _dlSubs.remove(m.name);
+                            setState(() {
+                              _downloading.remove(m.name);
+                            });
+                          },
                           child: Text('取消',
                               style: TextStyle(
                                 fontSize: XlFont.micro,
@@ -927,6 +962,35 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                               )),
                         ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (dlError != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: p.red.withOpacity(p.isDark ? 0.12 : 0.08),
+                  borderRadius: BorderRadius.circular(XlRadius.lg),
+                  border: Border.all(color: p.red.withOpacity(0.30), width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline_rounded, size: 14, color: p.red),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(dlError,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: XlFont.micro,
+                            fontWeight: FontWeight.w700,
+                            color: p.red,
+                            letterSpacing: XlLetterSpacing.wider,
+                          )),
+                    ),
+                    GestureDetector(
+                      onTap: () => setState(() => _dlInfo.remove(m.name)),
+                      child: Icon(Icons.close_rounded, size: 14, color: p.text3),
                     ),
                   ],
                 ),
@@ -1131,22 +1195,40 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   void _startDownload(_ModelItem m) {
+    if (_downloading.contains(m.name)) return;
     setState(() {
       _downloading.add(m.name);
-      _progress[m.name] = 0.0;
+      _dlInfo[m.name] = const _DlInfo(percent: 0);
     });
-    var pct = 0.0;
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(milliseconds: 180));
-      if (!mounted || !_downloading.contains(m.name)) return false;
-      pct += 0.02 + (0.06 - 0.02) * (1 - pct);
-      if (pct >= 1.0) {
+    final sub = XlClient.stub.download(m.name, quant: m.quant).listen(
+      (p) {
+        if (!mounted) return;
+        setState(() {
+          _dlInfo[m.name] = _DlInfo(
+            percent: p.percent,
+            downloadedMb: p.downloadedMb,
+            totalMb: p.totalMb,
+            status: p.status,
+          );
+        });
+      },
+      onError: (e) {
+        if (!mounted) return;
+        _dlSubs.remove(m.name);
         setState(() {
           _downloading.remove(m.name);
-          _progress.remove(m.name);
-          _installedName = m.name;
+          _dlInfo[m.name] = _DlInfo(percent: 0, error: e.toString());
         });
-        if (mounted) {
+      },
+      onDone: () {
+        if (!mounted) return;
+        _dlSubs.remove(m.name);
+        final hadError = _dlInfo[m.name]?.error != null;
+        if (!hadError && _downloading.contains(m.name)) {
+          setState(() {
+            _downloading.remove(m.name);
+            _installedName = m.name;
+          });
           ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             behavior: SnackBarBehavior.floating,
@@ -1159,7 +1241,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                 Icon(Icons.check_circle_rounded, size: 16, color: XlPalette.of(context).green),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text('${m.name} 安装完成',
+                  child: Text('${m.name} 下载完成',
                       style: TextStyle(
                         color: XlPalette.of(context).text1,
                         fontSize: XlFont.captionSm,
@@ -1170,11 +1252,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             ),
           ));
         }
-        return false;
-      }
-      setState(() => _progress[m.name] = pct);
-      return true;
-    });
+      },
+    );
+    _dlSubs[m.name] = sub;
   }
 
   void _showInfo(XlPalette p, _ModelItem m) {
@@ -1508,6 +1588,26 @@ class _Sum {
   final String color;
   final double progress;
   const _Sum(this.label, this.value, this.unit, this.icon, this.color, this.progress);
+}
+
+class _DlInfo {
+  final double percent;
+  final double downloadedMb;
+  final double totalMb;
+  final String status;
+  final String? error;
+  const _DlInfo({
+    required this.percent,
+    this.downloadedMb = 0,
+    this.totalMb = 0,
+    this.status = '',
+    this.error,
+  });
+  double get ratio => (percent / 100).clamp(0.0, 1.0);
+  String get sizeLabel {
+    if (totalMb <= 0) return '';
+    return '${downloadedMb.toStringAsFixed(1)} / ${totalMb.toStringAsFixed(1)} MB';
+  }
 }
 
 class _Pressable extends StatefulWidget {

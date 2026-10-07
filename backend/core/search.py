@@ -8,7 +8,8 @@
   * `search_web(query, n)`      → [{title, url, snippet}]
   * `fetch_text(url, max_chars)`→ 网页正文（去标签）
   * `answer_with_search(query)` → 检索 + 拼上下文，交给本地模型/老师模型作答
-离线自动降级：无网络时返回 []，由引擎走本地知识。
+离线自动降级：无网络时返回 []，由引擎走本地知识；本地无网络时进一步
+在 data/knowledge/ 目录做关键词匹配兜底，保证不崩溃。
 """
 from __future__ import annotations
 
@@ -19,6 +20,14 @@ import re
 import urllib.parse
 import urllib.request
 import zlib
+from pathlib import Path
+
+try:
+    from .config import DATA_DIR
+except Exception:  # pragma: no cover
+    DATA_DIR = Path("data")
+
+KNOWLEDGE_DIR = DATA_DIR / "knowledge"
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
@@ -40,13 +49,57 @@ def _open(url, data=None, headers=None, timeout=8):
         return raw.decode(m.group(1) if m else 'utf-8', 'ignore')
 
 
+def local_search(query: str, n: int = 5) -> list:
+    """本地知识库兜底：在 data/knowledge/ 下做关键词匹配。
+
+    支持 .txt / .md / .jsonl 文件；按 query 分词命中行数打分。
+    目录不存在或无命中时返回 []，绝不抛异常。
+    """
+    if not query or not KNOWLEDGE_DIR.exists():
+        return []
+    try:
+        words = [w for w in re.split(r"[\s,，。；;：:！!？?、]+", query) if len(w) >= 2]
+        if not words:
+            words = [query.strip()]
+        hits = []
+        files = [p for p in KNOWLEDGE_DIR.rglob("*")
+                 if p.is_file() and p.suffix.lower() in (".txt", ".md", ".jsonl")]
+        for fp in files:
+            try:
+                text = fp.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                score = sum(1 for w in words if w in line)
+                if score:
+                    hits.append((score, fp.name, line[:300]))
+        hits.sort(key=lambda x: x[0], reverse=True)
+        out = []
+        for _, fname, snip in hits[:n]:
+            out.append({"title": fname, "url": "", "snippet": snip,
+                        "source": "local"})
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def search_web(query: str, n: int = 5, engine: str = 'duckduckgo'):
-    """免 Key 联网搜索。"""
+    """免 Key 联网搜索；联网失败时回退本地知识库。"""
     if engine == 'duckduckgo':
-        return _ddg(query, n)
-    if engine == 'searx':
-        return _searx(query, n)
-    return _ddg(query, n)
+        res = _ddg(query, n)
+    elif engine == 'searx':
+        res = _searx(query, n)
+    else:
+        res = _ddg(query, n)
+    if res:
+        return res
+    local = local_search(query, n)
+    if local:
+        print(f'  [搜索] 联网不可用，命中本地知识库 {len(local)} 条')
+    return local
 
 
 def _ddg(query: str, n: int = 5):

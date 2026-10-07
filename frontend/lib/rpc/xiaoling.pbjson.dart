@@ -2,7 +2,7 @@
 //  Generated code. Do not modify.
 //  source: xiaoling.proto
 //
-// @dart = 2.12
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names, library_prefixes
@@ -300,12 +300,19 @@ const TrainingRequest$json = {
   '1': 'TrainingRequest',
   '2': [
     {'1': 'steps', '3': 1, '4': 1, '5': 5, '10': 'steps'},
+    {'1': 'learning_rate', '3': 2, '4': 1, '5': 1, '10': 'learningRate'},
+    {'1': 'batch_size', '3': 3, '4': 1, '5': 5, '10': 'batchSize'},
+    {'1': 'lora_rank', '3': 4, '4': 1, '5': 5, '10': 'loraRank'},
+    {'1': 'dataset_name', '3': 5, '4': 1, '5': 9, '10': 'datasetName'},
   ],
 };
 
 /// Descriptor for `TrainingRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List trainingRequestDescriptor = $convert.base64Decode(
-    'Cg9UcmFpbmluZ1JlcXVlc3QSFAoFc3RlcHMYASABKAVSBXN0ZXBz');
+    'Cg9UcmFpbmluZ1JlcXVlc3QSFAoFc3RlcHMYASABKAVSBXN0ZXBzEiMKDWxlYXJuaW5nX3JhdG'
+    'UYAiABKAFSDGxlYXJuaW5nUmF0ZRIdCgpiYXRjaF9zaXplGAMgASgFUgliYXRjaFNpemUSGwoJ'
+    'bG9yYV9yYW5rGAQgASgFUghsb3JhUmFuaxIhCgxkYXRhc2V0X25hbWUYBSABKAlSC2RhdGFzZX'
+    'ROYW1l');
 
 @$core.Deprecated('Use trainingProgressDescriptor instead')
 const TrainingProgress$json = {
@@ -323,6 +330,60 @@ final $typed_data.Uint8List trainingProgressDescriptor = $convert.base64Decode(
     'ChBUcmFpbmluZ1Byb2dyZXNzEhIKBHN0ZXAYASABKAVSBHN0ZXASHwoLdG90YWxfc3RlcHMYAi'
     'ABKAVSCnRvdGFsU3RlcHMSEgoEbG9zcxgDIAEoAlIEbG9zcxIWCgZzdGF0dXMYBCABKAlSBnN0'
     'YXR1cw==');
+
+@$core.Deprecated('Use trainingHistoryEntryDescriptor instead')
+const TrainingHistoryEntry$json = {
+  '1': 'TrainingHistoryEntry',
+  '2': [
+    {'1': 'timestamp', '3': 1, '4': 1, '5': 3, '10': 'timestamp'},
+    {'1': 'steps', '3': 2, '4': 1, '5': 5, '10': 'steps'},
+    {'1': 'final_loss', '3': 3, '4': 1, '5': 2, '10': 'finalLoss'},
+    {'1': 'loss_curve', '3': 4, '4': 3, '5': 2, '10': 'lossCurve'},
+  ],
+};
+
+/// Descriptor for `TrainingHistoryEntry`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List trainingHistoryEntryDescriptor = $convert.base64Decode(
+    'ChRUcmFpbmluZ0hpc3RvcnlFbnRyeRIcCgl0aW1lc3RhbXAYASABKANSCXRpbWVzdGFtcBIUCg'
+    'VzdGVwcxgCIAEoBVIFc3RlcHMSHQoKZmluYWxfbG9zcxgDIAEoAlIJZmluYWxMb3NzEh0KCmxv'
+    'c3NfY3VydmUYBCADKAJSCWxvc3NDdXJ2ZQ==');
+
+@$core.Deprecated('Use trainingHistoryReplyDescriptor instead')
+const TrainingHistoryReply$json = {
+  '1': 'TrainingHistoryReply',
+  '2': [
+    {'1': 'entries', '3': 1, '4': 3, '5': 11, '6': '.xiaoling.TrainingHistoryEntry', '10': 'entries'},
+  ],
+};
+
+/// Descriptor for `TrainingHistoryReply`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List trainingHistoryReplyDescriptor = $convert.base64Decode(
+    'ChRUcmFpbmluZ0hpc3RvcnlSZXBseRI4CgdlbnRyaWVzGAEgAygLMh4ueGlhb2xpbmcuVHJhaW'
+    '5pbmdIaXN0b3J5RW50cnlSB2VudHJpZXM=');
+
+@$core.Deprecated('Use pluginToggleRequestDescriptor instead')
+const PluginToggleRequest$json = {
+  '1': 'PluginToggleRequest',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+  ],
+};
+
+/// Descriptor for `PluginToggleRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pluginToggleRequestDescriptor = $convert.base64Decode(
+    'ChNQbHVnaW5Ub2dnbGVSZXF1ZXN0EhIKBG5hbWUYASABKAlSBG5hbWU=');
+
+@$core.Deprecated('Use dataBlobDescriptor instead')
+const DataBlob$json = {
+  '1': 'DataBlob',
+  '2': [
+    {'1': 'json', '3': 1, '4': 1, '5': 9, '10': 'json'},
+  ],
+};
+
+/// Descriptor for `DataBlob`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List dataBlobDescriptor = $convert.base64Decode(
+    'CghEYXRhQmxvYhISCgRqc29uGAEgASgJUgRqc29u');
 
 @$core.Deprecated('Use hardwareInfoDescriptor instead')
 const HardwareInfo$json = {
