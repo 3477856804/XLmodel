@@ -17,32 +17,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Python deps
+      - name: Install system deps
         run: |
-          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build
+      - name: Install minimal Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp
           pip install pyinstaller
       - name: Bundle backend
         run: |
-          pyinstaller --onefile --name xiaoling-backend main.py
-          ls dist/
+          pyinstaller --onefile --name backend --clean main.py
+          ls -lh dist/backend
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - name: Build Linux
+      - name: Build Flutter Linux
         run: |
           cd frontend
           flutter pub get
           flutter build linux --release
       - name: Package
         run: |
-          mkdir -p release/xiaoling-linux
-          cp -r frontend/build/linux/x64/release/bundle/* release/xiaoling-linux/
-          cp dist/xiaoling-backend release/xiaoling-linux/
-          cd release && tar -czf xiaoling-linux-${{ env.APP_VERSION }}.tar.gz xiaoling-linux/
+          BUNDLE=frontend/build/linux/x64/release/bundle
+          cp dist/backend $BUNDLE/backend
+          chmod +x $BUNDLE/backend
+          mkdir -p release
+          tar -czf release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz -C $(dirname $BUNDLE) $(basename $BUNDLE)
+          ls -lh release/
       - uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-linux
+          name: linux
           path: release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz
 
   build-windows:
@@ -52,31 +58,33 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Python deps
+      - name: Install minimal Python deps
         run: |
-          pip install -r requirements.txt
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp
           pip install pyinstaller
       - name: Bundle backend
         run: |
-          pyinstaller --onefile --name xiaoling-backend main.py
+          pyinstaller --onefile --name backend --clean main.py
+          dir dist
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - name: Build Windows
+      - name: Build Flutter Windows
         run: |
           cd frontend
           flutter pub get
           flutter build windows --release
       - name: Package
         run: |
-          mkdir release
-          Copy-Item -Recurse frontend\build\windows\x64\runner\Release release\xiaoling-windows
-          Copy-Item dist\xiaoling-backend.exe release\xiaoling-windows\
-          Compress-Archive -Path release\xiaoling-windows -DestinationPath release\xiaoling-windows-${{ env.APP_VERSION }}.zip
+          $releaseDir = "frontend\build\windows\x64\runner\Release"
+          Copy-Item "dist\backend.exe" "$releaseDir\backend.exe"
+          if (!(Test-Path "release")) { New-Item -ItemType Directory -Path "release" }
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "release\xiaoling-windows-${{ env.APP_VERSION }}.zip" -Force
+          dir release
       - uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-windows
+          name: windows
           path: release/xiaoling-windows-${{ env.APP_VERSION }}.zip
 
   build-macos:
@@ -86,35 +94,46 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install Python deps
+      - name: Install minimal Python deps
         run: |
-          pip install -r requirements.txt
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp
           pip install pyinstaller
       - name: Bundle backend
         run: |
-          pyinstaller --onefile --name xiaoling-backend main.py
+          pyinstaller --onefile --name backend --clean main.py
+          ls -lh dist/backend
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - name: Build macOS
+      - name: Build Flutter macOS
         run: |
           cd frontend
           flutter pub get
           flutter build macos --release
       - name: Package
         run: |
+          APP=$(find frontend/build/macos/Build/Products/Release -name "*.app" -maxdepth 1 | head -1)
+          echo "App found: $APP"
+          if [ -z "$APP" ]; then echo "No .app found"; ls -R frontend/build/macos/Build/Products/Release/; exit 1; fi
+          cp dist/backend "$APP/Contents/MacOS/backend"
+          chmod +x "$APP/Contents/MacOS/backend"
           mkdir -p release
-          hdiutil create -volname "XiaoLing" -srcfolder frontend/build/macos/Build/Products/Release/ -ov -format UDZO release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
+          hdiutil create -volname "XiaoLing" -srcfolder "$(dirname $APP)" -ov -format UDZO release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
+          ls -lh release/
       - uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-macos
+          name: macos
           path: release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
 
   build-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -124,12 +143,14 @@ jobs:
           cd frontend
           flutter pub get
           flutter build apk --release
+          ls -lh build/app/outputs/flutter-apk/
       - name: Rename
         run: |
           cp frontend/build/app/outputs/flutter-apk/app-release.apk xiaoling-android-${{ env.APP_VERSION }}.apk
+          ls -lh xiaoling-android-${{ env.APP_VERSION }}.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-android
+          name: android
           path: xiaoling-android-${{ env.APP_VERSION }}.apk
 
   create-release:
@@ -142,7 +163,7 @@ jobs:
         with:
           path: artifacts
       - name: Display files
-        run: ls -la artifacts/*/
+        run: ls -lhR artifacts/
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -151,9 +172,15 @@ jobs:
           body: |
             XiaoLing AI Companion v${{ env.APP_VERSION }}
             
-            全平台构建产物：
-            - Linux (tar.gz)
-            - Windows (zip)
+            全平台构建产物（Flutter UI + Python gRPC 后端）：
+            - Linux x64 (tar.gz)
+            - Windows x64 (zip)
             - macOS (dmg)
-            - Android (apk)
-          files: artifacts/*/*
+            - Android (apk, 含 Chaquopy Python 沙箱)
+            
+            后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。
+          files: |
+            artifacts/linux/*.tar.gz
+            artifacts/windows/*.zip
+            artifacts/macos/*.dmg
+            artifacts/android/*.apk
