@@ -70,6 +70,10 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+      - name: Regenerate Windows project
+        run: |
+          cd frontend
+          flutter create --platforms=windows .
       - name: Build Flutter Windows
         run: |
           cd frontend
