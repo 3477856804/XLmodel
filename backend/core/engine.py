@@ -1033,6 +1033,72 @@ class XiaoLing:
         return {"ok": ok, "total": len(checks), "checks": checks,
                 "health": round(ok / len(checks), 2)}
 
+    # ---- 增量：状态统计 / 健康检查增强 / 上下文管理 ----
+    def get_stats(self) -> dict:
+        """返回引擎运行统计：对话次数、token 估算、平均响应长度、运行时间等。"""
+        uptime = time.time() - self.start_time
+        assistant_turns = [t for t in self.conversation if t.get("role") == "assistant"]
+        avg_len = round(sum(len(t.get("content", "")) for t in assistant_turns)
+                        / max(len(assistant_turns), 1), 1)
+        model_name = ""
+        if self.model_replace is not None:
+            try:
+                model_name = self.model_replace.current_name() or "未选择"
+            except Exception:
+                model_name = "未知"
+        plugin_count = 0
+        if self.plugins is not None:
+            try:
+                plugin_count = len(self.plugins.list_plugins())
+            except Exception:
+                plugin_count = 0
+        return {
+            "total_chats": self.interaction_count,
+            "total_tokens_est": sum(len(t.get("content", "")) for t in self.conversation) // 4,
+            "avg_response_len": avg_len,
+            "uptime_s": round(uptime, 1),
+            "current_model": model_name,
+            "plugin_count": plugin_count,
+        }
+
+    def health_detail(self) -> dict:
+        """在 health() 基础上追加模型加载状态、内存、磁盘检查。"""
+        base = self.health()
+        extra = {}
+        try:
+            local = self.model_replace.get_model() if self.model_replace else None
+            extra["model_loaded"] = bool(local and local.is_loaded())
+        except Exception:
+            extra["model_loaded"] = False
+        try:
+            import psutil
+            m = psutil.virtual_memory()
+            extra["mem"] = {"total_gb": round(m.total / 1024 ** 3, 1),
+                             "available_gb": round(m.available / 1024 ** 3, 1),
+                             "percent": m.percent}
+        except ImportError:
+            extra["mem"] = "psutil 不可用"
+        try:
+            import shutil as _sh
+            du = _sh.disk_usage(str(DATA_DIR))
+            extra["disk"] = {"free_gb": round(du.free / 1024 ** 3, 2),
+                             "total_gb": round(du.total / 1024 ** 3, 2)}
+        except Exception:
+            extra["disk"] = "不可用"
+        base["detail"] = extra
+        return base
+
+    def clear_context(self) -> str:
+        """清空当前对话上下文与压缩摘要。"""
+        self.conversation.clear()
+        if self.compressor is not None:
+            self.compressor.clear()
+        return "对话上下文已清空"
+
+    def get_context_length(self) -> int:
+        """估算当前上下文 token 数（按字符数 / 4）。"""
+        return sum(len(t.get("content", "")) for t in self.conversation) // 4
+
     def dump_state(self, path: str = None) -> str:
         p = Path(path) if path else (DATA_DIR / "engine_state.json")
         try:

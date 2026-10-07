@@ -219,9 +219,98 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
         ),
         const SizedBox(width: 16),
         _refreshBtn(p),
+        const SizedBox(width: 10),
+        _shareBtn(p),
       ],
     );
   }
+
+  Widget _shareBtn(XlPalette p) {
+    return _Pressable(
+      onTap: () => _showShareCard(p),
+      child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.share_rounded, size: 15, color: p.gold),
+              const SizedBox(width: 8),
+              Text('分享',
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    fontWeight: FontWeight.w700,
+                    color: p.text1,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ],
+          ),
+        ),
+      );
+  }
+
+  void _showShareCard(XlPalette p) {
+    final g = _data!;
+    final now = DateTime.now();
+    showDialog(
+      context: context,
+      barrierColor: p.scrim,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          width: 340,
+          padding: const EdgeInsets.all(24),
+          decoration: AppTheme.brand(context, r: XlRadius.xxl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome_rounded, size: 16, color: p.btnInk),
+                  const SizedBox(width: 8),
+                  Text('小凌成长报告',
+                      style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.btnInk, letterSpacing: XlLetterSpacing.wider)),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(g.displayRank,
+                  style: TextStyle(fontSize: XlFont.h3, fontWeight: FontWeight.w800, color: p.btnInk, letterSpacing: -0.5)),
+              const SizedBox(height: 6),
+              Text('亲密度 ${g.normalizedProgress.toStringAsFixed(1)}%',
+                  style: TextStyle(fontSize: XlFont.captionSm, color: p.btnInk.withOpacity(0.8), fontWeight: FontWeight.w600)),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _shareStat(p, '交互', '${g.totalInteractions}'),
+                  _shareStat(p, '阶段', g.displayStage),
+                  _shareStat(p, '代数', '${g.currentGeneration}'),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text('${now.year}-${_two(now.month)}-${_two(now.day)} · 本地生成',
+                  style: TextStyle(fontSize: XlFont.micro, color: p.btnInk.withOpacity(0.6), fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _shareStat(XlPalette p, String label, String value) {
+    return Column(
+      children: [
+        Text(value,
+            style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.btnInk)),
+        const SizedBox(height: 3),
+        Text(label,
+            style: TextStyle(fontSize: XlFont.micro, color: p.btnInk.withOpacity(0.7), fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
+  String _two(int n) => n.toString().padLeft(2, '0');
 
   Widget _rankBadge(XlPalette p) {
     final g = _data!;
@@ -472,6 +561,20 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                   ),
                   const SizedBox(width: 8),
                   _heroPill(p, g.paused ? Icons.pause_rounded : Icons.play_arrow_rounded, g.trainingLabel),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text('近 7 天情绪趋势',
+                      style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: p.btnInk.withOpacity(0.6),
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                  const Spacer(),
+                  _emotionSparkline(p),
                 ],
               ),
             ],
@@ -782,6 +885,16 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                   child: Icon(s.icon, size: 18, color: color),
                 ),
                 const Spacer(),
+                Tooltip(
+                  message: _statHint(s.label),
+                  decoration: BoxDecoration(
+                    color: p.surfaceHi,
+                    borderRadius: BorderRadius.circular(XlRadius.sm),
+                  ),
+                  textStyle: TextStyle(fontSize: XlFont.micro, color: p.text1, fontWeight: FontWeight.w600),
+                  child: Icon(Icons.info_outline_rounded, size: 13, color: p.decor),
+                ),
+                const SizedBox(width: 6),
                 Text(s.hint,
                     style: TextStyle(
                       fontSize: XlFont.micro,
@@ -844,6 +957,31 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
             const SizedBox(height: 12),
             _neuProgress(p, s.progress, height: 5, color: color),
           ],
+        ),
+      ),
+    );
+  }
+
+  String _statHint(String label) {
+    switch (label) {
+      case '交互次数': return '感知维度：累计对话轮次，衡量互动深度';
+      case '当前情绪': return '情绪指数：理解维度，综合语气与上下文得出';
+      case '训练状态': return '进化维度：后台微调进度，决定模型响应质量';
+      case '当前段位': return '守护维度：关系等级，由亲密度阈值决定';
+      default: return label;
+    }
+  }
+
+  Widget _emotionSparkline(XlPalette p) {
+    final values = <double>[0.3, 0.45, 0.38, 0.55, 0.62, 0.58, 0.72];
+    return Container(
+      width: 60,
+      height: 20,
+      margin: const EdgeInsets.only(left: 4),
+      child: CustomPaint(
+        painter: _SparklinePainter(
+          values: values,
+          color: p.btnInk,
         ),
       ),
     );
@@ -1612,4 +1750,42 @@ class _AnimatedCounter extends StatelessWidget {
       builder: (_, v, __) => Text(v.toStringAsFixed(decimals), style: style),
     );
   }
+}
+
+class _SparklinePainter extends CustomPainter {
+  final List<double> values;
+  final Color color;
+  _SparklinePainter({required this.values, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.length < 2) return;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round
+      ..color = color;
+    final dx = size.width / (values.length - 1);
+    final maxV = values.reduce((a, b) => a > b ? a : b);
+    final minV = values.reduce((a, b) => a < b ? a : b);
+    final range = maxV - minV == 0 ? 1 : maxV - minV;
+    final path = Path();
+    for (var i = 0; i < values.length; i++) {
+      final x = i * dx;
+      final y = size.height - ((values[i] - minV) / range) * (size.height - 3) - 1.5;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(path, paint);
+    final lastX = (values.length - 1) * dx;
+    final lastY = size.height - ((values.last - minV) / range) * (size.height - 3) - 1.5;
+    canvas.drawCircle(Offset(lastX, lastY), 2, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter old) =>
+      old.values != values || old.color != color;
 }

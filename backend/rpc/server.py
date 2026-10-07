@@ -98,6 +98,33 @@ def _parse_size_mb(hint: str) -> float:
 
 
 # --------------------------------------------------------------------------- #
+#  请求统计（中间件：累计每个 RPC 的调用次数与平均耗时）
+# --------------------------------------------------------------------------- #
+_request_stats: dict = {}        # method_name -> {"count": int, "total_ms": float, "errors": int}
+_server_started_at: float = time.time()
+_STREAM_IDLE_TIMEOUT = 60.0     # 流式方法 60 秒无新数据则视为客户端断开
+
+
+def _log_request(method_name: str, duration_ms: float, ok: bool) -> None:
+    """在每个 RPC 方法的 finally 块中记录请求方法、耗时、成功/失败。"""
+    st = _request_stats.setdefault(method_name,
+                                   {"count": 0, "total_ms": 0.0, "errors": 0})
+    st["count"] += 1
+    st["total_ms"] += duration_ms
+    if not ok:
+        st["errors"] += 1
+    logger.info('RPC %s took %.1fms (%s)', method_name, duration_ms,
+                'ok' if ok else 'error')
+
+
+def _avg_request_ms() -> float:
+    total = sum(s["count"] for s in _request_stats.values())
+    if not total:
+        return 0.0
+    return sum(s["total_ms"] for s in _request_stats.values()) / total
+
+
+# --------------------------------------------------------------------------- #
 #  gRPC Servicer
 # --------------------------------------------------------------------------- #
 class XiaoLingServicer(pb_grpc.XiaoLingServicer):
@@ -108,30 +135,52 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         if not text:
             yield pb.ChatChunk(done=True, error='空消息')
             return
+        _t0 = time.time()
+        _last_yield = time.time()   # 心跳：记录最后一次 yield 时间
+        _ok = False
         try:
             engine = _get_engine()
             if engine is None:
                 reply = _quick_reply(text)
                 for ch in reply:
+                    if time.time() - _last_yield > _STREAM_IDLE_TIMEOUT:
+                        logger.warning('Chat stream idle timeout, client gone')
+                        break
                     yield pb.ChatChunk(delta=ch)
+                    _last_yield = time.time()
                     time.sleep(0.02)
             else:
                 # engine.chat_stream 是逐字生成器（内部已做打字机 sleep）
                 for delta in engine.chat_stream(text):
+                    if time.time() - _last_yield > _STREAM_IDLE_TIMEOUT:
+                        logger.warning('Chat stream idle timeout, client gone')
+                        break
                     yield pb.ChatChunk(delta=delta)
+                    _last_yield = time.time()
+            _ok = True
             yield pb.ChatChunk(delta="", done=True)
         except Exception as e:                                              # noqa: BLE001
             logger.exception('Chat stream error')
             yield pb.ChatChunk(delta="", done=True, error=f'{type(e).__name__}: {e}')
+        finally:
+            _log_request('Chat', (time.time() - _t0) * 1000.0, _ok)
 
     # ---------------- GetStatus ----------------
     def GetStatus(self, request, context):
+        _t0 = time.time()
+        _ok = False
         try:
             from core import config as _cfg
             from core.growth import GrowthEngine
             from core.config import APP_DIR
             cfg = _cfg.load()
             st = GrowthEngine().status()
+            # 运行时统计：运行时长、总请求数、平均响应时间，写入 message 字段
+            uptime = int(time.time() - _server_started_at)
+            total_req = sum(s["count"] for s in _request_stats.values())
+            info = (f"uptime={uptime}s requests={total_req} "
+                    f"avg_ms={_avg_request_ms():.1f}")
+            _ok = True
             return pb.StatusReply(
                 ok=True,
                 stage=str(st.get('stage', '初始化')),
@@ -139,11 +188,14 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 backend=str((cfg.get('render') or {}).get('backend') or 'auto'),
                 progress=float(st.get('progress_percent', 0.0)),
                 version=str((cfg.get('version') or '0.0.1')),
+                message=info,
             )
         except Exception as e:                                              # noqa: BLE001
             logger.exception('GetStatus failed')
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}',
                                   version='0.0.1')
+        finally:
+            _log_request('GetStatus', (time.time() - _t0) * 1000.0, _ok)
 
     # ---------------- ListModels ----------------
     def ListModels(self, request, context):

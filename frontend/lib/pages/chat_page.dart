@@ -29,6 +29,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   bool _connected = false;
   bool _playing = false;
   bool _inputFocused = false;
+  int _charCount = 0;
   String _stage = '';
   String _version = '';
   String? _playingId;
@@ -67,6 +68,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     _waveCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this)..repeat();
     _enterCtrl.forward();
     _inputFocus.addListener(_onFocusChange);
+    _input.addListener(() {
+      if (mounted) setState(() => _charCount = _input.text.length);
+    });
     _scroll.addListener(_onScroll);
     _posSub = _player.onPositionChanged.listen((d) {
       if (mounted) setState(() => _playPos = d);
@@ -214,6 +218,52 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             status: _MsgStatus.error,
           );
         });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+      _scrollBottom();
+    }
+  }
+
+  Future<void> _retryError(int errorIdx) async {
+    if (_busy || errorIdx < 0 || errorIdx >= _msgs.length) return;
+    String? prompt;
+    for (int i = errorIdx - 1; i >= 0; i--) {
+      if (_msgs[i].who == 'me') {
+        prompt = _msgs[i].text;
+        break;
+      }
+    }
+    if (prompt == null || prompt.isEmpty) return;
+    final targetId = _msgs[errorIdx].id;
+    setState(() {
+      _msgs[errorIdx] = _msgs[errorIdx].copyWith(text: '', status: _MsgStatus.streaming);
+      _busy = true;
+    });
+    _scrollBottom(force: true);
+    try {
+      final session = await XlClient.stub.chatSession(prompt, onDelta: (delta) {
+        if (!mounted) return;
+        final idx = _msgs.indexWhere((m) => m.id == targetId);
+        if (idx < 0) return;
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(text: _msgs[idx].text + delta));
+        _scrollBottom();
+      });
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == targetId);
+      if (idx < 0) return;
+      if (session.hasError) {
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(text: session.error ?? '出错了', status: _MsgStatus.error));
+      } else {
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(status: _MsgStatus.done));
+        final reply = _msgs[idx].text;
+        if (_ttsOn && reply.isNotEmpty) _speak(reply, targetId);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == targetId);
+      if (idx >= 0) {
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(text: '出错了：$e', status: _MsgStatus.error));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -630,7 +680,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (showTime) _timeDivider(p, m.time),
-            _AnimatedBubble(child: _bubble(p, m)),
+            _AnimatedBubble(child: _bubble(p, m, i)),
           ],
         );
       },
@@ -719,9 +769,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _bubble(XlPalette p, _Msg m) {
+  Widget _bubble(XlPalette p, _Msg m, int index) {
     final isMe = m.who == 'me';
     final isEmptyStream = m.status == _MsgStatus.streaming && m.text.isEmpty;
+    final isError = m.status == _MsgStatus.error && !isMe;
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -746,22 +797,24 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                     decoration: isMe ? _meBubble(p) : _aiBubble(p, m.status),
                     child: isEmptyStream
                         ? _typingIndicator(p)
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                m.text,
-                                style: TextStyle(
-                                  fontSize: XlFont.bodySm,
-                                  height: XlLineHeight.relaxed,
-                                  color: isMe ? p.btnInk : p.text1,
-                                  fontWeight: isMe ? FontWeight.w600 : FontWeight.w400,
-                                ),
+                        : isError
+                            ? _errorBody(p, m, index)
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    m.text,
+                                    style: TextStyle(
+                                      fontSize: XlFont.bodySm,
+                                      height: XlLineHeight.relaxed,
+                                      color: isMe ? p.btnInk : p.text1,
+                                      fontWeight: isMe ? FontWeight.w600 : FontWeight.w400,
+                                    ),
+                                  ),
+                                  if (!isMe && m.status == _MsgStatus.done && m.text.isNotEmpty)
+                                    _bubbleActions(p, m),
+                                ],
                               ),
-                              if (!isMe && m.status == _MsgStatus.done && m.text.isNotEmpty)
-                                _bubbleActions(p, m),
-                            ],
-                          ),
                   ),
                 ),
                 if (isMe) ...[
@@ -802,6 +855,61 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _errorBody(XlPalette p, _Msg m, int index) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.error_outline_rounded, size: 14, color: p.red),
+            const SizedBox(width: 6),
+            Text('回复失败',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.red,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(m.text,
+            style: TextStyle(
+              fontSize: XlFont.bodySm,
+              height: XlLineHeight.relaxed,
+              color: p.text2,
+            )),
+        const SizedBox(height: 10),
+        _Pressable(
+          onTap: _busy ? null : () => _retryError(index),
+          scale: 0.94,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
+              borderRadius: BorderRadius.circular(XlRadius.pill),
+              border: Border.all(color: p.red.withOpacity(0.35), width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.refresh_rounded, size: 11, color: p.red),
+                const SizedBox(width: 5),
+                Text('重新生成',
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      fontWeight: FontWeight.w800,
+                      color: p.red,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1012,6 +1120,21 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               _sendButton(p),
             ],
           ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4, right: 2),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '$_charCount/2000',
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  color: _charCount > 2000 ? p.red : p.decor,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1144,29 +1267,35 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: TextField(
-              controller: _input,
-              focusNode: _inputFocus,
-              enabled: !_busy,
-              maxLines: 4,
-              minLines: 1,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _send(),
-              style: TextStyle(
-                fontSize: XlFont.bodySm,
-                color: p.text1,
-                height: XlLineHeight.relaxed,
-              ),
-              decoration: InputDecoration(
-                hintText: _busy ? '小凌正在打字…' : '和小凌说句话…',
-                hintStyle: TextStyle(
+            child: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.enter, control: true): () => _send(),
+                const SingleActivator(LogicalKeyboardKey.escape): () => _input.clear(),
+              },
+              child: TextField(
+                controller: _input,
+                focusNode: _inputFocus,
+                enabled: !_busy,
+                maxLines: 4,
+                minLines: 1,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _send(),
+                style: TextStyle(
                   fontSize: XlFont.bodySm,
-                  color: p.decor,
-                  fontWeight: FontWeight.w500,
+                  color: p.text1,
+                  height: XlLineHeight.relaxed,
                 ),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: InputDecoration(
+                  hintText: _busy ? '小凌正在打字…' : '和小凌说句话…',
+                  hintStyle: TextStyle(
+                    fontSize: XlFont.bodySm,
+                    color: p.decor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
               ),
             ),
           ),

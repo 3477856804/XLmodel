@@ -821,6 +821,62 @@ class ModelStore:
                 "installed": len(self.list_installed_names()),
                 "disk": self.disk_usage()}
 
+    # ---- 增量：缓存管理 / 模型验证 / 增强列表 ----
+    def clear_cache(self) -> bool:
+        """删除 HuggingFace 下载缓存目录（~/.cache/huggingface）。"""
+        cache_dir = Path.home() / ".cache" / "huggingface"
+        if not cache_dir.exists():
+            return True
+        try:
+            shutil.rmtree(cache_dir)
+            return True
+        except OSError:
+            return False
+
+    def get_cache_size(self) -> float:
+        """返回 HuggingFace 缓存大小（MB）。"""
+        cache_dir = Path.home() / ".cache" / "huggingface"
+        if not cache_dir.exists():
+            return 0.0
+        total = 0
+        for p in cache_dir.rglob("*"):
+            if p.is_file():
+                try:
+                    total += p.stat().st_size
+                except OSError:
+                    pass
+        return round(total / 1024 / 1024, 1)
+
+    @staticmethod
+    def validate_model(model_path: str | Path) -> tuple:
+        """检查模型目录完整性，返回 (是否通过, 说明)。"""
+        p = Path(model_path)
+        if not p.exists() or not p.is_dir():
+            return False, "模型目录不存在"
+        if not (p / "config.json").exists():
+            return False, "缺少 config.json"
+        has_weights = any(p.glob(f"*{ext}") for ext in WEIGHT_EXTS)
+        if not has_weights:
+            return False, "缺少权重文件"
+        total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+        if total < 100 * 1024 * 1024:
+            return False, f"模型过小（{human_bytes(total)}），可能不完整"
+        return True, f"校验通过，大小 {human_bytes(total)}"
+
+    def list_models_ex(self, sort_by_size: bool = False,
+                       installed_only: bool | None = None) -> list:
+        """增强模型列表：支持按大小排序、过滤已下载/未下载。"""
+        if installed_only is False:
+            installed = set(self.list_installed_names())
+            return [n for n in MODEL_PRESETS if n not in installed]
+        installed = self.list_installed()
+        if installed_only is True:
+            return [m["name"] for m in installed]
+        if sort_by_size:
+            installed.sort(key=lambda x: x.get("bytes", 0), reverse=True)
+            return installed
+        return self.list_installed_names()
+
 
 class LocalModel:
     def __init__(self, model_dir: str | Path, adapter_dir: str | Path | None = None,

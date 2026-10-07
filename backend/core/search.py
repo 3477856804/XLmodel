@@ -17,6 +17,7 @@ import gzip
 import html
 import json
 import re
+import time
 import urllib.parse
 import urllib.request
 import zlib
@@ -31,6 +32,60 @@ KNOWLEDGE_DIR = DATA_DIR / "knowledge"
 
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
+
+# ---- 搜索结果缓存（LRU，最多 50 条，5 分钟 TTL）----
+_cache: dict = {}            # query -> (timestamp, results)
+_cache_lock = __import__('threading').Lock()
+_CACHE_TTL = 300.0
+_CACHE_MAX = 50
+# ---- 搜索历史（最近 20 条 query）----
+_history: list = []
+_history_lock = __import__('threading').Lock()
+_HISTORY_MAX = 20
+
+
+def clear_cache() -> int:
+    """清空搜索结果缓存，返回清除条数。"""
+    with _cache_lock:
+        n = len(_cache)
+        _cache.clear()
+        return n
+
+
+def get_history() -> list:
+    """返回最近搜索过的 query 列表。"""
+    with _history_lock:
+        return list(_history)
+
+
+def clear_history() -> None:
+    """清空搜索历史。"""
+    with _history_lock:
+        _history.clear()
+
+
+def _remember_history(query: str) -> None:
+    q = (query or '').strip()
+    if not q:
+        return
+    with _history_lock:
+        if _history and _history[-1] == q:
+            return
+        _history.append(q)
+        del _history[:-_HISTORY_MAX]
+
+
+def _sort_results(results: list, sort_by: str = 'relevance') -> list:
+    """结果排序：relevance 按 score 降序（若无 score 保持原序）；time 按时间倒序。"""
+    if not results:
+        return results
+    if sort_by == 'time':
+        return sorted(results,
+                      key=lambda r: r.get('time') or r.get('ts') or 0,
+                      reverse=True)
+    if any('score' in r for r in results):
+        return sorted(results, key=lambda r: r.get('score', 0), reverse=True)
+    return results
 
 
 def _open(url, data=None, headers=None, timeout=8):
@@ -86,8 +141,16 @@ def local_search(query: str, n: int = 5) -> list:
         return []
 
 
-def search_web(query: str, n: int = 5, engine: str = 'duckduckgo'):
+def search_web(query: str, n: int = 5, engine: str = 'duckduckgo',
+               sort_by: str = 'relevance'):
     """免 Key 联网搜索；联网失败时回退本地知识库。"""
+    key = f'{engine}|{n}|{query.strip()}'
+    # 命中缓存（5 分钟内）直接返回
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and (time.time() - hit[0]) < _CACHE_TTL:
+            return _sort_results(hit[1], sort_by)
+    _remember_history(query)
     if engine == 'duckduckgo':
         res = _ddg(query, n)
     elif engine == 'searx':
@@ -95,11 +158,15 @@ def search_web(query: str, n: int = 5, engine: str = 'duckduckgo'):
     else:
         res = _ddg(query, n)
     if res:
-        return res
+        with _cache_lock:
+            _cache[key] = (time.time(), res)
+            if len(_cache) > _CACHE_MAX:
+                _cache.pop(next(iter(_cache)))
+        return _sort_results(res, sort_by)
     local = local_search(query, n)
     if local:
         print(f'  [搜索] 联网不可用，命中本地知识库 {len(local)} 条')
-    return local
+    return _sort_results(local, sort_by)
 
 
 def _ddg(query: str, n: int = 5):

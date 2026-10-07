@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
@@ -24,6 +25,11 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   late Animation<double> _progressAnim;
   late Animation<double> _rotateAnim;
   late Animation<double> _textAnim;
+
+  static const List<String> _loadStages = ['初始化引擎…', '加载模型…', '连接服务…', '准备就绪'];
+  Timer? _stageTimer;
+  int _stageIdx = 0;
+  bool _showVersion = false;
 
   @override
   void initState() {
@@ -76,6 +82,16 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) _textCtrl.forward();
     });
+    _stageTimer = Timer.periodic(const Duration(milliseconds: 800), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _stageIdx = (_stageIdx + 1) % _loadStages.length);
+    });
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      if (mounted) setState(() => _showVersion = true);
+    });
     _go();
   }
 
@@ -106,6 +122,7 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     _floatCtrl.dispose();
     _textCtrl.dispose();
     _shimmerCtrl.dispose();
+    _stageTimer?.cancel();
     super.dispose();
   }
 
@@ -320,7 +337,44 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 20,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 350),
+                      transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
+                      child: Text(
+                        _loadStages[_stageIdx],
+                        key: ValueKey(_stageIdx),
+                        style: TextStyle(
+                          fontSize: XlFont.label,
+                          color: p.text3,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: XlLetterSpacing.wider,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
+              ),
+            ),
+            Positioned(
+              bottom: 28,
+              left: 0,
+              right: 0,
+              child: AnimatedOpacity(
+                opacity: _showVersion ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 600),
+                child: Text(
+                  'v0.0.1',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.gold,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wider,
+                  ),
+                ),
               ),
             ),
           ],

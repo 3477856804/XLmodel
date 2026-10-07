@@ -44,6 +44,11 @@ class _PersonaPanelState extends State<PersonaPanel> with TickerProviderStateMix
     parent: _panelCtrl,
     curve: XlCurve.spring,
   );
+  late final AnimationController _diceCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  );
+  int? _randomPreviewIndex;
 
   @override
   void initState() {
@@ -60,6 +65,7 @@ class _PersonaPanelState extends State<PersonaPanel> with TickerProviderStateMix
     _hintCtrl.dispose();
     _panelCtrl.dispose();
     _staggerCtrl.dispose();
+    _diceCtrl.dispose();
     super.dispose();
   }
 
@@ -253,6 +259,8 @@ class _PersonaPanelState extends State<PersonaPanel> with TickerProviderStateMix
       shrinkWrap: true,
       padding: const EdgeInsets.all(16),
       children: [
+        _previewBubble(p, persona),
+        const SizedBox(height: 16),
         _profileCard(p, persona),
         const SizedBox(height: 16),
         _presetCard(p),
@@ -263,6 +271,75 @@ class _PersonaPanelState extends State<PersonaPanel> with TickerProviderStateMix
         ],
       ],
     );
+  }
+
+  // ---------------- 人格预览气泡 ----------------
+  Widget _previewBubble(XlPalette p, PersonaReply? persona) {
+    final name = persona?.persona.isNotEmpty == true ? persona!.persona : '活泼';
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: AppTheme.brand(context, r: XlRadius.sm),
+            child: Center(
+              child: Text('凌',
+                  style: TextStyle(
+                      fontSize: XlFont.caption,
+                      fontWeight: FontWeight.w800,
+                      color: p.btnInk)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$name 预览',
+                    style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: p.text3,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: XlLetterSpacing.wider)),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: p.pinkSoft,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(4),
+                      topRight: Radius.circular(XlRadius.md),
+                      bottomRight: Radius.circular(XlRadius.md),
+                      bottomLeft: Radius.circular(XlRadius.md),
+                    ),
+                  ),
+                  child: Text('你好呀～今天过得怎么样？',
+                      style: TextStyle(
+                          fontSize: XlFont.captionSm,
+                          color: p.text1,
+                          height: XlLineHeight.relaxed)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _randomPersona() async {
+    if (_busy || _presets.isEmpty) return;
+    await _diceCtrl.forward(from: 0);
+    final builtin = _presets.where((e) => e.builtin).toList();
+    final pool = builtin.isNotEmpty ? builtin : _presets;
+    final idx = DateTime.now().millisecond % pool.length;
+    _randomPreviewIndex = idx;
+    _toast('随机选中：${pool[idx].name}');
+    await _switchTo(pool[idx]);
   }
 
   // ---------------- 画像区----------------
@@ -378,6 +455,23 @@ class _PersonaPanelState extends State<PersonaPanel> with TickerProviderStateMix
                       fontWeight: FontWeight.w800,
                       color: p.text1)),
               const Spacer(),
+              AnimatedBuilder(
+                animation: _diceCtrl,
+                builder: (_, __) {
+                  return GestureDetector(
+                    onTap: _busy ? null : _randomPersona,
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.all(7),
+                      decoration: AppTheme.neuXs(context, r: XlRadius.sm),
+                      child: Transform.rotate(
+                        angle: _diceCtrl.value * 2 * math.pi,
+                        child: Icon(Icons.casino_rounded, size: 16, color: p.gold),
+                      ),
+                    ),
+                  );
+                },
+              ),
               GestureDetector(
                 onTap: _busy ? null : () => setState(() => _showAdd = true),
                 child: Container(

@@ -52,6 +52,8 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   Timer? _loadTimer;
 
   static const _cameraPresets = <String>['正面', '左侧', '右侧', '背面', '俯视'];
+  static const String _renderBackend = 'OpenGL';
+  static const String _modelFamily = 'Qwen-7B';
 
   @override
   void initState() {
@@ -152,6 +154,10 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
             if (widget.showControls) ...[
               const SizedBox(height: 14),
               _infoStrip(p),
+              const SizedBox(height: 10),
+              _modelInfoBar(p),
+              const SizedBox(height: 8),
+              _autoRotateToggle(p),
               const SizedBox(height: 10),
               _controlBar(p),
               if (_showSettings) ...[
@@ -686,6 +692,76 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
             letterSpacing: XlLetterSpacing.wider,
             fontFeatures: const [FontFeature.tabularFigures()],
           )),
+    );
+  }
+
+  Widget _modelInfoBar(XlPalette p) {
+    return Container(
+      width: widget.width,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: AppTheme.sunkenHair(context, r: XlRadius.md),
+      child: Row(
+        children: [
+          Icon(Icons.memory_rounded, size: 12, color: p.text3),
+          const SizedBox(width: 8),
+          Text('$_modelFamily · $_renderBackend',
+              style: TextStyle(
+                fontSize: XlFont.micro,
+                fontWeight: FontWeight.w700,
+                color: p.text3,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
+          const Spacer(),
+          _miniTag(p, _hasError ? 'ERR' : (_loading ? 'LOADING' : 'READY'),
+              _hasError ? p.red : (_loading ? p.gold : p.green)),
+        ],
+      ),
+    );
+  }
+
+  Widget _autoRotateToggle(XlPalette p) {
+    return GestureDetector(
+      onTap: () => setState(() => _autoRotate = !_autoRotate),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: AppTheme.pill(context, color: p.pink),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('自动旋转',
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  fontWeight: FontWeight.w700,
+                  color: _autoRotate ? p.pink : p.text3,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+            const SizedBox(width: 6),
+            AnimatedContainer(
+              duration: XlDuration.fast,
+              width: 26,
+              height: 14,
+              decoration: BoxDecoration(
+                color: _autoRotate ? p.pink : p.surfaceHi,
+                borderRadius: BorderRadius.circular(99),
+                border: Border.all(color: _autoRotate ? p.pink : p.edge, width: 1),
+              ),
+              child: AnimatedAlign(
+                duration: XlDuration.fast,
+                alignment: _autoRotate ? Alignment.centerRight : Alignment.centerLeft,
+                curve: XlCurve.standard,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: _autoRotate ? p.btnInk : p.decor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

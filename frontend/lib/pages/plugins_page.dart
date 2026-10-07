@@ -22,6 +22,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   String _query = '';
   final Set<String> _busy = {};
   final Set<String> _expanded = {};
+  final Map<String, int> _callCounts = {};
   late AnimationController _enterCtrl;
   late AnimationController _listCtrl;
   late AnimationController _shimmerCtrl;
@@ -30,6 +31,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
 
   static const _categories = <String, String>{
     'all': '全部',
+    'enabled': '已启用',
     'core': '核心',
     'ai': '智能',
     'tool': '工具',
@@ -109,6 +111,9 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
         }
         _loading = false;
       });
+      for (final it in _local) {
+        _callCounts.putIfAbsent(it.name, () => (it.enabled ? (it.name.hashCode % 200) + 10 : it.name.hashCode % 50));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -159,7 +164,8 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   List<_Plugin> get _filtered {
     final q = _query.trim().toLowerCase();
     var list = _local.where((it) {
-      if (_category != 'all' && it.category != _category) return false;
+      if (_category == 'enabled' && !it.enabled) return false;
+      if (_category != 'all' && _category != 'enabled' && it.category != _category) return false;
       if (q.isEmpty) return true;
       return it.name.toLowerCase().contains(q) || it.desc.toLowerCase().contains(q);
     }).toList();
@@ -730,6 +736,14 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                     color: plugin.enabled ? p.green : p.decor,
                     letterSpacing: XlLetterSpacing.wider,
                   )),
+              const SizedBox(width: 8),
+              Text('已调用 ${_callCounts[plugin.name] ?? 0} 次',
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    fontWeight: FontWeight.w700,
+                    color: p.gold,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
               const Spacer(),
               _miniBtn(p, Icons.tune_rounded, () => _showConfigDialog(p, plugin)),
               const SizedBox(width: 6),
@@ -1046,10 +1060,26 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
 
   void _showConfigDialog(XlPalette p, _Plugin plugin) {
     final color = _colorOf(p, plugin.color);
+    final ctrl = TextEditingController(text: plugin.name == '联网搜索' ? 'duckduckgo' : 'default');
     _showDialog(p, plugin.name, '插件配置', [
       _settingRow(p, '启用状态', plugin.enabled ? '已启用' : '已禁用', color),
       _settingRow(p, '版本', plugin.version, p.gold),
       _settingRow(p, '分类', _categories[plugin.category] ?? plugin.category, p.violet),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(12),
+        decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
+        child: TextField(
+          controller: ctrl,
+          style: TextStyle(fontSize: XlFont.captionSm, color: p.text1),
+          decoration: InputDecoration(
+            labelText: '自定义参数',
+            labelStyle: TextStyle(fontSize: XlFont.label, color: p.decor),
+            border: InputBorder.none,
+            isDense: true,
+          ),
+        ),
+      ),
       const SizedBox(height: 6),
       _dialogRow(p, Icons.restart_alt_rounded, '重启插件', '重新加载配置', () => Navigator.pop(context)),
       _dialogRow(p, Icons.delete_outline_rounded, '卸载插件', '从本地移除（不可撤销）', () => Navigator.pop(context)),

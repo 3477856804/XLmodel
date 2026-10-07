@@ -165,10 +165,13 @@ class _NotifPanelState extends State<NotifPanel> with TickerProviderStateMixin {
           const SizedBox(width: 8),
           if (_unread > 0)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: p.pink,
-                borderRadius: BorderRadius.circular(XlRadius.sm),
+                gradient: p.gradBrand,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: p.pink.withOpacity(0.5), blurRadius: 8, spreadRadius: -1),
+                ],
               ),
               child: Text('$_unread',
                   style: TextStyle(
@@ -177,10 +180,43 @@ class _NotifPanelState extends State<NotifPanel> with TickerProviderStateMixin {
                       color: p.btnInk)),
             ),
           const Spacer(),
+          if (_unread > 0)
+            _Pressable(
+              onTap: _markAllRead,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: AppTheme.ghost(context, r: XlRadius.pill),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.done_all_rounded, size: 12, color: p.pink),
+                    const SizedBox(width: 4),
+                    Text('全部已读',
+                        style: TextStyle(
+                            fontSize: XlFont.micro,
+                            color: p.pink,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(width: 8),
           _escChip(p),
         ],
       ),
     );
+  }
+
+  Future<void> _markAllRead() async {
+    final items = _reminders?.items ?? const <ReminderItem>[];
+    for (final item in items) {
+      if (item.secondsLeft <= 0) {
+        await XlClient.stub.safe(() => XlClient.stub.finishReminder(item.dueAt));
+      }
+    }
+    if (!mounted) return;
+    _toast('已全部标记为已读');
+    await _load();
   }
 
   Widget _escChip(XlPalette p) {

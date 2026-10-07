@@ -1908,6 +1908,52 @@ class GrowthEngine:
         ]
         return "\n".join(lines)
 
+    # ---- 增量：里程碑检测 / 经验公式 / 成长报告 ----
+    MILESTONE_THRESHOLDS = {
+        100: ("初识", "你和小凌的关系迈出了第一步！"),
+        500: ("熟悉", "小凌已经把你当成重要的朋友了！"),
+        1000: ("亲密", "你们的羁绊加深了，小凌更了解你了！"),
+        2000: ("挚友", "你们已经是最好的伙伴了！"),
+    }
+
+    def calc_exp(self, action_type: str, duration: float = 1.0) -> float:
+        """根据互动类型和时长计算经验值。"""
+        if action_type == "chat":
+            return round(2.0 * duration, 2)
+        if action_type == "train":
+            return round(0.5 * duration, 2)
+        if action_type == "game":
+            return round(3.0 * duration, 2)
+        return round(1.0 * duration, 2)
+
+    def check_milestones(self, score: float = None) -> dict | None:
+        """检测亲密度是否达到新等级阈值，返回里程碑信息或 None。"""
+        if score is None:
+            st = self.state()
+            score = float(st.get("exp", 0))
+        for threshold in sorted(self.MILESTONE_THRESHOLDS.keys()):
+            if score >= threshold:
+                label, reward = self.MILESTONE_THRESHOLDS[threshold]
+                return {"threshold": threshold, "level": label, "reward": reward}
+        return None
+
+    def get_daily_report(self) -> dict:
+        """返回今日成长摘要。"""
+        st = self.state()
+        today = now_iso()[:10]
+        journal = self.recent_journal(limit=200)
+        today_events = [j for j in journal if j.get("time", "").startswith(today)]
+        exp_earned = sum(self.calc_exp("chat", 1) for _ in today_events)
+        return {
+            "date": today,
+            "interactions_today": len(today_events),
+            "exp_earned": round(exp_earned, 1),
+            "rounds": int(st.get("rounds", 0)),
+            "promotions": int(st.get("promotions", 0)),
+            "progress_percent": round(self.progress_percent(), 1),
+            "milestone": self.check_milestones(),
+        }
+
     def close(self):
         try:
             if self._store is not None:

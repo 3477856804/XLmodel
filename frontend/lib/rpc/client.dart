@@ -12,6 +12,26 @@ enum XlConnectionState {
   closed,
 }
 
+enum ConnectionStatus {
+  connected,
+  disconnected,
+  connecting,
+}
+
+typedef ConnectionChangedCallback = void Function(ConnectionStatus status);
+
+ConnectionStatus _mapStatus(XlConnectionState s) {
+  switch (s) {
+    case XlConnectionState.connected:
+      return ConnectionStatus.connected;
+    case XlConnectionState.connecting:
+    case XlConnectionState.reconnecting:
+      return ConnectionStatus.connecting;
+    default:
+      return ConnectionStatus.disconnected;
+  }
+}
+
 class XlConnectionEvent {
   final XlConnectionState state;
   final DateTime at;
@@ -242,6 +262,17 @@ class XlClient {
   static int _peakConcurrent = 0;
   static final List<_PendingCall> _pending = [];
   static bool _keepAlive = true;
+  static ConnectionChangedCallback? _onConnectionChanged;
+  static Timer? _reconnectTimer;
+  static int _reconnectAttempts = 0;
+  static const int maxReconnectAttempts = 5;
+  static const List<Duration> _backoffSchedule = [
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 8),
+    Duration(seconds: 16),
+  ];
 
   static XlConnectionState get state => _state;
   static XlEndpoint get endpoint => _endpoint;
@@ -254,6 +285,11 @@ class XlClient {
   static Stream<XlConnectionEvent> get onEvent => _eventCtrl.stream;
   static Stream<XlMetrics> get onMetrics => _metricsCtrl.stream;
   static Duration get defaultTimeout => _defaultTimeout;
+  static ConnectionChangedCallback? get onConnectionChanged => _onConnectionChanged;
+  static set onConnectionChanged(ConnectionChangedCallback? cb) {
+    _onConnectionChanged = cb;
+    if (cb != null) cb(_mapStatus(_state));
+  }
 
   static XiaoLingClient get stub {
     _ensureChannel();
@@ -293,11 +329,39 @@ class XlClient {
 
   static void _setState(XlConnectionState s, {String? detail, Duration? latency}) {
     if (_state == s && detail == null) return;
+    final prev = _state;
     _state = s;
     final ev = XlConnectionEvent(state: s, at: DateTime.now(), detail: detail, latency: latency);
     _events.add(ev);
     if (_events.length > 200) _events.removeAt(0);
     if (!_eventCtrl.isClosed) _eventCtrl.add(ev);
+    if (_onConnectionChanged != null && _mapStatus(prev) != _mapStatus(s)) {
+      _onConnectionChanged!(_mapStatus(s));
+    }
+  }
+
+  static void scheduleAutoReconnect() {
+    _reconnectTimer?.cancel();
+    if (_reconnectAttempts >= maxReconnectAttempts) return;
+    final delay = _backoffSchedule[
+        _reconnectAttempts.clamp(0, _backoffSchedule.length - 1)];
+    _reconnectAttempts++;
+    _reconnectTimer = Timer(delay, () async {
+      metrics.reconnect();
+      final ok = await ping();
+      if (ok) {
+        _reconnectAttempts = 0;
+        await reconnect(force: true);
+      } else {
+        scheduleAutoReconnect();
+      }
+    });
+  }
+
+  static void cancelAutoReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectAttempts = 0;
   }
 
   static void _startMetricsTimer() {

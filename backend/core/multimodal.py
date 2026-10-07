@@ -280,6 +280,69 @@ def look_at_screen(prompt: str = "") -> str:
         return hub.see_screen(prompt or "描述一下当前屏幕")
     finally:
         hub.close()
+
+
+# ---- 文件类型检测 / 图片处理 / OCR 提取 ----
+_EXT_MAP = {
+    ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image",
+    ".bmp": "image", ".webp": "image",
+    ".wav": "audio", ".mp3": "audio", ".ogg": "audio", ".flac": "audio",
+    ".m4a": "audio",
+    ".mp4": "video", ".mov": "video", ".mkv": "video", ".avi": "video",
+    ".txt": "text", ".md": "text", ".json": "text", ".csv": "text",
+    ".pdf": "pdf",
+}
+
+_MAGIC = [
+    (b"\xff\xd8\xff", "image"), (b"\x89PNG", "image"), (b"GIF8", "image"),
+    (b"ID3", "audio"), (b"RIFF", "audio"),
+    (b"%PDF", "pdf"),
+]
+
+
+def detect_file_type(filepath: str) -> str:
+    """根据扩展名 + magic bytes 检测文件类型，返回 image/audio/video/text/pdf/unknown。"""
+    p = Path(filepath)
+    ftype = _EXT_MAP.get(p.suffix.lower(), "unknown")
+    try:
+        with open(p, "rb") as f:
+            head = f.read(16)
+        for magic, t in _MAGIC:
+            if head.startswith(magic):
+                return t
+    except OSError:
+        pass
+    return ftype
+
+
+def resize_image(filepath: str, max_size: int = 1024) -> str:
+    """用 PIL 把图片最长边缩到 max_size，保存到临时文件返回新路径。PIL 不可用返回原路径。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return filepath
+    try:
+        img = Image.open(filepath)
+        if max(img.size) > max_size:
+            r = max_size / max(img.size)
+            img = img.resize((int(img.size[0] * r), int(img.size[1] * r)),
+                             Image.LANCZOS)
+        import tempfile
+        out = Path(tempfile.gettempdir()) / f"xl_resized_{int(time.time()*1000)}.jpg"
+        img.convert("RGB").save(str(out), "JPEG", quality=85)
+        return str(out)
+    except Exception:
+        return filepath
+
+
+def extract_text_from_image(filepath: str) -> str:
+    """从图片提取文字：pytesseract 可用则 OCR，否则返回空字符串。"""
+    try:
+        import pytesseract
+        from PIL import Image
+        return str(pytesseract.image_to_string(Image.open(filepath))).strip()
+    except Exception:
+        return ""
 """小凌 · 语音系统（TTS 合成 + ASR 识别 + SSML + 音色库 + 缓存 + 情感映射）"""
 import asyncio
 import hashlib

@@ -35,6 +35,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   late AnimationController _actCtrl;
   late AnimationController _shimmerCtrl;
   late AnimationController _breatheCtrl;
+  late AnimationController _spinCtrl;
   late Animation<double> _actAnim;
   final List<_Activity> _activities = [];
 
@@ -48,6 +49,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _actCtrl = AnimationController(duration: const Duration(milliseconds: 1100), vsync: this);
     _shimmerCtrl = AnimationController(duration: const Duration(milliseconds: 1600), vsync: this)..repeat();
     _breatheCtrl = AnimationController(duration: const Duration(milliseconds: 1400), vsync: this)..repeat(reverse: true);
+    _spinCtrl = AnimationController(duration: const Duration(milliseconds: 900), vsync: this);
     _actAnim = CurvedAnimation(parent: _actCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
     _bootstrap();
@@ -61,6 +63,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _actCtrl.dispose();
     _shimmerCtrl.dispose();
     _breatheCtrl.dispose();
+    _spinCtrl.dispose();
     super.dispose();
   }
 
@@ -157,6 +160,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_status == null) ...[
+            _offlineBanner(p),
+            const SizedBox(height: 16),
+          ],
           _wrapStagger(0, _heroRow(p)),
           const SizedBox(height: 22),
           _wrapStagger(1, _statsGrid(p)),
@@ -213,6 +220,55 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     return '她今天状态不错 · 已陪伴你 ${g.totalInteractions} 次对话 · 进化到第 ${g.currentGeneration} 代';
   }
 
+  Widget _offlineBanner(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: p.gold.withOpacity(p.isDark ? 0.10 : 0.06),
+        borderRadius: BorderRadius.circular(XlRadius.lg),
+        border: Border.all(color: p.gold.withOpacity(0.35), width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, size: 16, color: p.gold),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('后端未连接，部分功能不可用',
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  color: p.text1,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ),
+          _Pressable(
+            scale: 0.94,
+            onTap: () async {
+              _spinCtrl.repeat();
+              setState(() => _loading = true);
+              await _bootstrap();
+              if (mounted) {
+                _spinCtrl.stop();
+                _spinCtrl.value = 0;
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: AppTheme.ghost(context, r: XlRadius.pill),
+              child: Text('重试',
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    fontWeight: FontWeight.w800,
+                    color: p.gold,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _stageChip(XlPalette p) {
     final g = _growth;
     if (g == null) return const SizedBox.shrink();
@@ -240,8 +296,13 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     return _Pressable(
       scale: 0.94,
       onTap: () async {
+        _spinCtrl.repeat();
         setState(() => _loading = true);
         await _bootstrap();
+        if (mounted) {
+          _spinCtrl.stop();
+          _spinCtrl.value = 0;
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -249,7 +310,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.refresh_rounded, size: 15, color: p.btnInk),
+            RotationTransition(
+              turns: _spinCtrl,
+              child: Icon(Icons.refresh_rounded, size: 15, color: p.btnInk),
+            ),
             const SizedBox(width: 8),
             Text('刷新',
                 style: TextStyle(
@@ -601,7 +665,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               )),
           const SizedBox(height: 16),
           for (int i = 0; i < actions.length; i++) ...[
-            _actionTile(p, actions[i], i),
+            _actionTile(p, actions[i], i, badge: actions[i].title == '开始训练' && (_training?.isTraining ?? false)),
             if (i != actions.length - 1) const SizedBox(height: 8),
           ],
         ],
@@ -609,7 +673,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     );
   }
 
-  Widget _actionTile(XlPalette p, _Action a, int i) {
+  Widget _actionTile(XlPalette p, _Action a, int i, {bool badge = false}) {
     final color = _colorOf(p, a.color);
     return TweenAnimationBuilder<double>(
       duration: Duration(milliseconds: 300 + i * 60),
@@ -622,47 +686,65 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       child: _Pressable(
         onTap: a.onTap,
         scale: 0.97,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: AppTheme.neuXs(context, r: XlRadius.md),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(p.isDark ? 0.14 : 0.10),
-                  borderRadius: BorderRadius.circular(XlRadius.sm),
-                  border: Border.all(color: color.withOpacity(0.28), width: 1),
-                ),
-                child: Icon(a.icon, size: 15, color: color),
+        child: Stack(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: AppTheme.neuXs(context, r: XlRadius.md),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(p.isDark ? 0.14 : 0.10),
+                      borderRadius: BorderRadius.circular(XlRadius.sm),
+                      border: Border.all(color: color.withOpacity(0.28), width: 1),
+                    ),
+                    child: Icon(a.icon, size: 15, color: color),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(a.title,
+                            style: TextStyle(
+                              fontSize: XlFont.caption,
+                              fontWeight: FontWeight.w700,
+                              color: p.text1,
+                              letterSpacing: XlLetterSpacing.wide,
+                            )),
+                        const SizedBox(height: 1),
+                        Text(a.sub,
+                            style: TextStyle(
+                              fontSize: XlFont.micro,
+                              color: p.text3,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: XlLetterSpacing.wider,
+                            )),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, size: 16, color: p.decor),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(a.title,
-                        style: TextStyle(
-                          fontSize: XlFont.caption,
-                          fontWeight: FontWeight.w700,
-                          color: p.text1,
-                          letterSpacing: XlLetterSpacing.wide,
-                        )),
-                    const SizedBox(height: 1),
-                    Text(a.sub,
-                        style: TextStyle(
-                          fontSize: XlFont.micro,
-                          color: p.text3,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: XlLetterSpacing.wider,
-                        )),
-                  ],
+            ),
+            if (badge)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: p.pink,
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: p.pink.withOpacity(0.7), blurRadius: 5, spreadRadius: -1)],
+                  ),
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, size: 16, color: p.decor),
-            ],
-          ),
+          ],
         ),
       ),
     );

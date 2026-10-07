@@ -25,6 +25,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   final Set<String> _downloading = {};
   final Map<String, _DlInfo> _dlInfo = {};
   final Map<String, StreamSubscription<pb.DownloadProgress>> _dlSubs = {};
+  final Map<String, double> _dlSpeed = {};
+  final Map<String, int> _lastDlTick = {};
+  final Set<String> _compareSelected = {};
   String? _installedName;
   late AnimationController _enterCtrl;
   late AnimationController _pulseCtrl;
@@ -247,6 +250,8 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
           _statsRow(p),
           const SizedBox(height: 20),
           _toolbar(p),
+          const SizedBox(height: 14),
+          if (_compareSelected.length >= 2) _compareBar(p),
           const SizedBox(height: 18),
           _grid(p),
           const SizedBox(height: 20),
@@ -820,9 +825,19 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
         opacity: t,
         child: Transform.translate(offset: Offset(0, (1 - t) * 16), child: child),
       ),
-      child: _HoverGlow(
+      child: GestureDetector(
+        onLongPress: () => setState(() {
+          if (_compareSelected.contains(m.name)) {
+            _compareSelected.remove(m.name);
+          } else {
+            _compareSelected.add(m.name);
+          }
+        }),
+        child: _HoverGlow(
         color: color,
-        child: Container(
+        child: Stack(
+          children: [
+          Container(
           padding: const EdgeInsets.all(20),
           decoration: AppTheme.neu(context, r: XlRadius.xxl),
           child: Column(
@@ -996,10 +1011,18 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        if (dl != null && dl.status.isNotEmpty)
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Text('${(_dlSpeed[m.name] ?? 0).toStringAsFixed(1)} MB/s',
+                                style: TextStyle(
+                                  fontSize: XlFont.micro,
+                                  fontWeight: FontWeight.w800,
+                                  color: p.gold,
+                                  letterSpacing: XlLetterSpacing.wider,
+                                )),
+                            const Spacer(),
+                            if (dl != null && dl.status.isNotEmpty)
                           Expanded(
                             child: Text(dl.status,
                                 overflow: TextOverflow.ellipsis,
@@ -1074,6 +1097,29 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
                   child: _actionBtn(p, m, installed, color),
                 ),
               ),
+          ],
+        ),
+          ),
+          if (installed)
+            Positioned(
+              top: 0,
+              left: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [p.gold, p.gold.withOpacity(0.8)]),
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(XlRadius.xxl), bottomRight: Radius.circular(XlRadius.md)),
+                  boxShadow: [BoxShadow(color: p.gold.withOpacity(0.4), blurRadius: 8, spreadRadius: -2)],
+                ),
+                child: Text('已安装',
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      fontWeight: FontWeight.w800,
+                      color: p.btnInk,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ),
+            ),
           ],
         ),
       ),
@@ -1281,6 +1327,20 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     final sub = XlClient.stub.download(m.name, quant: m.quant).listen(
       (p) {
         if (!mounted) return;
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final prevTick = _lastDlTick[m.name];
+        final prevInfo = _dlInfo[m.name];
+        if (prevTick != null && prevInfo != null) {
+          final dt = (nowMs - prevTick) / 1000.0;
+          if (dt >= 0.5) {
+            final dm = p.downloadedMb - prevInfo.downloadedMb;
+            final speed = dm / dt;
+            _dlSpeed[m.name] = speed.clamp(0.0, 999.0);
+            _lastDlTick[m.name] = nowMs;
+          }
+        } else {
+          _lastDlTick[m.name] = nowMs;
+        }
         setState(() {
           _dlInfo[m.name] = _DlInfo(
             percent: p.percent,
@@ -1333,6 +1393,90 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
       },
     );
     _dlSubs[m.name] = sub;
+  }
+
+  Widget _compareBar(XlPalette p) {
+    final selected = _source.where((m) => _compareSelected.contains(m.name)).toList();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: p.gradBrand,
+        borderRadius: BorderRadius.circular(XlRadius.lg),
+        boxShadow: [BoxShadow(color: p.pink.withOpacity(0.3), blurRadius: 16, spreadRadius: -4)],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.compare_arrows_rounded, size: 16, color: p.btnInk),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('已选 ${selected.length} 个模型 · 长按卡片可取消',
+                style: TextStyle(fontSize: XlFont.label, fontWeight: FontWeight.w700, color: p.btnInk, letterSpacing: XlLetterSpacing.wide)),
+          ),
+          _Pressable(
+            onTap: () => setState(() => _compareSelected.clear()),
+            child: Text('清除',
+                style: TextStyle(fontSize: XlFont.label, fontWeight: FontWeight.w800, color: p.btnInk.withOpacity(0.8))),
+          ),
+          const SizedBox(width: 12),
+          _Pressable(
+            onTap: selected.length >= 2 ? () => _showCompareDialog(p, selected[0], selected[1]) : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(XlRadius.pill),
+              ),
+              child: Text('对比',
+                  style: TextStyle(fontSize: XlFont.label, fontWeight: FontWeight.w800, color: p.btnInk, letterSpacing: XlLetterSpacing.wider)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCompareDialog(XlPalette p, _ModelItem a, _ModelItem b) {
+    showDialog(
+      context: context,
+      barrierColor: p.scrim,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          width: 520,
+          padding: const EdgeInsets.all(24),
+          decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('模型对比', style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
+              const SizedBox(height: 16),
+              _compareRow(p, '参数量', a.params, b.params),
+              _compareRow(p, '量化', a.quant, b.quant),
+              _compareRow(p, '质量评分', '${a.quality}', '${b.quality}'),
+              _compareRow(p, '需求内存', '${a.ramGb} GB', '${b.ramGb} GB'),
+              _compareRow(p, '下载体积', '${(a.sizeMb/1024).toStringAsFixed(1)} GB', '${(b.sizeMb/1024).toStringAsFixed(1)} GB'),
+              _compareRow(p, '上下文', a.context, b.context),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compareRow(XlPalette p, String label, String va, String vb) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(width: 80, child: Text(label, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w600))),
+          Expanded(child: Text(va, textAlign: TextAlign.center, style: TextStyle(fontSize: XlFont.captionSm, color: p.pink, fontWeight: FontWeight.w800))),
+          Text('vs', style: TextStyle(fontSize: XlFont.micro, color: p.decor, fontWeight: FontWeight.w700)),
+          Expanded(child: Text(vb, textAlign: TextAlign.center, style: TextStyle(fontSize: XlFont.captionSm, color: p.gold, fontWeight: FontWeight.w800))),
+        ],
+      ),
+    );
   }
 
   void _showInfo(XlPalette p, _ModelItem m) {

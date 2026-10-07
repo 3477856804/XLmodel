@@ -28,6 +28,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   late AnimationController _enterCtrl;
   late AnimationController _pulseCtrl;
   late Animation<double> _enterAnim;
+  final List<_SettingChange> _history = [];
+  bool _aboutExpanded = false;
 
   final Map<String, bool> _toggles = {
     'alwaysOnTop': false,
@@ -1150,6 +1152,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                     )
                   : const SizedBox(width: double.infinity),
             ),
+            const SizedBox(height: 8),
+            _cacheBreakdown(p),
           ],
         ),
         const SizedBox(height: 10),
@@ -1168,6 +1172,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       children: [
         _sectionHeader(p, '关于小凌', '版本、协议与开源信息', p.pink),
         _aboutHero(p),
+        const SizedBox(height: 14),
+        _aboutExpandCard(p),
         const SizedBox(height: 18),
         _aboutRow(p, '版本', 'v0.0.1', Icons.tag_rounded, valueColor: p.gold),
         const SizedBox(height: 10),
@@ -1187,6 +1193,50 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           ],
         ),
       ],
+    );
+  }
+
+  Widget _aboutExpandCard(XlPalette p) {
+    return _Pressable(
+      onTap: () => setState(() => _aboutExpanded = !_aboutExpanded),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.expand_more_rounded, size: 16, color: p.pink),
+                const SizedBox(width: 8),
+                Text('开源协议与依赖详情',
+                    style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.wide)),
+                const Spacer(),
+                Text(_aboutExpanded ? '收起' : '展开',
+                    style: TextStyle(fontSize: XlFont.label, fontWeight: FontWeight.w700, color: p.pink, letterSpacing: XlLetterSpacing.wider)),
+              ],
+            ),
+            AnimatedCrossFade(
+              duration: XlDuration.normal,
+              crossFadeState: _aboutExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+              firstChild: const SizedBox(height: 0, width: double.infinity),
+              secondChild: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 14),
+                  _aboutRow(p, 'Flutter SDK', '3.x · stable', Icons.flutter_dash_rounded),
+                  const SizedBox(height: 8),
+                  _aboutRow(p, 'gRPC', 'grpc-dart 4.x', Icons.hub_rounded),
+                  const SizedBox(height: 8),
+                  _aboutRow(p, '路径管理', 'path_provider', Icons.folder_rounded),
+                  const SizedBox(height: 8),
+                  _aboutRow(p, '项目地址', 'github.com/xiaoling/xl', Icons.link_rounded, valueColor: p.blue),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1488,10 +1538,34 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
             ),
           ),
           const SizedBox(width: 14),
-          _toggle(p, on, color, () => setState(() => _toggles[key] = !on)),
+          _toggle(p, on, color, () => _onToggleChanged(key, on)),
         ],
       ),
     );
+  }
+
+  void _onToggleChanged(String key, bool oldValue) {
+    final newValue = !oldValue;
+    setState(() => _toggles[key] = newValue);
+    _history.add(_SettingChange(key, oldValue));
+    if (_history.length > 10) _history.removeAt(0);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 2200),
+        content: const Text('设置已保存', style: TextStyle(fontWeight: FontWeight.w600)),
+        action: SnackBarAction(
+          label: '撤销',
+          textColor: XlPalette.of(context).pink,
+          onPressed: () {
+            if (_history.isEmpty) return;
+            final last = _history.removeLast();
+            setState(() => _toggles[last.key] = last.oldValue);
+          },
+        ),
+      ));
   }
 
   Widget _toggle(XlPalette p, bool on, Color color, VoidCallback onTap) {
@@ -1680,6 +1754,36 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       );
   }
 
+  Widget _cacheBreakdown(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neuXs(context, r: XlRadius.md),
+      child: Column(
+        children: [
+          _cacheRow(p, '临时缓存目录', _cacheSize, Icons.folder_special_rounded, p.pink),
+          const SizedBox(height: 8),
+          _cacheRow(p, '对话历史', '约 12.4 MB', Icons.chat_bubble_outline_rounded, p.violet),
+          const SizedBox(height: 8),
+          _cacheRow(p, '模型文件缓存', '约 2.1 GB', Icons.memory_rounded, p.gold),
+        ],
+      ),
+    );
+  }
+
+  Widget _cacheRow(XlPalette p, String label, String value, IconData icon, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 10),
+        Text(label,
+            style: TextStyle(fontSize: XlFont.label, color: p.text2, fontWeight: FontWeight.w600, letterSpacing: XlLetterSpacing.wide)),
+        const Spacer(),
+        Text(value,
+            style: TextStyle(fontSize: XlFont.label, color: color, fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
+      ],
+    );
+  }
+
   Widget _infoPanel(XlPalette p, String text) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1733,6 +1837,12 @@ class _Section {
   final IconData icon;
   final String color;
   const _Section(this.key, this.label, this.icon, this.color);
+}
+
+class _SettingChange {
+  final String key;
+  final bool oldValue;
+  const _SettingChange(this.key, this.oldValue);
 }
 
 class _Pressable extends StatefulWidget {

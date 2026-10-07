@@ -181,6 +181,79 @@ class LongTermMemory:
                     "newest": max(i.timestamp for i in self._items),
                     "path": str(self.path)}
 
+    # ---- 增量：记忆统计 / 遗忘曲线 / 导入导出 ----
+    def get_stats(self) -> dict:
+        """返回记忆统计：总条数、今日新增、重要度 TOP3、总大小。"""
+        with self._lock:
+            n = len(self._items)
+            if not n:
+                return {"total": 0, "today_new": 0, "top3": [], "size_bytes": 0}
+            now = time.time()
+            today = datetime.now().date()
+            today_start = datetime(today.year, today.month, today.day).timestamp()
+            today_new = sum(1 for i in self._items if i.timestamp >= today_start)
+            top3 = sorted(self._items, key=lambda x: x.importance, reverse=True)[:3]
+            total_size = sum(len(i.content) for i in self._items)
+            return {
+                "total": n,
+                "today_new": today_new,
+                "top3": [i.content[:50] for i in top3],
+                "size_bytes": total_size,
+            }
+
+    def apply_forgetting(self) -> dict:
+        """遗忘曲线：>30 天未访问权重 x0.9，>90 天标记冷记忆。"""
+        now = time.time()
+        day = 86400
+        decayed = 0
+        cold = 0
+        with self._lock:
+            for i in self._items:
+                age_days = (now - i.timestamp) / day
+                if age_days > 90:
+                    if "cold" not in i.tags:
+                        i.tags.append("cold")
+                    cold += 1
+                elif age_days > 30:
+                    i.importance *= 0.9
+                    decayed += 1
+            self._dirty = True
+            self._save()
+        return {"decayed": decayed, "cold": cold, "remaining": len(self._items)}
+
+    def export_memories(self, filepath: str) -> bool:
+        """将所有记忆导出为 JSON 文件。"""
+        try:
+            p = Path(filepath)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                data = [i.to_dict() for i in self._items]
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=1),
+                         encoding="utf-8")
+            return True
+        except OSError:
+            return False
+
+    def import_memories(self, filepath: str) -> int:
+        """从 JSON 文件导入记忆，返回导入条数。"""
+        p = Path(filepath)
+        if not p.exists():
+            return 0
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(data, list):
+                return 0
+            added = 0
+            for d in data:
+                if isinstance(d, dict) and d.get("content"):
+                    self.add(d.get("role", "user"), d["content"],
+                             importance=float(d.get("importance", 0.5)),
+                             tags=d.get("tags", []))
+                    added += 1
+            return added
+        except (OSError, json.JSONDecodeError):
+            return 0
+
 
 class SessionPersistence:
     def __init__(self, history_path: str | None = None,

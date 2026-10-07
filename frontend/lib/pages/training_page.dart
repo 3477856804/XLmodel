@@ -566,28 +566,44 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _startBtn(XlPalette p, {Key? key}) {
-    return _Pressable(
+    final steps = int.tryParse(_stepsCtrl.text.trim()) ?? 100;
+    final estMin = (steps * 0.6 / 60).ceil().clamp(1, 999);
+    return Column(
       key: key,
-      onTap: _startTraining,
-      child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
-          decoration: AppTheme.btn(context, r: XlRadius.pill),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.play_arrow_rounded, size: 16, color: p.btnInk),
-              const SizedBox(width: 8),
-              Text('开始训练',
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w800,
-                    color: p.btnInk,
-                    letterSpacing: XlLetterSpacing.wider,
-                  )),
-            ],
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Pressable(
+          onTap: _startTraining,
+          child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+              decoration: AppTheme.btn(context, r: XlRadius.pill),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.play_arrow_rounded, size: 16, color: p.btnInk),
+                  const SizedBox(width: 8),
+                  Text('开始训练',
+                      style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                ],
+              ),
+            ),
           ),
-        ),
-      );
+        const SizedBox(height: 6),
+        Text('预计约 $estMin 分钟',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: p.gold,
+              fontWeight: FontWeight.w700,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+      ],
+    );
   }
 
   Widget _stopBtn(XlPalette p, {Key? key}) {
@@ -674,8 +690,90 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     }
   }
 
-  void _requestStop() {
+  Future<void> _requestStop() async {
     if (!_trainingActive) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierColor: XlPalette.of(context).scrim,
+      builder: (ctx) {
+        final p = XlPalette.of(ctx);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            width: 380,
+            padding: const EdgeInsets.all(24),
+            decoration: AppTheme.neuLg(ctx, r: XlRadius.xxxl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('中断训练',
+                    style: TextStyle(
+                      fontSize: XlFont.h5,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                    )),
+                const SizedBox(height: 6),
+                Text('确定要中断当前训练吗？已训练的进度将被记录',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.text2,
+                      fontWeight: FontWeight.w500,
+                      height: XlLineHeight.relaxed,
+                    )),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _Pressable(
+                        onTap: () => Navigator.pop(ctx, false),
+                        scale: 0.95,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: AppTheme.ghost(ctx, r: XlRadius.pill),
+                          child: Center(
+                            child: Text('继续训练',
+                                style: TextStyle(
+                                  fontSize: XlFont.captionSm,
+                                  fontWeight: FontWeight.w800,
+                                  color: p.text1,
+                                )),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _Pressable(
+                        scale: 0.95,
+                        onTap: () => Navigator.pop(ctx, true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(colors: [p.red, p.red.withOpacity(0.85)]),
+                            borderRadius: BorderRadius.circular(XlRadius.pill),
+                          ),
+                          child: Center(
+                            child: Text('中断',
+                                style: TextStyle(
+                                  fontSize: XlFont.captionSm,
+                                  fontWeight: FontWeight.w800,
+                                  color: p.btnInk,
+                                )),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (confirmed != true) return;
     setState(() => _stopRequested = true);
     _logs.add(_LogLine('[stop] 收到停止指令，结束当前轮次', _LogLevel.warn));
     _scrollLogBottom();
@@ -1404,22 +1502,48 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     );
   }
 
+  String _paramTip(String label) {
+    switch (label) {
+      case '学习率':
+        return '控制权重更新步长，推荐 1e-4 ~ 5e-4，过大易震荡';
+      case 'Batch Size':
+        return '单次迭代样本数，显存不足时调小，推荐 4 ~ 16';
+      case 'LoRA Rank':
+        return '低秩矩阵维度，越大拟合越强，推荐 4 ~ 16';
+      case '训练步数':
+        return '总训练迭代次数，推荐 50 ~ 200';
+      default:
+        return '';
+    }
+  }
+
   Widget _paramField(XlPalette p, _ParamField f) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Container(width: 6, height: 6, decoration: AppTheme.glowDot(f.color, size: 6)),
-            const SizedBox(width: 6),
-            Text(f.label,
-                style: TextStyle(
-                  fontSize: XlFont.label,
-                  color: p.text3,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: XlLetterSpacing.wider,
-                )),
-          ],
+        Tooltip(
+          message: _paramTip(f.label),
+          preferBelow: false,
+          decoration: BoxDecoration(
+            color: p.surface,
+            borderRadius: BorderRadius.circular(XlRadius.sm),
+            border: Border.all(color: p.edgeSoft),
+          ),
+          textStyle: TextStyle(fontSize: XlFont.micro, color: p.text2, height: 1.4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Container(width: 6, height: 6, decoration: AppTheme.glowDot(f.color, size: 6)),
+              const SizedBox(width: 6),
+              Text(f.label,
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ],
+          ),
         ),
         const SizedBox(height: 6),
         Container(

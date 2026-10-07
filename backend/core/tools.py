@@ -219,6 +219,54 @@ class ToolManager:
         except (OSError, RuntimeError):
             return None
 
+    # ---- 增量：工具执行统计 / 安全计算 / 异常包装 ----
+    def _record_call(self, name: str):
+        """记录工具调用次数与最后调用时间。"""
+        if not hasattr(self, "_tool_calls"):
+            self._tool_calls = {}
+        with self._lock:
+            entry = self._tool_calls.setdefault(name, {"count": 0, "last_call": 0.0})
+            entry["count"] += 1
+            entry["last_call"] = time.time()
+
+    def get_tool_stats(self) -> dict:
+        """返回各工具调用统计。"""
+        if not hasattr(self, "_tool_calls"):
+            return {"tools": {}, "total_calls": 0}
+        with self._lock:
+            total = sum(v["count"] for v in self._tool_calls.values())
+            return {"tools": dict(self._tool_calls), "total_calls": total}
+
+    def calculate(self, expression: str = "", **_) -> str:
+        """安全计算数学表达式，仅允许数字和基本运算符。"""
+        if not expression or len(expression) > 200:
+            return "表达式无效"
+        import ast
+        allowed = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
+                   ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod,
+                   ast.Pow, ast.USub, ast.UAdd)
+        try:
+            tree = ast.parse(expression.strip(), mode="eval")
+            for node in ast.walk(tree):
+                if not isinstance(node, allowed):
+                    return "表达式包含不允许的内容"
+            result = eval(compile(tree, "<calc>", "eval"),
+                          {"__builtins__": {}}, SAFE_MATH)
+            return str(result)
+        except Exception as e:
+            return f"计算失败：{type(e).__name__}"
+
+    def _safe_execute(self, tool_name: str, **kwargs) -> dict:
+        """安全执行工具，捕获异常返回错误字典而非抛出。"""
+        self._record_call(tool_name)
+        try:
+            if tool_name not in self.tools:
+                return {"ok": False, "error": f"未知工具：{tool_name}", "result": None}
+            result = self.execute(tool_name, kwargs)
+            return {"ok": True, "result": result}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}", "result": None}
+
 
 class SkillManager:
     def __init__(self, skills_dir: str | None = None, tool_manager: ToolManager | None = None,

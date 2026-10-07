@@ -373,6 +373,52 @@ def reset_cache():
     _cache = None
 _cache_mtime = 0.0
 
+
+def validate(cfg: dict | None = None) -> list:
+    """校验必填配置项是否有效，返回 [(field, error_message), ...]。"""
+    c = cfg if isinstance(cfg, dict) else load()
+    errors = []
+    model = c.get("model") or {}
+    if not str(model.get("base_model") or "").strip():
+        errors.append(("model.base_model", "模型名称为空"))
+    voice = c.get("tts") or {}
+    if not str(voice.get("edge_voice") or voice.get("minimax_voice") or "").strip():
+        errors.append(("tts.voice", "未配置任何可用音色"))
+    if not str(c.get("user_name") or "").strip():
+        errors.append(("user_name", "用户名为空"))
+    return errors
+
+
+def migrate(cfg: dict | None = None) -> dict:
+    """处理旧版本配置：缺失字段补默认值、字段重命名，返回新配置。"""
+    c = dict(DEFAULTS)
+    if isinstance(cfg, dict):
+        c = _deep_merge(c, cfg)
+    # 旧配置没有 telegram 扁平字段时补默认值
+    c.setdefault("telegram_enabled", False)
+    c.setdefault("telegram_bot_token", "")
+    c.setdefault("telegram_chat_id", "")
+    # 旧配置可能用旧字段名 voice.id，统一到 tts.edge_voice
+    if not (c.get("tts") or {}).get("edge_voice"):
+        old_voice = (c.get("voice") or {}).get("id")
+        if old_voice:
+            c.setdefault("tts", {})["edge_voice"] = old_voice
+    c["version"] = "0.0.1"
+    return c
+
+
+def snapshot(cfg: dict | None = None) -> dict:
+    """返回当前配置的深拷贝字典，用于备份。"""
+    import copy
+    return copy.deepcopy(cfg if isinstance(cfg, dict) else load())
+
+
+def restore(snap: dict) -> dict:
+    """从快照字典恢复配置并落盘。"""
+    if not isinstance(snap, dict):
+        raise ValueError("快照必须是字典")
+    return save(snap)
+
 """小凌 · 插件系统（内置 + 外部加载 + 权限 + 钩子）"""
 import importlib.util
 import json

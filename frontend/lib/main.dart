@@ -80,6 +80,26 @@ void main() {
   });
 }
 
+class _FadeScaleRoute<T> extends PageRouteBuilder<T> {
+  _FadeScaleRoute({required WidgetBuilder builder, RouteSettings? settings})
+      : super(
+          settings: settings,
+          transitionDuration: XlDuration.slow,
+          reverseTransitionDuration: XlDuration.normal,
+          pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curved = CurvedAnimation(parent: animation, curve: XlCurve.easeOut);
+            return FadeTransition(
+              opacity: curved,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.98, end: 1.0).animate(curved),
+                child: child,
+              ),
+            );
+          },
+        );
+}
+
 class _ErrorApp extends StatelessWidget {
   final Object error;
   const _ErrorApp({required this.error});
@@ -99,8 +119,51 @@ class _ErrorApp extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 48),
-                const SizedBox(height: 16),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: XlDuration.slower,
+                  curve: XlCurve.easeOut,
+                  builder: (_, t, __) {
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 120 + t * 40,
+                          height: 120 + t * 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                const Color(0xFFFF6FA5).withOpacity(0.20 * t),
+                                const Color(0xFFE8C46A).withOpacity(0.08 * t),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                        ),
+                        Container(
+                          width: 64,
+                          height: 64,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF6FA5), Color(0xFFE8C46A)],
+                            ),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFF6FA5).withOpacity(0.4 * t),
+                                blurRadius: 24,
+                                spreadRadius: -4,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 28),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
                 const Text(
                   '启动遇到问题',
                   style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
@@ -141,6 +204,9 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    try {
+      PlatformDispatcher.instance;
+    } catch (_) {}
   }
 
   @override
@@ -163,8 +229,11 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final routeBuilders = <String, WidgetBuilder>{
+      '/home': (_) => HomeShell(onToggleTheme: toggleTheme, isDark: isDark),
+    };
     return MaterialApp(
-      title: '小凌',
+      title: '晓灵 v0.0.1',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
@@ -172,8 +241,13 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
       themeAnimationDuration: XlDuration.slow,
       themeAnimationCurve: XlCurve.standard,
       home: SplashPage(onToggleTheme: toggleTheme),
-      routes: {
-        '/home': (_) => HomeShell(onToggleTheme: toggleTheme, isDark: isDark),
+      routes: routeBuilders,
+      onGenerateRoute: (settings) {
+        final builder = routeBuilders[settings.name];
+        if (builder != null) {
+          return _FadeScaleRoute(builder: builder, settings: settings);
+        }
+        return null;
       },
       builder: (context, child) {
         return MediaQuery(

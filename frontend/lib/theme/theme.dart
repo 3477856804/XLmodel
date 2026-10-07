@@ -931,6 +931,32 @@ class XlPalette extends ThemeExtension<XlPalette> {
     BoxShadow(color: bg, spreadRadius: 1, blurRadius: 0),
   ];
 
+  static const Color semanticPinkSoft = Color(0xFFFFB3D1);
+  static const Color semanticGoldSoft = Color(0xFFF5DCA0);
+  static const Color semanticSuccess = Color(0xFF6BCB77);
+  static const Color semanticWarning = Color(0xFFFFD93D);
+  static const Color semanticDanger = Color(0xFFFF6B6B);
+
+  List<BoxShadow> get shadowSoft => [
+    BoxShadow(color: shDark, offset: const Offset(2, 2), blurRadius: 8, spreadRadius: -1),
+    BoxShadow(color: shLight, offset: const Offset(-2, -2), blurRadius: 8, spreadRadius: -1),
+  ];
+  List<BoxShadow> get shadowGlow => [
+    BoxShadow(color: pink.withOpacity(isDark ? 0.40 : 0.28), blurRadius: 20, spreadRadius: -3),
+  ];
+  List<BoxShadow> glowSuccess({double intensity = 1.0}) => [
+    BoxShadow(color: semanticSuccess.withOpacity((isDark ? 0.45 : 0.32) * intensity),
+        blurRadius: 20, spreadRadius: -3),
+  ];
+  List<BoxShadow> glowWarning({double intensity = 1.0}) => [
+    BoxShadow(color: semanticWarning.withOpacity((isDark ? 0.45 : 0.32) * intensity),
+        blurRadius: 20, spreadRadius: -3),
+  ];
+  List<BoxShadow> glowDanger({double intensity = 1.0}) => [
+    BoxShadow(color: semanticDanger.withOpacity((isDark ? 0.45 : 0.32) * intensity),
+        blurRadius: 20, spreadRadius: -3),
+  ];
+
   @override
   XlPalette copyWith({
     bool? dark, Color? bg, Color? bgSoft, Color? bgDeep,
@@ -1328,6 +1354,45 @@ class AppTheme {
     decoration: BoxDecoration(color: color, shape: BoxShape.circle,
         boxShadow: glow ? [BoxShadow(color: color.withOpacity(0.6),
             blurRadius: size * 1.6, spreadRadius: -1)] : null));
+
+  static BoxDecoration pill(BuildContext c, {Color? color, double r = XlRadius.pill}) {
+    final p = XlPalette.of(c);
+    final cc = color ?? p.pink;
+    return BoxDecoration(
+      color: cc.withOpacity(p.isDark ? 0.16 : 0.12),
+      borderRadius: BorderRadius.circular(r),
+      border: Border.all(color: cc.withOpacity(0.32), width: 1),
+    );
+  }
+  static BoxDecoration cardHeader(BuildContext c, {double r = XlRadius.lg}) {
+    final p = XlPalette.of(c);
+    return BoxDecoration(
+      gradient: p.faceHi,
+      borderRadius: BorderRadius.only(
+        topLeft: Radius.circular(r),
+        topRight: Radius.circular(r),
+      ),
+      border: Border(bottom: BorderSide(color: p.edge, width: 1)),
+    );
+  }
+  static Widget dividerSunken(BuildContext c, {double height = 2, double inset = 0}) {
+    final p = XlPalette.of(c);
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: inset),
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: p.surfaceHi,
+          borderRadius: BorderRadius.circular(height),
+          boxShadow: [
+            BoxShadow(color: p.shDark.withOpacity(p.isDark ? 0.25 : 0.10),
+                offset: const Offset(0, 1), blurRadius: 0),
+            BoxShadow(color: p.shLight, offset: const Offset(0, -1), blurRadius: 0),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 extension XlContext on BuildContext {

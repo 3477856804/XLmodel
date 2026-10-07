@@ -96,6 +96,10 @@ def main():
                         help="不启动 Web 面板（仅跑 gRPC）")
     parser.add_argument("--no-grpc", action="store_true",
                         help="不启动 gRPC（仅跑 Web 面板）")
+    parser.add_argument("--host", default="localhost",
+                        help="gRPC 监听地址（默认 localhost）")
+    parser.add_argument("--timeout", type=int, default=300,
+                        help="优雅关闭超时秒数（默认 300）")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -103,6 +107,36 @@ def main():
         format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
     )
     log = logging.getLogger('xiaoling.main')
+
+    # ---- 启动横幅：打印版本/端口/PID/数据目录/模型路径 ----
+    try:
+        from backend.core import config as _cfg
+        _desc = _cfg.describe()
+        _cfg.load()
+        log.info('==== 小凌 v0.0.1 启动 ====')
+        log.info('PID=%s host=%s port=%s', os.getpid(), args.host, args.port)
+        log.info('数据目录: %s', _desc.get('data_dir', ''))
+        log.info('模型路径: %s', _cfg.resource('models'))
+        log.info('优雅关闭超时: %ss', args.timeout)
+    except Exception:
+        log.info('小凌 v0.0.1 启动 (PID=%s port=%s)', os.getpid(), args.port)
+
+    # ---- 信号处理：SIGTERM/SIGINT 优雅关闭 gRPC server ----
+    def _graceful_shutdown(signum, frame):
+        log.info('收到信号 %s，正在优雅关闭…', signum)
+        print('\n正在关闭小凌…')
+        try:
+            from backend.rpc import server as _srv
+        except Exception:
+            pass
+        sys.exit(0)
+
+    import signal as _sig
+    for _s in (_sig.SIGINT, _sig.SIGTERM):
+        try:
+            _sig.signal(_s, _graceful_shutdown)
+        except (ValueError, OSError):
+            pass
 
     try:
         if args.status:

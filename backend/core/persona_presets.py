@@ -178,3 +178,82 @@ def delete_custom(name: str) -> tuple[bool, str]:
     if not _save_custom(nxt):
         return False, "保存失败：无法写入人格文件"
     return True, f"已删除人格「{nm}」"
+
+
+# --------------------------------------------------------------------------- #
+#  预设编辑 / 导入导出 / 使用统计
+# --------------------------------------------------------------------------- #
+_usage_count: dict[str, int] = {}      # preset_id 或 name -> 使用次数
+
+
+def update_preset(preset_id: str, **kwargs) -> tuple[bool, str]:
+    """更新自定义人格预设字段（name/description/prompt_hint），内置预设不可修改。"""
+    pid = (preset_id or "").strip()
+    if not pid:
+        return False, "预设 id 不能为空"
+    if any(p["id"] == pid for p in BUILTIN_PERSONAS):
+        return False, "内置人格不可修改"
+    items = _load_custom()
+    for x in items:
+        if x.get("id") == pid or x.get("name") == pid:
+            for field in ("name", "description", "prompt_hint"):
+                if field in kwargs and kwargs[field] is not None:
+                    x[field] = str(kwargs[field])[:300 if field == "prompt_hint" else 80]
+            if not _save_custom(items):
+                return False, "保存失败"
+            return True, "预设已更新"
+    return False, f"未找到预设「{pid}」"
+
+
+def export_presets(filepath: str) -> str:
+    """导出所有预设（内置+自定义）为 JSON 文件，返回写入路径。"""
+    data = {"builtin": BUILTIN_PERSONAS, "custom": _load_custom(),
+            "usage": dict(_usage_count)}
+    p = Path(filepath)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    return str(p)
+
+
+def import_presets(filepath: str) -> tuple[int, int]:
+    """从 JSON 导入自定义预设，跳过重复 id。返回 (新增数, 跳过数)。"""
+    try:
+        data = json.loads(Path(filepath).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0, 0
+    incoming = data.get("custom") if isinstance(data, dict) else None
+    if not isinstance(incoming, list):
+        return 0, 0
+    items = _load_custom()
+    existing_ids = {x.get("id") for x in items}
+    added = skipped = 0
+    for x in incoming:
+        if not isinstance(x, dict) or not x.get("name"):
+            continue
+        if x.get("id") in existing_ids:
+            skipped += 1
+            continue
+        items.append({
+            "id": x.get("id") or f"custom_{int(time.time())}_{added}",
+            "name": str(x["name"])[:_MAX_NAME_LEN],
+            "description": str(x.get("description", ""))[:80],
+            "prompt_hint": str(x.get("prompt_hint", ""))[:300],
+            "created_at": int(time.time()),
+        })
+        existing_ids.add(items[-1]["id"])
+        added += 1
+    if added and not _save_custom(items):
+        return 0, skipped
+    return added, skipped
+
+
+def record_usage(preset_id: str) -> None:
+    """记录某人格被使用一次。"""
+    pid = (preset_id or "").strip()
+    if pid:
+        _usage_count[pid] = _usage_count.get(pid, 0) + 1
+
+
+def get_usage_stats() -> dict:
+    """返回每个人格的使用次数统计。"""
+    return dict(sorted(_usage_count.items(), key=lambda kv: kv[1], reverse=True))

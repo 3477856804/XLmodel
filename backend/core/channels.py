@@ -5,6 +5,7 @@
 失败时优雅降级（返回 False / 跳过），不阻塞主程序。
 """
 import asyncio
+import collections
 import json
 import threading
 import time
@@ -360,6 +361,10 @@ class ChannelManager:
         self.channels: Dict[str, ChannelBase] = {}
         self._message_handler = None
         self.engine = None
+        # 每个通道保留最近 100 条收发消息（用于状态面板排查）
+        self._msg_queues: Dict[str, "collections.deque"] = {}
+        self._last_msg_time: Dict[str, float] = {}
+        self._reconnect_attempts: Dict[str, int] = {}
 
     def _channel_config(self, name: str) -> dict:
         cfg = dict(self.config.get(name, {}) or {})
@@ -422,3 +427,67 @@ class ChannelManager:
     def list_channels(self) -> List[dict]:
         return [{"name": n, "running": c.is_running}
                 for n, c in self.channels.items()]
+
+    # ---- 通道状态监控 ----
+    def get_channel_status(self) -> dict:
+        """返回每个通道的状态字典：名称/enabled/connected/最后消息时间/消息数。"""
+        out = {}
+        for name, ch in self.channels.items():
+            q = self._msg_queues.get(name)
+            out[name] = {
+                "name": name,
+                "enabled": bool(self._channel_config(name).get("enabled", False)),
+                "connected": bool(ch.is_running),
+                "last_message_time": self._last_msg_time.get(name, 0.0),
+                "message_count": len(q) if q else 0,
+            }
+        return out
+
+    # ---- 消息队列（最近收发记录）----
+    def record_message(self, channel_name: str, direction: str,
+                       content: str) -> None:
+        """记录一条发送/接收消息到对应通道的环形队列。"""
+        q = self._msg_queues.setdefault(
+            channel_name, collections.deque(maxlen=100))
+        q.append({"direction": direction, "content": str(content)[:200],
+                  "time": time.time()})
+        self._last_msg_time[channel_name] = time.time()
+
+    def get_recent_messages(self, channel_name: str, limit: int = 20) -> list:
+        """取某通道最近的消息记录。"""
+        q = self._msg_queues.get(channel_name)
+        if not q:
+            return []
+        return list(q)[-max(1, limit):]
+
+    # ---- 通道重连 ----
+    def _reconnect_channel(self, channel_name: str) -> None:
+        """对断开的通道尝试重连（最多 3 次，间隔 5 秒）。"""
+        attempts = self._reconnect_attempts.get(channel_name, 0)
+        if attempts >= 3:
+            print(f"  [通道] {channel_name} 重连失败达上限，放弃")
+            return
+        cfg = self._channel_config(channel_name)
+        if not cfg.get("enabled", False):
+            return
+        cls = CHANNEL_REGISTRY.get(channel_name)
+        if cls is None:
+            return
+
+        async def _do_reconnect():
+            try:
+                ch = cls(cfg)
+                ch.set_message_handler(self._message_handler)
+                if self.engine is not None:
+                    ch.set_engine(self.engine)
+                await ch.start()
+                self.channels[channel_name] = ch
+                self._reconnect_attempts[channel_name] = 0
+                print(f"  [通道] {channel_name} 重连成功")
+            except Exception as e:
+                self._reconnect_attempts[channel_name] = attempts + 1
+                print(f"  [通道] {channel_name} 重连失败({attempts + 1}/3): {e}")
+                threading.Timer(5.0, self._reconnect_channel,
+                                args=[channel_name]).start()
+
+        threading.Thread(target=_do_reconnect, daemon=True).start()
