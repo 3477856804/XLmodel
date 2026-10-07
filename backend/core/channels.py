@@ -298,6 +298,157 @@ class FeishuChannel(ChannelBase):
             return False
 
 
+# ===== WhatsApp（Business API / HTTP 桥接，仅发送模式）=====
+class WhatsAppChannel(ChannelBase):
+    """WhatsApp 通道（WhatsApp Business API 或 whatsapp-web.js HTTP 桥接）。
+
+    配置：api_url / token / phone_number_id / enabled。
+    """
+    name = "whatsapp"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_url = str(config.get("api_url", "") or "").rstrip("/")
+        self.token = str(config.get("token", "") or "")
+        self.phone_number_id = str(config.get("phone_number_id", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        self._running = True
+        print("  [WhatsApp] 通道已启动（仅发送模式，webhook 待接入）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.enabled or not self.api_url or not self.token:
+            return False
+        recipient = str(to or "")
+        if not recipient:
+            return False
+        try:
+            r = requests.post(
+                f"{self.api_url}/messages",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": recipient,
+                    "type": "text",
+                    "text": {"body": content},
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+
+# ===== Slack（Webhook + Bot API，仅发送模式）=====
+class SlackChannel(ChannelBase):
+    """Slack 通道：优先 incoming webhook，否则走 Bot API chat.postMessage。
+
+    配置：webhook_url / bot_token / channel / enabled。
+    """
+    name = "slack"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.webhook_url = str(config.get("webhook_url", "") or "")
+        self.bot_token = str(config.get("bot_token", "") or "")
+        self.channel = str(config.get("channel", "#general") or "#general")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        self._running = True
+        print("  [Slack] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.enabled:
+            return False
+        try:
+            if self.webhook_url:
+                r = requests.post(
+                    self.webhook_url,
+                    json={"text": content},
+                    timeout=HTTP_TIMEOUT,
+                )
+                return r.status_code == 200
+            elif self.bot_token:
+                r = requests.post(
+                    "https://slack.com/api/chat.postMessage",
+                    headers={"Authorization": f"Bearer {self.bot_token}"},
+                    json={"channel": self.channel, "text": content},
+                    timeout=HTTP_TIMEOUT,
+                )
+                return bool(r.json().get("ok", False))
+        except Exception:
+            return False
+        return False
+
+
+# ===== Signal（signal-cli REST API，仅发送模式）=====
+class SignalChannel(ChannelBase):
+    """Signal 通道（通过 signal-cli REST API）。
+
+    配置：api_url / phone_number / enabled。
+    """
+    name = "signal"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_url = str(config.get("api_url", "") or "").rstrip("/")
+        self.phone_number = str(config.get("phone_number", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        self._running = True
+        print("  [Signal] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.enabled or not self.api_url:
+            return False
+        recipient = str(to or "")
+        if not recipient:
+            return False
+        try:
+            r = requests.post(
+                f"{self.api_url}/v2/send",
+                json={
+                    "message": content,
+                    "number": self.phone_number,
+                    "recipients": [recipient],
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code == 201
+        except Exception:
+            return False
+
+
 # ===== 邮件（保留）=====
 class EmailChannel(ChannelBase):
     name = "email"
@@ -345,6 +496,9 @@ CHANNEL_REGISTRY = {
     "telegram": TelegramChannel,
     "discord": DiscordChannel,
     "feishu": FeishuChannel,
+    "whatsapp": WhatsAppChannel,
+    "slack": SlackChannel,
+    "signal": SignalChannel,
     "email": EmailChannel,
 }
 
@@ -384,6 +538,23 @@ class ChannelManager:
             "feishu": {
                 "enabled": self.config.get("feishu_enabled", False),
                 "webhook_url": self.config.get("feishu_webhook_url", ""),
+            },
+            "whatsapp": {
+                "enabled": self.config.get("whatsapp_enabled", False),
+                "api_url": self.config.get("whatsapp_api_url", ""),
+                "token": self.config.get("whatsapp_token", ""),
+                "phone_number_id": self.config.get("whatsapp_phone_number_id", ""),
+            },
+            "slack": {
+                "enabled": self.config.get("slack_enabled", False),
+                "webhook_url": self.config.get("slack_webhook_url", ""),
+                "bot_token": self.config.get("slack_bot_token", ""),
+                "channel": self.config.get("slack_channel", "#general"),
+            },
+            "signal": {
+                "enabled": self.config.get("signal_enabled", False),
+                "api_url": self.config.get("signal_api_url", ""),
+                "phone_number": self.config.get("signal_phone_number", ""),
             },
         }.get(name, {})
         for k, v in flat.items():

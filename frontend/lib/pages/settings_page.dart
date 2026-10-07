@@ -8,6 +8,7 @@ import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 import '../widgets/mcp_panel.dart';
+import '../widgets/security_panel.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -60,6 +61,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     'Telegram': false,
     'Discord': false,
     '飞书': false,
+    'WhatsApp': false,
+    'Slack': false,
+    'Signal': false,
     '邮件': false,
   };
 
@@ -292,6 +296,24 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           constraints: const BoxConstraints(maxHeight: 600),
           padding: const EdgeInsets.all(20),
           child: const McpPanel(),
+        ),
+      ),
+    );
+  }
+
+  void _openSecurityPanel() {
+    final p = XlPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: p.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.xl)),
+        insetPadding: const EdgeInsets.all(24),
+        child: Container(
+          width: 520,
+          constraints: const BoxConstraints(maxHeight: 640),
+          padding: const EdgeInsets.all(20),
+          child: const SecurityPanel(),
         ),
       ),
     );
@@ -1094,6 +1116,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       {'name': 'Telegram', 'desc': '通过 Bot 收发消息', 'icon': Icons.send_rounded},
       {'name': 'Discord', 'desc': '接入 Discord 服务器', 'icon': Icons.discord_rounded},
       {'name': '飞书', 'desc': '飞书机器人', 'icon': Icons.business_center_rounded},
+      {'name': 'WhatsApp', 'desc': 'Business API 推送消息', 'icon': Icons.chat_rounded},
+      {'name': 'Slack', 'desc': 'Webhook / Bot 推送到频道', 'icon': Icons.tag_rounded},
+      {'name': 'Signal', 'desc': 'signal-cli REST 发送', 'icon': Icons.enhanced_encryption_rounded},
       {'name': '邮件', 'desc': 'SMTP 收发邮件', 'icon': Icons.email_rounded},
     ];
     return ListView(
@@ -1181,6 +1206,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         _actionRow(p, '导入数据', '从备份文件恢复', Icons.download_rounded, p.blue, () => _importData()),
         const SizedBox(height: 10),
         _actionRow(p, 'MCP 工具连接', '连接外部 MCP 服务器扩展 AI 能力', Icons.hub_rounded, p.pink, () => _openMcpPanel()),
+        const SizedBox(height: 10),
+        _actionRow(p, '安全中心', '权限管理、目录保护与操作审计', Icons.shield_outlined, p.gold, () => _openSecurityPanel()),
         const SizedBox(height: 10),
         _actionRow(p, '重置所有设置', '恢复出厂默认，不可撤销', Icons.restart_alt_rounded, p.red, () => _resetSettings()),
       ],

@@ -6,6 +6,8 @@ import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 import '../widgets/model_showcase.dart';
 import 'terminal_page.dart';
+import 'git_page.dart';
+import 'workflow_page.dart';
 
 class DashboardPage extends StatefulWidget {
   final void Function(int) onNavigate;
@@ -81,6 +83,18 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   void _openTerminal() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const TerminalPage()),
+    );
+  }
+
+  void _openGit() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const GitPage()),
+    );
+  }
+
+  void _openWorkflow() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const WorkflowPage()),
     );
   }
 
@@ -647,6 +661,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       _Action('模型商店', '按硬件推荐', Icons.shopping_bag_outlined, 'violet', widget.onOpenModelStore),
       _Action('插件管理', '扩展功能', Icons.extension_outlined, 'green', widget.onOpenPlugins),
       _Action('开发者工具', '终端 / 文件浏览', Icons.terminal_rounded, 'blue', () => _openTerminal()),
+      _Action('版本控制', 'Git 变更与提交', Icons.commit_rounded, 'gold', () => _openGit()),
+      _Action('工作流', '无代码自动化', Icons.account_tree_rounded, 'violet', () => _openWorkflow()),
       _Action('开始训练', 'LoRA 微调', Icons.auto_awesome_outlined, 'blue', () => widget.onNavigate(2)),
       _Action('查看成长', '完整轨迹', Icons.trending_up_rounded, 'pink', () => widget.onNavigate(3)),
     ];
