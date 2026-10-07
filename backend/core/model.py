@@ -877,6 +877,119 @@ class ModelStore:
             return installed
         return self.list_installed_names()
 
+    # ---- 增量：缓存统计 / SHA256 校验 / 完整安装列表 ----
+    def cache_stats_detailed(self) -> dict:
+        """返回 HuggingFace 缓存详细统计：总大小、文件数、缓存目录路径。"""
+        try:
+            cache_dir = Path.home() / ".cache" / "huggingface"
+            if not cache_dir.exists():
+                return {"exists": False, "bytes": 0, "files": 0,
+                        "dir": str(cache_dir)}
+            total = 0
+            files = 0
+            for p in cache_dir.rglob("*"):
+                if p.is_file():
+                    try:
+                        total += p.stat().st_size
+                        files += 1
+                    except OSError:
+                        pass
+            return {"exists": True, "bytes": total,
+                    "size_h": human_bytes(total),
+                    "files": files, "dir": str(cache_dir)}
+        except Exception as e:
+            return {"exists": False, "error": f"{type(e).__name__}: {e}"}
+
+    @staticmethod
+    def compute_file_sha256(file_path: str | Path,
+                            chunk_size: int = 1 << 20) -> str:
+        """计算单个文件的 SHA256（流式读取，避免大文件占内存）。"""
+        try:
+            import hashlib
+            h = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            return h.hexdigest()
+        except Exception:
+            return ""
+
+    def verify_weights_integrity(self, model_path: str | Path) -> dict:
+        """对模型目录下所有权重文件做 SHA256 完整性摘要。
+
+        返回 {ok, weights: [{name, sha256, size}], total_bytes}。
+        这里只计算并记录哈希供比对，不做逐字节官方比对（无官方清单）。
+        """
+        try:
+            p = Path(model_path)
+            if not p.exists() or not p.is_dir():
+                return {"ok": False, "error": "目录不存在"}
+            weights = [f for f in p.rglob("*")
+                       if f.is_file() and f.suffix.lower() in WEIGHT_EXTS]
+            if not weights:
+                return {"ok": False, "error": "无权重文件"}
+            items = []
+            total = 0
+            for w in weights:
+                try:
+                    size = w.stat().st_size
+                    total += size
+                    sha = self.compute_file_sha256(w)
+                    items.append({"name": w.name, "sha256": sha,
+                                  "size": size, "size_h": human_bytes(size)})
+                except OSError:
+                    continue
+            return {"ok": True, "weights": items, "total_bytes": total,
+                    "total_h": human_bytes(total), "path": str(p)}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    def list_installed_full(self) -> list:
+        """扩展已安装模型列表：含大小、量化格式、修改时间、权重数。"""
+        try:
+            out = []
+            with self._lock:
+                dirs = [d for d in self.store_dir.iterdir()
+                        if d.is_dir() and not d.name.startswith(".")]
+            for d in dirs:
+                try:
+                    info = scan_model_dir(d)
+                    if info.get("weights", 0) <= 0:
+                        continue
+                    preset = MODEL_PRESETS.get(d.name, {})
+                    quant = preset.get("quant", "")
+                    if not quant:
+                        w = next((f for f in d.rglob("*")
+                                   if f.suffix.lower() in WEIGHT_EXTS), None)
+                        quant = ("gguf" if w and w.suffix.lower() == ".gguf"
+                                 else "unknown")
+                    mtime = 0.0
+                    try:
+                        mtime = max((f.stat().st_mtime for f in d.rglob("*")
+                                     if f.is_file()), default=0.0)
+                    except OSError:
+                        pass
+                    out.append({
+                        "name": d.name,
+                        "size": info.get("size", "0 B"),
+                        "bytes": info.get("bytes", 0),
+                        "quant": quant,
+                        "modified_at": mtime,
+                        "modified_h": (time.strftime("%Y-%m-%d %H:%M",
+                                      time.localtime(mtime)) if mtime else ""),
+                        "weights": info.get("weights", 0),
+                        "complete": info.get("complete", False),
+                    })
+                except Exception:
+                    continue
+            out.sort(key=lambda x: x.get("bytes", 0), reverse=True)
+            return out
+        except Exception:
+            return []
+
 
 class LocalModel:
     def __init__(self, model_dir: str | Path, adapter_dir: str | Path | None = None,
@@ -1123,6 +1236,101 @@ class ModelReplacement:
                 "adapter_dir": str(self.adapter_dir),
                 "context_limit": self.context_limit,
                 "store": self.store.stats()}
+
+    # ---- 增量：模型回退链 ----
+    def init_fallback_chain(self) -> "FallbackChain":
+        """惰性创建/获取回退链（不修改 __init__）。"""
+        try:
+            if not hasattr(self, "_fallback") or self._fallback is None:
+                self._fallback = FallbackChain(self)
+            return self._fallback
+        except Exception:
+            return FallbackChain(self)
+
+    def chat_with_fallback(self, text: str,
+                           history: list | None = None) -> dict:
+        """带回退的对话：主模型失败自动切换备用链中的下一个可用模型。"""
+        try:
+            chain = self.init_fallback_chain()
+            return chain.chat(text, history)
+        except Exception as e:
+            return {"ok": False, "text": "", "used_model": "",
+                    "tried": [], "error": f"{type(e).__name__}: {e}"}
+
+
+class FallbackChain:
+    """模型回退链：主模型失败时按顺序自动尝试备用模型。
+
+    维护一个有序的备用模型名列表；每次对话先试当前选中模型，失败则按链依次切换。
+    记录每个模型的失败次数，便于上层观察哪个模型不稳定。
+    """
+
+    def __init__(self, replacement: "ModelReplacement"):
+        self._rep = replacement
+        self._chain: list[str] = []
+        self._lock = threading.RLock()
+        self._failures: dict[str, int] = {}
+
+    def set_chain(self, names: list):
+        """整体替换备用链（传入模型名列表）。"""
+        try:
+            with self._lock:
+                self._chain = [n for n in (names or []) if isinstance(n, str)]
+        except Exception:
+            pass
+
+    def add_backup(self, name: str):
+        """追加一个备用模型名。"""
+        try:
+            with self._lock:
+                if name and name not in self._chain:
+                    self._chain.append(name)
+        except Exception:
+            pass
+
+    def chat(self, text: str, history: list | None = None) -> dict:
+        """按链尝试对话，返回 {ok, text, used_model, tried}。"""
+        tried = []
+        # 先试当前选中模型
+        try:
+            main = self._rep.current_name()
+            if main:
+                tried.append(main)
+                reply = self._rep.chat(text, history)
+                if reply and not str(reply).startswith("推理出错"):
+                    return {"ok": True, "text": reply,
+                            "used_model": main, "tried": tried}
+                self._failures[main] = self._failures.get(main, 0) + 1
+        except Exception as e:
+            tried.append(f"main_error:{type(e).__name__}")
+        # 再按备用链依次尝试
+        with self._lock:
+            chain = list(self._chain)
+        for name in chain:
+            try:
+                if not self._rep.store.is_installed(name):
+                    continue
+                self._rep.select(name)
+                tried.append(name)
+                reply = self._rep.chat(text, history)
+                if reply and not str(reply).startswith("推理出错"):
+                    return {"ok": True, "text": reply,
+                            "used_model": name, "tried": tried}
+                self._failures[name] = self._failures.get(name, 0) + 1
+            except Exception:
+                continue
+        return {"ok": False, "text": "", "used_model": "",
+                "tried": tried, "failures": dict(self._failures)}
+
+    def status(self) -> dict:
+        """返回回退链状态：链内容、失败计数、当前模型。"""
+        try:
+            with self._lock:
+                return {"chain": list(self._chain),
+                        "failures": dict(self._failures),
+                        "current": self._rep.current_name()}
+        except Exception:
+            return {}
 
 
 class Lifecycle:

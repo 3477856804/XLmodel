@@ -237,6 +237,127 @@ class RequestQueue:
                 "workers": len(self._workers)}
 
 
+class SensitiveFilter:
+    """敏感词过滤器（钩子）。线程安全，支持追加词表与打码。
+
+    供引擎在对话前后做内容合规检查；命中时返回打码文本，由上层决定拦截策略。
+    """
+    DEFAULT_WORDS = ("暴力教程", "自制爆炸物", "毒品制作", "入侵他人系统",
+                     "伪造证件")
+
+    def __init__(self, words=None):
+        self._words = list(words or self.DEFAULT_WORDS)
+        self._lock = threading.RLock()
+
+    def add(self, word: str):
+        """追加一个敏感词，已存在则忽略。"""
+        try:
+            w = (word or "").strip()
+            if not w:
+                return
+            with self._lock:
+                if w not in self._words:
+                    self._words.append(w)
+        except Exception:
+            pass
+
+    def check(self, text: str) -> dict:
+        """检查文本，返回 {hit, words, masked}。"""
+        try:
+            t = text or ""
+            hits = []
+            with self._lock:
+                words = list(self._words)
+            for w in words:
+                if w and w in t:
+                    hits.append(w)
+            masked = t
+            for w in hits:
+                masked = masked.replace(w, "*" * len(w))
+            return {"hit": bool(hits), "words": hits, "masked": masked}
+        except Exception as e:
+            return {"hit": False, "words": [], "masked": text or "",
+                    "error": f"{type(e).__name__}: {e}"}
+
+    def word_count(self) -> int:
+        try:
+            with self._lock:
+                return len(self._words)
+        except Exception:
+            return 0
+
+
+_SENSITIVE_FILTER = SensitiveFilter()
+
+
+class SessionManager:
+    """多会话管理：把当前对话上下文快照存成命名会话，可切换/列表/删除。
+
+    每个会话保存 conversation 列表与 interaction_count 副本；切换时恢复。
+    不触碰长期记忆，只管理短期对话上下文，避免多任务场景互相污染。
+    """
+
+    def __init__(self, engine):
+        self._engine = engine
+        self._sessions: dict[str, dict] = {}
+        self._lock = threading.RLock()
+
+    def create(self, name: str) -> bool:
+        """以当前上下文创建一个命名会话快照。"""
+        try:
+            name = (name or "").strip()
+            if not name:
+                return False
+            with self._lock:
+                self._sessions[name] = {
+                    "conversation": list(self._engine.conversation),
+                    "interaction_count": self._engine.interaction_count,
+                    "created_at": time.time(),
+                }
+            return True
+        except Exception:
+            return False
+
+    def switch(self, name: str) -> bool:
+        """切换到指定会话：先把当前上下文存为 _current，再载入目标快照。"""
+        try:
+            with self._lock:
+                snap = self._sessions.get(name)
+            if not snap:
+                return False
+            with self._lock:
+                self._sessions["_current"] = {
+                    "conversation": list(self._engine.conversation),
+                    "interaction_count": self._engine.interaction_count,
+                    "created_at": time.time(),
+                }
+                target = self._sessions[name]
+            self._engine.conversation = list(target.get("conversation", []))
+            self._engine.interaction_count = int(target.get("interaction_count", 0))
+            return True
+        except Exception:
+            return False
+
+    def list_sessions(self) -> list:
+        """列出所有命名会话（不含内部 _current）。"""
+        try:
+            with self._lock:
+                return [{"name": k,
+                         "turns": len(v.get("conversation", [])),
+                         "saved_at": v.get("created_at", 0)}
+                        for k, v in self._sessions.items()
+                        if not k.startswith("_")]
+        except Exception:
+            return []
+
+    def delete(self, name: str) -> bool:
+        try:
+            with self._lock:
+                return self._sessions.pop(name, None) is not None
+        except Exception:
+            return False
+
+
 class XiaoLing:
     def __init__(self, config: dict | None = None, log: Callable | None = None,
                  auto_setup: bool = True):
@@ -1227,6 +1348,140 @@ class XiaoLing:
 
     def on(self, event: str, handler: Callable):
         self.bus.on(event, handler)
+
+    # ---- 增量：上下文窗口管理 / 质量评分 / 敏感词钩子 / 多会话 ----
+    def estimate_window_tokens(self) -> int:
+        """按中英文混合启发式估算当前对话上下文的 token 数。"""
+        try:
+            total = 0
+            for t in self.conversation:
+                content = t.get("content", "") or ""
+                zh = sum(1 for c in content if "\u4e00" <= c <= "\u9fff")
+                other = len(content) - zh
+                total += zh + (other + 3) // 4 + 4
+            return int(total)
+        except Exception:
+            return 0
+
+    def manage_context_window(self, max_tokens: int = 4096,
+                              keep_recent: int = 6) -> dict:
+        """上下文窗口管理：超过 max_tokens 时从最旧一侧成对裁剪历史。
+
+        返回 {before, after, removed, truncated}。裁剪保留最近 keep_recent*2 条
+        对话轮次（user+assistant 成对），其余写入压缩摘要，避免把单条切开。
+        """
+        try:
+            before = self.estimate_window_tokens()
+            before_len = len(self.conversation)
+            if before <= max_tokens or before_len <= keep_recent * 2:
+                return {"before": before, "after": before,
+                        "removed": 0, "truncated": False}
+            keep = keep_recent * 2
+            older = self.conversation[:-keep]
+            kept = self.conversation[-keep:]
+            try:
+                summary = (self.compressor._summarize(older)
+                           if self.compressor else "")
+            except Exception:
+                summary = ""
+            if summary:
+                try:
+                    self.compressor._summaries.append(summary)
+                except Exception:
+                    pass
+            self.conversation = kept
+            after = self.estimate_window_tokens()
+            return {"before": before, "after": after,
+                    "removed": before_len - len(kept), "truncated": True}
+        except Exception as e:
+            return {"before": 0, "after": 0, "removed": 0,
+                    "truncated": False, "error": f"{type(e).__name__}: {e}"}
+
+    def score_reply_quality(self, user_text: str, reply: str) -> dict:
+        """对回复做启发式质量评分（0~1）。
+
+        维度：长度合理性、非空、与输入的字符重叠（相关性）、重复率惩罚、错误标记。
+        不调用模型，纯本地规则，用于事后统计与路由反馈。
+        """
+        try:
+            user_text = (user_text or "").strip()
+            reply = (reply or "").strip()
+            if not reply:
+                return {"score": 0.0, "reasons": ["空回复"]}
+            reasons = []
+            score = 1.0
+            rlen = len(reply)
+            if rlen < 4:
+                score -= 0.4
+                reasons.append("回复过短")
+            elif rlen > 800:
+                score -= 0.2
+                reasons.append("回复过长")
+            halves = reply[:len(reply) // 2]
+            if halves and len(halves) >= 20 and reply.count(halves[:20]) > 2:
+                score -= 0.3
+                reasons.append("内容重复")
+            overlap = 0.0
+            if user_text:
+                u_chars = set(user_text)
+                r_chars = set(reply)
+                overlap = len(u_chars & r_chars) / max(len(u_chars), 1)
+                if overlap < 0.05:
+                    score -= 0.1
+                    reasons.append("相关性低")
+            if reply.startswith("推理出错") or "出错" in reply[:20]:
+                score -= 0.5
+                reasons.append("包含错误")
+            score = round(max(0.0, min(1.0, score)), 3)
+            return {"score": score, "reasons": reasons,
+                    "reply_len": rlen, "overlap": round(overlap, 3)}
+        except Exception as e:
+            return {"score": 0.0, "reasons": [f"评分异常: {type(e).__name__}"]}
+
+    def check_sensitive(self, text: str) -> dict:
+        """敏感词过滤钩子：检查文本是否命中内置敏感词表。
+
+        返回 {hit, words, masked}，masked 为打码后的文本，供上层决定是否拦截。
+        """
+        try:
+            return _SENSITIVE_FILTER.check(text)
+        except Exception as e:
+            return {"hit": False, "words": [], "masked": text or "",
+                    "error": f"{type(e).__name__}: {e}"}
+
+    def add_sensitive_word(self, word: str):
+        """向全局敏感词表追加一个词。"""
+        try:
+            _SENSITIVE_FILTER.add(word)
+        except Exception:
+            pass
+
+    def session_manager(self) -> SessionManager:
+        """惰性获取多会话管理器（不修改 __init__）。"""
+        try:
+            if not hasattr(self, "_session_mgr") or self._session_mgr is None:
+                self._session_mgr = SessionManager(self)
+            return self._session_mgr
+        except Exception:
+            return SessionManager(self)
+
+    def create_session(self, name: str) -> bool:
+        try:
+            return self.session_manager().create(name)
+        except Exception:
+            return False
+
+    def switch_session(self, name: str) -> bool:
+        try:
+            return self.session_manager().switch(name)
+        except Exception:
+            return False
+
+    def list_sessions(self) -> list:
+        try:
+            return self.session_manager().list_sessions()
+        except Exception:
+            return []
 
     def close(self):
         if self._closed:

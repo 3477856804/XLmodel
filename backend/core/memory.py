@@ -254,6 +254,127 @@ class LongTermMemory:
         except (OSError, json.JSONDecodeError):
             return 0
 
+    # ---- 增量：活跃统计 / Markdown 导出 / 排序搜索 / 批量清理 ----
+    def activity_stats(self, days: int = 7) -> dict:
+        """记忆活跃度统计：总条数、各角色数量、最近 N 天每日新增。"""
+        try:
+            now = time.time()
+            day = 86400
+            with self._lock:
+                items = list(self._items)
+            if not items:
+                return {"total": 0, "by_role": {}, "daily_active": []}
+            by_role: dict[str, int] = {}
+            for i in items:
+                by_role[i.role] = by_role.get(i.role, 0) + 1
+            daily = []
+            for d in range(max(days, 1)):
+                start = now - (d + 1) * day
+                end = now - d * day
+                cnt = sum(1 for i in items if start <= i.timestamp < end)
+                daily.append({"day_offset": d, "count": cnt})
+            recent_active = sum(1 for i in items
+                                if now - i.timestamp <= days * day)
+            return {"total": len(items), "by_role": by_role,
+                    "recent_active": recent_active,
+                    "window_days": days, "daily_active": daily}
+        except Exception as e:
+            return {"total": 0, "error": f"{type(e).__name__}: {e}"}
+
+    def export_markdown(self, filepath: str) -> bool:
+        """将长期记忆导出为 Markdown 文档（按角色分组，附时间与重要度）。"""
+        try:
+            p = Path(filepath)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                items = list(self._items)
+            lines = ["# 小凌长期记忆导出", "",
+                     f"导出时间：{datetime.now().isoformat(timespec='seconds')}",
+                     f"共 {len(items)} 条", ""]
+            by_role: dict[str, list] = {}
+            for i in items:
+                by_role.setdefault(i.role, []).append(i)
+            for role, group in by_role.items():
+                lines.append(f"## {role}（{len(group)} 条）")
+                lines.append("")
+                for i in group[-200:]:
+                    ts = time.strftime("%Y-%m-%d %H:%M",
+                                       time.localtime(i.timestamp))
+                    tag_str = (f" [{', '.join(i.tags)}]" if i.tags else "")
+                    lines.append(f"- ({ts}, 重要度 {i.importance:.2f}"
+                                 f"{tag_str}) {i.content[:200]}")
+                lines.append("")
+            p.write_text("\n".join(lines), encoding="utf-8")
+            return True
+        except OSError:
+            return False
+
+    def search_ranked(self, query: str, top_k: int = 5,
+                      time_weight: float = 0.3) -> list:
+        """带时间衰减的排序搜索：词频命中 * 重要度 * 新鲜度衰减。
+
+        新鲜度 = exp(-age_days / 30)，越新的记忆排序越靠前。
+        """
+        try:
+            if not query:
+                return []
+            words = [w for w in SPLIT_RE.split(query) if w]
+            if not words:
+                return []
+            with self._lock:
+                items = list(self._items)
+            now = time.time()
+            scored = []
+            for i in items:
+                hit = sum(1 for w in words if w in i.content)
+                if not hit:
+                    continue
+                age_days = max((now - i.timestamp) / 86400, 0.0)
+                recency = math.exp(-age_days / 30.0)
+                score = hit * i.importance * (
+                    1.0 - time_weight + time_weight * recency)
+                scored.append((score, i))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [i for _, i in scored[:top_k]]
+        except Exception:
+            return []
+
+    def cleanup(self, before_days: int | None = None,
+                role: str | None = None,
+                tag: str | None = None) -> int:
+        """按日期/角色/标签批量清理记忆，返回删除条数。
+
+        三个条件为 AND 组合：仅删除同时满足所有已给条件的记忆；
+        不提供任何条件时返回 0，避免误删全部。
+        """
+        try:
+            if before_days is None and not role and not tag:
+                return 0
+            cutoff = (time.time() - max(before_days, 0) * 86400
+                      if before_days else 0)
+            removed = 0
+            with self._lock:
+                keep = []
+                for i in self._items:
+                    match = True
+                    if before_days and i.timestamp >= cutoff:
+                        match = False
+                    if role and i.role != role:
+                        match = False
+                    if tag and tag not in i.tags:
+                        match = False
+                    if match:
+                        removed += 1
+                    else:
+                        keep.append(i)
+                self._items = keep
+                if removed:
+                    self._dirty = True
+                    self._save()
+            return removed
+        except Exception:
+            return 0
+
 
 class SessionPersistence:
     def __init__(self, history_path: str | None = None,
