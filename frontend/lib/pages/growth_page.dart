@@ -9,6 +9,7 @@ import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
+import '../services/local_store.dart';
 
 class GrowthPage extends StatefulWidget {
   const GrowthPage({super.key});
@@ -29,7 +30,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   late Animation<double> _radialAnim;
   late Animation<double> _timelineAnim;
   int _rangeIndex = 1;
-  int _dailyGoal = 10;
+  int _dailyGoal = 20;
 
   static const _ranges = <String>['7 天', '30 天', '全部'];
 
@@ -44,6 +45,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     _radialAnim = CurvedAnimation(parent: _radialCtrl, curve: XlCurve.spring);
     _timelineAnim = CurvedAnimation(parent: _timelineCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
+    _loadDailyGoal();
     _load();
   }
 
@@ -79,6 +81,32 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadDailyGoal() async {
+    final data = await LocalStore.readJson('growth_settings.json');
+    final v = data['daily_goal'];
+    if (v is num) {
+      if (!mounted) return;
+      setState(() => _dailyGoal = v.toInt());
+    }
+  }
+
+  Future<void> _persistDailyGoal(int value) async {
+    await LocalStore.writeJson('growth_settings.json', {'daily_goal': value});
+    try {
+      await XlClient.stub.command(
+        'growth:set_daily_goal $value',
+        opt: XlCallOptions(silent: true),
+      );
+    } catch (_) {}
+  }
+
+  void _adjustDailyGoal(int delta) {
+    final next = (_dailyGoal + delta).clamp(5, 100);
+    if (next == _dailyGoal) return;
+    setState(() => _dailyGoal = next);
+    _persistDailyGoal(next);
   }
 
   Future<void> _exportGrowthData() async {
@@ -208,9 +236,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
           const SizedBox(height: 16),
           Row(
             children: [
-              _goalStepBtn(p, Icons.remove_rounded, () {
-                if (_dailyGoal > 5) setState(() => _dailyGoal -= 5);
-              }),
+              _goalStepBtn(p, Icons.remove_rounded, () => _adjustDailyGoal(-5)),
               const SizedBox(width: 10),
               Expanded(
                 child: Text('里程碑每 5 次可调，再聊 ${(_dailyGoal - current).clamp(0, 999)} 次即可达成',
@@ -222,9 +248,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
                         letterSpacing: XlLetterSpacing.wider)),
               ),
               const SizedBox(width: 10),
-              _goalStepBtn(p, Icons.add_rounded, () {
-                if (_dailyGoal < 100) setState(() => _dailyGoal += 5);
-              }),
+              _goalStepBtn(p, Icons.add_rounded, () => _adjustDailyGoal(5)),
             ],
           ),
         ],

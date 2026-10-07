@@ -9,6 +9,7 @@ import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
+import '../services/local_store.dart';
 import 'agent_page.dart';
 
 class ChatPage extends StatefulWidget {
@@ -109,7 +110,51 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             : _msgs.where((m) => m.text.toLowerCase().contains(q.toLowerCase())).length;
       });
     });
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    await _loadHistory();
+    if (!mounted) return;
     _hello();
+  }
+
+  static const int _historyLimit = 100;
+
+  Future<void> _loadHistory() async {
+    final data = await LocalStore.readJson('chat_history.json');
+    if (!mounted) return;
+    final raw = data['messages'];
+    if (raw is List) {
+      final loaded = <_Msg>[];
+      var maxSeq = 0;
+      for (final m in raw) {
+        if (m is! Map) continue;
+        final msg = _Msg.fromJson(Map<String, dynamic>.from(m));
+        if (msg.text.trim().isEmpty) continue;
+        loaded.add(msg);
+        if (msg.id.startsWith('m')) {
+          final n = int.tryParse(msg.id.substring(1));
+          if (n != null && n > maxSeq) maxSeq = n;
+        }
+      }
+      setState(() {
+        _msgs
+          ..clear()
+          ..addAll(loaded);
+        if (maxSeq >= _msgSeq) _msgSeq = maxSeq + 1;
+      });
+    }
+  }
+
+  Future<void> _persistHistory() async {
+    final list = _msgs.where((m) => m.text.trim().isNotEmpty).toList();
+    final recent = list.length > _historyLimit
+        ? list.sublist(list.length - _historyLimit)
+        : list;
+    await LocalStore.writeJson('chat_history.json', {
+      'messages': recent.map((m) => m.toJson()).toList(),
+    });
   }
 
   void _onFocusChange() {
@@ -161,15 +206,18 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       });
     }
     if (!mounted) return;
-    setState(() {
-      _msgs.add(_Msg(
-        id: 'm${_msgSeq++}',
-        who: 'xl',
-        text: '你好呀，我是小凌。今天想聊点什么？',
-        time: DateTime.now(),
-        status: _MsgStatus.done,
-      ));
-    });
+    if (_msgs.isEmpty) {
+      setState(() {
+        _msgs.add(_Msg(
+          id: 'm${_msgSeq++}',
+          who: 'xl',
+          text: '你好呀，我是小凌。今天想聊点什么？',
+          time: DateTime.now(),
+          status: _MsgStatus.done,
+        ));
+      });
+      _persistHistory();
+    }
     _scrollBottom();
   }
 
@@ -252,6 +300,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     } finally {
       _activeSession = null;
       if (mounted) setState(() => _busy = false);
+      _persistHistory();
       _scrollBottom();
     }
   }
@@ -307,6 +356,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     } finally {
       _activeSession = null;
       if (mounted) setState(() => _busy = false);
+      _persistHistory();
       _scrollBottom();
     }
   }
@@ -442,6 +492,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       }
       _busy = false;
     });
+    _persistHistory();
   }
 
   void _navigateHistory(bool up) {
@@ -687,6 +738,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                             _chatCount = 0;
                             _totalChars = 0;
                           });
+                          _persistHistory();
                           _hello();
                         },
                         child: Container(
@@ -1812,6 +1864,29 @@ class _Msg {
         time: time,
         status: status ?? this.status,
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'who': who,
+        'text': text,
+        'time': time.toIso8601String(),
+        'status': status.name,
+      };
+
+  factory _Msg.fromJson(Map<String, dynamic> json) {
+    var st = _MsgStatus.values.firstWhere(
+      (e) => e.name == json['status'].toString(),
+      orElse: () => _MsgStatus.done,
+    );
+    if (st == _MsgStatus.streaming) st = _MsgStatus.done;
+    return _Msg(
+      id: json['id'].toString(),
+      who: json['who'].toString(),
+      text: json['text'].toString(),
+      time: DateTime.tryParse(json['time'].toString()) ?? DateTime.now(),
+      status: st,
+    );
+  }
 }
 
 class _MiniStat {

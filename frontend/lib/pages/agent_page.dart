@@ -5,6 +5,7 @@ import '../widgets/agent_panel.dart';
 import '../widgets/code_search_panel.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
+import '../services/local_store.dart';
 
 class AgentPage extends StatefulWidget {
   const AgentPage({super.key});
@@ -141,9 +142,27 @@ class _SubTask {
 
 class _SubAgent {
   final String name;
+  final DateTime createdAt;
   final List<_SubTask> tasks;
-  _SubAgent({required this.name, List<_SubTask>? tasks}) : tasks = tasks ?? [];
+  _SubAgent({required this.name, DateTime? createdAt, List<_SubTask>? tasks})
+      : createdAt = createdAt ?? DateTime.now(),
+        tasks = tasks ?? [];
   bool get busy => tasks.any((t) => t.status == 'pending' || t.status == 'running');
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory _SubAgent.fromJson(Map<String, dynamic> json) {
+    DateTime? created;
+    final rawTime = json['createdAt'];
+    if (rawTime is String) created = DateTime.tryParse(rawTime);
+    return _SubAgent(
+      name: json['name'].toString(),
+      createdAt: created,
+    );
+  }
 }
 
 class SubAgentPanel extends StatefulWidget {
@@ -156,6 +175,33 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
   final List<_SubAgent> _agents = [];
   final Set<String> _expanded = {};
   int _seq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAgents();
+  }
+
+  Future<void> _loadAgents() async {
+    final data = await LocalStore.readJson('agents.json');
+    if (!mounted) return;
+    final raw = data['agents'];
+    if (raw is List) {
+      final loaded = <_SubAgent>[];
+      for (final a in raw) {
+        if (a is Map) loaded.add(_SubAgent.fromJson(Map<String, dynamic>.from(a)));
+      }
+      setState(() => _agents
+        ..clear()
+        ..addAll(loaded));
+    }
+  }
+
+  Future<void> _persistAgents() async {
+    await LocalStore.writeJson('agents.json', {
+      'agents': _agents.map((a) => a.toJson()).toList(),
+    });
+  }
 
   @override
   void dispose() {
@@ -255,6 +301,7 @@ class _SubAgentPanelState extends State<SubAgentPanel> {
     );
     if (name != null && name.isNotEmpty) {
       setState(() => _agents.add(_SubAgent(name: name)));
+      _persistAgents();
     }
   }
 

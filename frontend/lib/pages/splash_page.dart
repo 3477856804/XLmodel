@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../main.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
+import '../rpc/xiaoling.pb.dart' as pb;
 
 class SplashPage extends StatefulWidget {
   final VoidCallback onToggleTheme;
@@ -26,7 +29,7 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   late Animation<double> _rotateAnim;
   late Animation<double> _textAnim;
 
-  static const List<String> _loadStages = ['初始化引擎…', '加载模型…', '连接服务…', '准备就绪'];
+  static const List<String> _loadStages = ['初始化引擎…', '连接后端…', '加载模型…', '准备就绪'];
   Timer? _stageTimer;
   int _stageIdx = 0;
   bool _showVersion = false;
@@ -82,13 +85,6 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) _textCtrl.forward();
     });
-    _stageTimer = Timer.periodic(const Duration(milliseconds: 800), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      setState(() => _stageIdx = (_stageIdx + 1) % _loadStages.length);
-    });
     Future.delayed(const Duration(milliseconds: 1000), () {
       if (mounted) setState(() => _showVersion = true);
     });
@@ -96,10 +92,30 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   }
 
   Future<void> _go() async {
-    await Future.delayed(const Duration(milliseconds: 2600));
-    if (mounted) {
-      await _fadeCtrl.reverse();
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
+    setState(() => _stageIdx = 1);
+    pb.StatusReply? st;
+    try {
+      st = await XlClient.stub.status(
+        opt: const XlCallOptions(timeout: Duration(seconds: 5), silent: true),
+      );
+    } catch (_) {
+      st = null;
     }
+    if (!mounted) return;
+
+    setState(() => _stageIdx = 2);
+    final modelReady = st != null && st.model.isNotEmpty;
+    await Future.delayed(Duration(milliseconds: modelReady ? 300 : 500));
+    if (!mounted) return;
+
+    setState(() => _stageIdx = 3);
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+
+    await _fadeCtrl.reverse();
     if (mounted) {
       Navigator.pushReplacement(
         context,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
+import '../services/local_store.dart';
 
 class WorkflowBuilder extends StatefulWidget {
   const WorkflowBuilder({super.key});
@@ -22,6 +23,27 @@ class _WorkflowNodeModel {
     Map<String, String>? config,
     this.nextId,
   }) : config = config ?? {};
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'type': type,
+        'config': Map<String, dynamic>.from(config),
+        'nextId': nextId,
+      };
+
+  factory _WorkflowNodeModel.fromJson(Map<String, dynamic> json) {
+    final cfg = <String, String>{};
+    final rawCfg = json['config'];
+    if (rawCfg is Map) {
+      rawCfg.forEach((k, v) => cfg[k.toString()] = v.toString());
+    }
+    return _WorkflowNodeModel(
+      id: json['id'].toString(),
+      type: json['type'].toString(),
+      config: cfg,
+      nextId: json['nextId']?.toString(),
+    );
+  }
 }
 
 class _SavedWorkflow {
@@ -33,6 +55,27 @@ class _SavedWorkflow {
     required this.description,
     required this.nodes,
   });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'description': description,
+        'nodes': nodes.map((n) => n.toJson()).toList(),
+      };
+
+  factory _SavedWorkflow.fromJson(Map<String, dynamic> json) {
+    final nodes = <_WorkflowNodeModel>[];
+    final rawNodes = json['nodes'];
+    if (rawNodes is List) {
+      for (final n in rawNodes) {
+        if (n is Map) nodes.add(_WorkflowNodeModel.fromJson(Map<String, dynamic>.from(n)));
+      }
+    }
+    return _SavedWorkflow(
+      name: json['name'].toString(),
+      description: json['description'].toString(),
+      nodes: nodes,
+    );
+  }
 }
 
 class _WorkflowBuilderState extends State<WorkflowBuilder> {
@@ -62,6 +105,7 @@ class _WorkflowBuilderState extends State<WorkflowBuilder> {
   void initState() {
     super.initState();
     _addNode('trigger');
+    _loadSaved();
   }
 
   @override
@@ -69,6 +113,27 @@ class _WorkflowBuilderState extends State<WorkflowBuilder> {
     _nameCtrl.dispose();
     _descCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSaved() async {
+    final data = await LocalStore.readJson('workflows.json');
+    if (!mounted) return;
+    final raw = data['workflows'];
+    if (raw is List) {
+      final loaded = <_SavedWorkflow>[];
+      for (final w in raw) {
+        if (w is Map) loaded.add(_SavedWorkflow.fromJson(Map<String, dynamic>.from(w)));
+      }
+      setState(() => _saved
+        ..clear()
+        ..addAll(loaded));
+    }
+  }
+
+  Future<void> _persistSaved() async {
+    await LocalStore.writeJson('workflows.json', {
+      'workflows': _saved.map((w) => w.toJson()).toList(),
+    });
   }
 
   void _addNode(String type) {
@@ -118,6 +183,7 @@ class _WorkflowBuilderState extends State<WorkflowBuilder> {
         _saved.add(wf);
       }
     });
+    _persistSaved();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已保存: ${_nameCtrl.text.trim()}')),
     );
@@ -142,6 +208,7 @@ class _WorkflowBuilderState extends State<WorkflowBuilder> {
     setState(() {
       _saved.removeWhere((w) => w.name == wf.name);
     });
+    _persistSaved();
   }
 
   Future<void> _runWorkflow() async {
