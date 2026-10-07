@@ -2,7 +2,7 @@
 //  Generated code. Do not modify.
 //  source: xiaoling.proto
 //
-// @dart = 3.3
+// @dart = 2.12
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names, library_prefixes
@@ -214,6 +214,7 @@ const GrowthStatusReply$json = {
     {'1': 'current_rank', '3': 6, '4': 1, '5': 9, '10': 'currentRank'},
     {'1': 'emotion', '3': 7, '4': 1, '5': 9, '10': 'emotion'},
     {'1': 'training_paused', '3': 8, '4': 1, '5': 8, '10': 'trainingPaused'},
+    {'1': 'status_text', '3': 9, '4': 1, '5': 9, '10': 'statusText'},
   ],
 };
 
@@ -224,7 +225,8 @@ final $typed_data.Uint8List growthStatusReplyDescriptor = $convert.base64Decode(
     'BVIRdG90YWxJbnRlcmFjdGlvbnMSLQoSY3VycmVudF9nZW5lcmF0aW9uGAQgASgFUhFjdXJyZW'
     '50R2VuZXJhdGlvbhIrChF0b3RhbF9nZW5lcmF0aW9ucxgFIAEoBVIQdG90YWxHZW5lcmF0aW9u'
     'cxIhCgxjdXJyZW50X3JhbmsYBiABKAlSC2N1cnJlbnRSYW5rEhgKB2Vtb3Rpb24YByABKAlSB2'
-    'Vtb3Rpb24SJwoPdHJhaW5pbmdfcGF1c2VkGAggASgIUg50cmFpbmluZ1BhdXNlZA==');
+    'Vtb3Rpb24SJwoPdHJhaW5pbmdfcGF1c2VkGAggASgIUg50cmFpbmluZ1BhdXNlZBIfCgtzdGF0'
+    'dXNfdGV4dBgJIAEoCVIKc3RhdHVzVGV4dA==');
 
 @$core.Deprecated('Use trainingDimensionDescriptor instead')
 const TrainingDimension$json = {
@@ -292,6 +294,35 @@ const PluginList$json = {
 final $typed_data.Uint8List pluginListDescriptor = $convert.base64Decode(
     'CgpQbHVnaW5MaXN0Ei4KB3BsdWdpbnMYASADKAsyFC54aWFvbGluZy5QbHVnaW5JbmZvUgdwbH'
     'VnaW5z');
+
+@$core.Deprecated('Use trainingRequestDescriptor instead')
+const TrainingRequest$json = {
+  '1': 'TrainingRequest',
+  '2': [
+    {'1': 'steps', '3': 1, '4': 1, '5': 5, '10': 'steps'},
+  ],
+};
+
+/// Descriptor for `TrainingRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List trainingRequestDescriptor = $convert.base64Decode(
+    'Cg9UcmFpbmluZ1JlcXVlc3QSFAoFc3RlcHMYASABKAVSBXN0ZXBz');
+
+@$core.Deprecated('Use trainingProgressDescriptor instead')
+const TrainingProgress$json = {
+  '1': 'TrainingProgress',
+  '2': [
+    {'1': 'step', '3': 1, '4': 1, '5': 5, '10': 'step'},
+    {'1': 'total_steps', '3': 2, '4': 1, '5': 5, '10': 'totalSteps'},
+    {'1': 'loss', '3': 3, '4': 1, '5': 2, '10': 'loss'},
+    {'1': 'status', '3': 4, '4': 1, '5': 9, '10': 'status'},
+  ],
+};
+
+/// Descriptor for `TrainingProgress`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List trainingProgressDescriptor = $convert.base64Decode(
+    'ChBUcmFpbmluZ1Byb2dyZXNzEhIKBHN0ZXAYASABKAVSBHN0ZXASHwoLdG90YWxfc3RlcHMYAi'
+    'ABKAVSCnRvdGFsU3RlcHMSEgoEbG9zcxgDIAEoAlIEbG9zcxIWCgZzdGF0dXMYBCABKAlSBnN0'
+    'YXR1cw==');
 
 @$core.Deprecated('Use hardwareInfoDescriptor instead')
 const HardwareInfo$json = {
@@ -483,6 +514,8 @@ const SettingsReply$json = {
     {'1': 'asr_enabled', '3': 6, '4': 1, '5': 8, '10': 'asrEnabled'},
     {'1': 'tts_enabled', '3': 7, '4': 1, '5': 8, '10': 'ttsEnabled'},
     {'1': 'read_aloud_mode', '3': 8, '4': 1, '5': 8, '10': 'readAloudMode'},
+    {'1': 'persona', '3': 9, '4': 1, '5': 9, '10': 'persona'},
+    {'1': 'user_name', '3': 10, '4': 1, '5': 9, '10': 'userName'},
   ],
 };
 
@@ -492,7 +525,8 @@ final $typed_data.Uint8List settingsReplyDescriptor = $convert.base64Decode(
     '9pY2USJQoOcmVuZGVyX2JhY2tlbmQYAyABKAlSDXJlbmRlckJhY2tlbmQSIgoNYWx3YXlzX29u'
     'X3RvcBgEIAEoCFILYWx3YXlzT25Ub3ASHQoKYXV0b19zdGFydBgFIAEoCFIJYXV0b1N0YXJ0Eh'
     '8KC2Fzcl9lbmFibGVkGAYgASgIUgphc3JFbmFibGVkEh8KC3R0c19lbmFibGVkGAcgASgIUgp0'
-    'dHNFbmFibGVkEiYKD3JlYWRfYWxvdWRfbW9kZRgIIAEoCFINcmVhZEFsb3VkTW9kZQ==');
+    'dHNFbmFibGVkEiYKD3JlYWRfYWxvdWRfbW9kZRgIIAEoCFINcmVhZEFsb3VkTW9kZRIYCgdwZX'
+    'Jzb25hGAkgASgJUgdwZXJzb25hEhsKCXVzZXJfbmFtZRgKIAEoCVIIdXNlck5hbWU=');
 
 @$core.Deprecated('Use settingsRequestDescriptor instead')
 const SettingsRequest$json = {
@@ -506,6 +540,8 @@ const SettingsRequest$json = {
     {'1': 'asr_enabled', '3': 6, '4': 1, '5': 8, '9': 5, '10': 'asrEnabled', '17': true},
     {'1': 'tts_enabled', '3': 7, '4': 1, '5': 8, '9': 6, '10': 'ttsEnabled', '17': true},
     {'1': 'read_aloud_mode', '3': 8, '4': 1, '5': 8, '9': 7, '10': 'readAloudMode', '17': true},
+    {'1': 'persona', '3': 9, '4': 1, '5': 9, '9': 8, '10': 'persona', '17': true},
+    {'1': 'user_name', '3': 10, '4': 1, '5': 9, '9': 9, '10': 'userName', '17': true},
   ],
   '8': [
     {'1': '_model'},
@@ -516,6 +552,8 @@ const SettingsRequest$json = {
     {'1': '_asr_enabled'},
     {'1': '_tts_enabled'},
     {'1': '_read_aloud_mode'},
+    {'1': '_persona'},
+    {'1': '_user_name'},
   ],
 };
 
@@ -526,7 +564,145 @@ final $typed_data.Uint8List settingsRequestDescriptor = $convert.base64Decode(
     'ZIgBARInCg1hbHdheXNfb25fdG9wGAQgASgISANSC2Fsd2F5c09uVG9wiAEBEiIKCmF1dG9fc3'
     'RhcnQYBSABKAhIBFIJYXV0b1N0YXJ0iAEBEiQKC2Fzcl9lbmFibGVkGAYgASgISAVSCmFzckVu'
     'YWJsZWSIAQESJAoLdHRzX2VuYWJsZWQYByABKAhIBlIKdHRzRW5hYmxlZIgBARIrCg9yZWFkX2'
-    'Fsb3VkX21vZGUYCCABKAhIB1INcmVhZEFsb3VkTW9kZYgBAUIICgZfbW9kZWxCCAoGX3ZvaWNl'
-    'QhEKD19yZW5kZXJfYmFja2VuZEIQCg5fYWx3YXlzX29uX3RvcEINCgtfYXV0b19zdGFydEIOCg'
-    'xfYXNyX2VuYWJsZWRCDgoMX3R0c19lbmFibGVkQhIKEF9yZWFkX2Fsb3VkX21vZGU=');
+    'Fsb3VkX21vZGUYCCABKAhIB1INcmVhZEFsb3VkTW9kZYgBARIdCgdwZXJzb25hGAkgASgJSAhS'
+    'B3BlcnNvbmGIAQESIAoJdXNlcl9uYW1lGAogASgJSAlSCHVzZXJOYW1liAEBQggKBl9tb2RlbE'
+    'IICgZfdm9pY2VCEQoPX3JlbmRlcl9iYWNrZW5kQhAKDl9hbHdheXNfb25fdG9wQg0KC19hdXRv'
+    'X3N0YXJ0Qg4KDF9hc3JfZW5hYmxlZEIOCgxfdHRzX2VuYWJsZWRCEgoQX3JlYWRfYWxvdWRfbW'
+    '9kZUIKCghfcGVyc29uYUIMCgpfdXNlcl9uYW1l');
+
+@$core.Deprecated('Use personaReplyDescriptor instead')
+const PersonaReply$json = {
+  '1': 'PersonaReply',
+  '2': [
+    {'1': 'emotion', '3': 1, '4': 1, '5': 9, '10': 'emotion'},
+    {'1': 'emotion_intensity', '3': 2, '4': 1, '5': 1, '10': 'emotionIntensity'},
+    {'1': 'relationship', '3': 3, '4': 1, '5': 9, '10': 'relationship'},
+    {'1': 'relationship_score', '3': 4, '4': 1, '5': 1, '10': 'relationshipScore'},
+    {'1': 'relationship_progress', '3': 5, '4': 1, '5': 1, '10': 'relationshipProgress'},
+    {'1': 'reminders_pending', '3': 6, '4': 1, '5': 5, '10': 'remindersPending'},
+    {'1': 'persona', '3': 7, '4': 1, '5': 9, '10': 'persona'},
+    {'1': 'user_name', '3': 8, '4': 1, '5': 9, '10': 'userName'},
+    {'1': 'axes', '3': 9, '4': 3, '5': 11, '6': '.xiaoling.PersonaAxis', '10': 'axes'},
+  ],
+};
+
+/// Descriptor for `PersonaReply`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List personaReplyDescriptor = $convert.base64Decode(
+    'CgxQZXJzb25hUmVwbHkSGAoHZW1vdGlvbhgBIAEoCVIHZW1vdGlvbhIrChFlbW90aW9uX2ludG'
+    'Vuc2l0eRgCIAEoAVIQZW1vdGlvbkludGVuc2l0eRIiCgxyZWxhdGlvbnNoaXAYAyABKAlSDHJl'
+    'bGF0aW9uc2hpcBItChJyZWxhdGlvbnNoaXBfc2NvcmUYBCABKAFSEXJlbGF0aW9uc2hpcFNjb3'
+    'JlEjMKFXJlbGF0aW9uc2hpcF9wcm9ncmVzcxgFIAEoAVIUcmVsYXRpb25zaGlwUHJvZ3Jlc3MS'
+    'KwoRcmVtaW5kZXJzX3BlbmRpbmcYBiABKAVSEHJlbWluZGVyc1BlbmRpbmcSGAoHcGVyc29uYR'
+    'gHIAEoCVIHcGVyc29uYRIbCgl1c2VyX25hbWUYCCABKAlSCHVzZXJOYW1lEikKBGF4ZXMYCSAD'
+    'KAsyFS54aWFvbGluZy5QZXJzb25hQXhpc1IEYXhlcw==');
+
+@$core.Deprecated('Use personaAxisDescriptor instead')
+const PersonaAxis$json = {
+  '1': 'PersonaAxis',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'label', '3': 2, '4': 1, '5': 9, '10': 'label'},
+    {'1': 'value', '3': 3, '4': 1, '5': 1, '10': 'value'},
+  ],
+};
+
+/// Descriptor for `PersonaAxis`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List personaAxisDescriptor = $convert.base64Decode(
+    'CgtQZXJzb25hQXhpcxISCgRuYW1lGAEgASgJUgRuYW1lEhQKBWxhYmVsGAIgASgJUgVsYWJlbB'
+    'IUCgV2YWx1ZRgDIAEoAVIFdmFsdWU=');
+
+@$core.Deprecated('Use personaPresetDescriptor instead')
+const PersonaPreset$json = {
+  '1': 'PersonaPreset',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'name', '3': 2, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'description', '3': 3, '4': 1, '5': 9, '10': 'description'},
+    {'1': 'prompt_hint', '3': 4, '4': 1, '5': 9, '10': 'promptHint'},
+    {'1': 'builtin', '3': 5, '4': 1, '5': 8, '10': 'builtin'},
+    {'1': 'active', '3': 6, '4': 1, '5': 8, '10': 'active'},
+  ],
+};
+
+/// Descriptor for `PersonaPreset`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List personaPresetDescriptor = $convert.base64Decode(
+    'Cg1QZXJzb25hUHJlc2V0Eg4KAmlkGAEgASgJUgJpZBISCgRuYW1lGAIgASgJUgRuYW1lEiAKC2'
+    'Rlc2NyaXB0aW9uGAMgASgJUgtkZXNjcmlwdGlvbhIfCgtwcm9tcHRfaGludBgEIAEoCVIKcHJv'
+    'bXB0SGludBIYCgdidWlsdGluGAUgASgIUgdidWlsdGluEhYKBmFjdGl2ZRgGIAEoCFIGYWN0aX'
+    'Zl');
+
+@$core.Deprecated('Use personaListDescriptor instead')
+const PersonaList$json = {
+  '1': 'PersonaList',
+  '2': [
+    {'1': 'presets', '3': 1, '4': 3, '5': 11, '6': '.xiaoling.PersonaPreset', '10': 'presets'},
+  ],
+};
+
+/// Descriptor for `PersonaList`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List personaListDescriptor = $convert.base64Decode(
+    'CgtQZXJzb25hTGlzdBIxCgdwcmVzZXRzGAEgAygLMhcueGlhb2xpbmcuUGVyc29uYVByZXNldF'
+    'IHcHJlc2V0cw==');
+
+@$core.Deprecated('Use personaRequestDescriptor instead')
+const PersonaRequest$json = {
+  '1': 'PersonaRequest',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'name', '3': 2, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'description', '3': 3, '4': 1, '5': 9, '10': 'description'},
+    {'1': 'prompt_hint', '3': 4, '4': 1, '5': 9, '10': 'promptHint'},
+  ],
+};
+
+/// Descriptor for `PersonaRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List personaRequestDescriptor = $convert.base64Decode(
+    'Cg5QZXJzb25hUmVxdWVzdBIOCgJpZBgBIAEoCVICaWQSEgoEbmFtZRgCIAEoCVIEbmFtZRIgCg'
+    'tkZXNjcmlwdGlvbhgDIAEoCVILZGVzY3JpcHRpb24SHwoLcHJvbXB0X2hpbnQYBCABKAlSCnBy'
+    'b21wdEhpbnQ=');
+
+@$core.Deprecated('Use reminderItemDescriptor instead')
+const ReminderItem$json = {
+  '1': 'ReminderItem',
+  '2': [
+    {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'due_at', '3': 2, '4': 1, '5': 1, '10': 'dueAt'},
+    {'1': 'done', '3': 3, '4': 1, '5': 8, '10': 'done'},
+    {'1': 'created_at', '3': 4, '4': 1, '5': 1, '10': 'createdAt'},
+    {'1': 'seconds_left', '3': 5, '4': 1, '5': 3, '10': 'secondsLeft'},
+  ],
+};
+
+/// Descriptor for `ReminderItem`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List reminderItemDescriptor = $convert.base64Decode(
+    'CgxSZW1pbmRlckl0ZW0SEgoEdGV4dBgBIAEoCVIEdGV4dBIVCgZkdWVfYXQYAiABKAFSBWR1ZU'
+    'F0EhIKBGRvbmUYAyABKAhSBGRvbmUSHQoKY3JlYXRlZF9hdBgEIAEoAVIJY3JlYXRlZEF0EiEK'
+    'DHNlY29uZHNfbGVmdBgFIAEoA1ILc2Vjb25kc0xlZnQ=');
+
+@$core.Deprecated('Use reminderListDescriptor instead')
+const ReminderList$json = {
+  '1': 'ReminderList',
+  '2': [
+    {'1': 'items', '3': 1, '4': 3, '5': 11, '6': '.xiaoling.ReminderItem', '10': 'items'},
+    {'1': 'unread', '3': 2, '4': 1, '5': 5, '10': 'unread'},
+    {'1': 'pending', '3': 3, '4': 1, '5': 5, '10': 'pending'},
+  ],
+};
+
+/// Descriptor for `ReminderList`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List reminderListDescriptor = $convert.base64Decode(
+    'CgxSZW1pbmRlckxpc3QSLAoFaXRlbXMYASADKAsyFi54aWFvbGluZy5SZW1pbmRlckl0ZW1SBW'
+    'l0ZW1zEhYKBnVucmVhZBgCIAEoBVIGdW5yZWFkEhgKB3BlbmRpbmcYAyABKAVSB3BlbmRpbmc=');
+
+@$core.Deprecated('Use reminderRequestDescriptor instead')
+const ReminderRequest$json = {
+  '1': 'ReminderRequest',
+  '2': [
+    {'1': 'due_at', '3': 1, '4': 1, '5': 1, '10': 'dueAt'},
+  ],
+};
+
+/// Descriptor for `ReminderRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List reminderRequestDescriptor = $convert.base64Decode(
+    'Cg9SZW1pbmRlclJlcXVlc3QSFQoGZHVlX2F0GAEgASgBUgVkdWVBdA==');
 

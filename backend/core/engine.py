@@ -674,6 +674,9 @@ class XiaoLing:
         if self.persona is not None:
             try:
                 self.persona.update_from_chat(text, 0.6)
+                # 对话会改动情绪/亲密度/提醒，立即落盘，
+                # 否则后端重启后铃铛的未读提醒会整个丢空。
+                self.persona.flush()
             except Exception:
                 pass
         if self.plugins is not None:
@@ -713,6 +716,16 @@ class XiaoLing:
 
     def system_prompt(self) -> str:
         parts = [DEFAULT_SYSTEM_PROMPT]
+        # 人格预设引导语（活泼/温柔/高冷/元气/沉稳 或自定义）。
+        # 放在最前面以确保优先级高于默认人格设定。
+        try:
+            from core import config as _cfg
+            from core import persona_presets as _pp
+            hint = _pp.hint_for(_cfg.load().get('persona'))
+            if hint:
+                parts.append(hint)
+        except Exception:
+            pass
         if self.persona is not None:
             try:
                 parts.append(self.persona.prompt_suffix())

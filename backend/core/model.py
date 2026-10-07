@@ -269,11 +269,92 @@ def get_memory_info() -> dict:
     return {"total": 0, "available": 0, "percent": 0}
 
 
+def _query_nvidia_smi() -> dict:
+    """用 nvidia-smi 查询 NVIDIA 独显（Windows / Linux 通用）。
+
+    独立于 torch：装了 CPU 版 torch 时torch.cuda 不可用，但 nvidia-smi 依然
+    能报出真实硬件。前置条件是 PATH 里有 nvidia-smi（NVIDIA 驱动会自带）。
+    """
+    out = {"name": "", "memory_gb": 0.0, "driver": ""}
+    try:
+        r = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=name,memory.total,driver_version",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, timeout=5, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return out
+    if r.returncode != 0 or not r.stdout.strip():
+        return out
+    line = r.stdout.strip().splitlines()[0]
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) >= 1:
+        out["name"] = parts[0]
+    if len(parts) >= 2:
+        try:
+            # nvidia-smi 的 memory.total 单位是 MiB
+            out["memory_gb"] = round(int(float(parts[1])) / 1024, 2)
+        except ValueError:
+            pass
+    if len(parts) >= 3:
+        out["driver"] = parts[2]
+    return out
+
+
+def _gpu_name_from_os() -> str:
+    """从操作系统侧兜底取显卡名（没有 nvidia-smi 时用）。
+
+    Windows 新版已移除 wmic，改用 PowerShell CIM；
+    旧版 Windows 保留 wmic 兜底。
+    """
+    if is_win():
+        # 首选 PowerShell CIM（Win 10 21H1+ / Win 11 均可用）
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-CimInstance Win32_VideoController | "
+                 "Where-Object { $_.AdapterRAM } | "
+                 "Select-Object -First 1 -ExpandProperty Name)"],
+                capture_output=True, timeout=8, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip().splitlines()[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        # 老Windows 兜底：wmic
+        try:
+            r = subprocess.run(
+                ["wmic", "path", "win32_VideoController", "get", "name"],
+                capture_output=True, timeout=5, text=True)
+            if r.returncode == 0:
+                lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+                if len(lines) >= 2:
+                    return lines[1]
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return ""
+
+
 def get_gpu_info() -> dict:
-    out = {"name": "", "memory_gb": 0.0, "cuda": False, "metal": False, "rocm": False}
+    """探测 GPU 信息。
+
+    区分两个概念，不要混为一谈：
+      - name / memory_gb：**硬件事实**。有没有独显、叫什么、显存多大。
+      - cuda：**torch 能否用 CUDA**。装了 CPU 版 torch 时硬件明明在，
+        但 torch.cuda.is_available() 为 False，此时必须让上层知道
+        「硬件有，但需要装 CUDA 版 torch」而不是谎报「没有GPU」。
+
+    这个区分很重要：老实现只在 torch.cuda 可用时才填 name/memory，
+    于是 CPU 版 torch + 独显机器会报出一片空白，看起来像没显卡。
+    """
+    out = {"name": "", "memory_gb": 0.0, "cuda": False,
+           "metal": False, "rocm": False}
+
+    # ---- 1. torch 侧：能否真正用上加速 ----
+    torch_usable = False
     try:
         import torch
         if torch.cuda.is_available():
+            torch_usable = True
             out["cuda"] = True
             try:
                 out["name"] = torch.cuda.get_device_name(0)
@@ -281,38 +362,28 @@ def get_gpu_info() -> dict:
                 out["memory_gb"] = round(props.total_memory / 1024 ** 3, 2)
             except Exception:
                 pass
-            return out
-        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             out["metal"] = True
-            out["name"] = f"Apple {platform.machine()}"
-            return out
+            out["name"] = out["name"] or f"Apple {platform.machine()}"
     except ImportError:
         pass
-    try:
-        if is_linux():
-            r = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total",
-                                "--format=csv,noheader,nounits"],
-                               capture_output=True, timeout=5, text=True)
-            if r.returncode == 0 and r.stdout.strip():
-                line = r.stdout.strip().splitlines()[0]
-                parts = [p.strip() for p in line.split(",")]
-                if parts:
-                    out["name"] = parts[0]
-                    out["cuda"] = True
-                    if len(parts) > 1:
-                        try:
-                            out["memory_gb"] = round(int(parts[1]) / 1024, 2)
-                        except ValueError:
-                            pass
-        elif is_win():
-            r = subprocess.run(["wmic", "path", "win32_VideoController", "get", "name"],
-                               capture_output=True, timeout=5, text=True)
-            if r.returncode == 0:
-                lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
-                if len(lines) >= 2:
-                    out["name"] = lines[1]
-    except (OSError, subprocess.SubprocessError):
-        pass
+
+    # ---- 2. 硬件侧：无论 torch 能不能用，都如实报告显卡 ----
+    if not out["name"] or not out["memory_gb"]:
+        smi = _query_nvidia_smi()
+        if smi["name"]:
+            out["name"] = smi["name"] or out["name"]
+            out["memory_gb"] = smi["memory_gb"] or out["memory_gb"]
+            # 有 N 卡硬件但 torch 用不上时，cuda 保持 False（那是 torch 的能力，
+            # 不是硬件的属性）；硬件存在性由 name/memory_gb 体现。
+    if not out["name"]:
+        out["name"] = _gpu_name_from_os()
+
+    if not torch_usable:
+        # torch 是 CPU 版或未装：显式标注，避免上层误判成「没有显卡」
+        out["torch_usable"] = False
+    else:
+        out["torch_usable"] = True
     return out
 
 
@@ -389,6 +460,14 @@ def detect_hardware() -> HardwareInfo:
 
 
 def best_device() -> str:
+    """选择推理/训练设备。
+
+    可用环境变量 `XIAOLING_FORCE_DEVICE` 强制指定（cpu / cuda / mps），
+    便于做性能对比基线或临时绕开有问题的 GPU。
+    """
+    forced = (os.environ.get("XIAOLING_FORCE_DEVICE") or "").strip().lower()
+    if forced in ("cpu", "cuda", "mps"):
+        return forced
     try:
         import torch
         if torch.cuda.is_available():
@@ -402,6 +481,39 @@ def best_device() -> str:
 
 def device_kwargs(device: str | None = None) -> dict:
     dev = device or best_device()
+    if dev in ("cuda", "mps"):
+        return {"device_map": "auto", "torch_dtype": "auto"}
+    return {"device_map": "cpu", "low_cpu_mem_usage": True}
+
+
+def inference_device() -> str:
+    """选择**日常对话推理**用的设备。
+
+    与训练刻意分开，理由有三：
+
+    1. **收益不对称**：0.5B 模型在 CPU 上生成一句话只需约 8 秒，本来就不慢；
+       搬上 GPU 省不了多少，但要多付一次权重搬运 + bf16转换的开销
+       （实测 Chat 从 7.7s 涨到 19.5s，主要就来自首次加载与设备迁移）。
+    2. **抢显存**：训练要用 GPU 余量，推理常驻会白占1GB 显存，
+       反而可能让 OOM 阈值提前触发。
+    3. **稳定性**：CPU 推理没有 CUDA 上下文切换与驱动占用的不确定性。
+
+    训练仍走 `best_device()`（GPU），推理默认 CPU。
+    需要强制时用环境变量：
+      XIAOLING_INFER_DEVICE=cuda / cpu / mps
+      XIAOLING_FORCE_DEVICE=cuda   （同时覆盖训练与推理，优先级更高）
+    """
+    forced = (os.environ.get("XIAOLING_FORCE_DEVICE")
+              or os.environ.get("XIAOLING_INFER_DEVICE") or "").strip().lower()
+    if forced in ("cpu", "cuda", "mps"):
+        return forced
+    return os.environ.get("XIAOLING_INFER_DEVICE_DEFAULT", "").strip().lower() \
+        or "cpu"
+
+
+def inference_device_kwargs() -> dict:
+    """推理专用的加载参数（比device_kwargs 更保守）。"""
+    dev = inference_device()
     if dev in ("cuda", "mps"):
         return {"device_map": "auto", "torch_dtype": "auto"}
     return {"device_map": "cpu", "low_cpu_mem_usage": True}
@@ -684,7 +796,9 @@ class LocalModel:
         self.system_prompt = system_prompt
         self.model = None
         self.tokenizer = None
-        self.device = best_device()
+        # 对话推理默认走 CPU（见 inference_device 的说明：收益不对称且会抢显存），
+        # 训练仍走 best_device() 的 GPU。
+        self.device = inference_device()
         self._lock = threading.RLock()
         self._loaded_at = 0.0
 
@@ -701,7 +815,7 @@ class LocalModel:
             try:
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     str(self.model_dir), trust_remote_code=True)
-                kwargs = device_kwargs(self.device)
+                kwargs = inference_device_kwargs()
                 self.model = AutoModelForCausalLM.from_pretrained(
                     str(self.model_dir), trust_remote_code=True, **kwargs)
                 if self.adapter_dir and self.adapter_dir.exists():

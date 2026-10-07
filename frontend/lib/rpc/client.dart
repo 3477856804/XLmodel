@@ -272,10 +272,16 @@ class XlClient {
       _endpoint.host,
       port: _endpoint.port,
       options: ChannelOptions(
-        connectTimeout: const Duration(seconds: 5),
-        idleTimeout: const Duration(minutes: 10),
-        keepAlive: const ClientKeepAliveOptions(
-          pingInterval: Duration(seconds: 30),
+        // 【关键】必须显式声明明文凭证（h2c）。
+        // grpc-dart 的 ChannelOptions.credentials 默认值是 ChannelCredentials.secure()，
+        // 会先发 TLS ClientHello；而Python 后端是 add_insecure_port()（明文 h2c），
+        // 于是 BoringSSL 把HTTP/2 帧当成 TLS 响应 → HandshakeException:
+        // WRONG_VERSION_NUMBER (tls_record.cc:127)，所有 RPC 报 UNAVAILABLE(14)。
+        credentials: ChannelCredentials.insecure(),
+        connectTimeout: Duration(seconds: 5),
+        idleTimeout: Duration(minutes: 10),
+        keepAlive: ClientKeepAliveOptions(
+          pingInterval: Duration(seconds: _keepAlive ? 30 : 86400),
           timeout: Duration(seconds: 10),
           permitWithoutCalls: true,
         ),
@@ -543,7 +549,17 @@ class XlClient {
   }
 
   static void setKeepAlive(bool enabled) {
+    if (_keepAlive == enabled) return;
     _keepAlive = enabled;
+    // keepAlive 参数在建channel 时固化，需重建才生效
+    if (_chan != null) {
+      unawaited(_rebuild());
+    }
+  }
+
+  static Future<void> _rebuild() async {
+    await _shutdownChannel();
+    _ensureChannel();
   }
 
   static Future<void> setEndpoint(XlEndpoint ep) async {

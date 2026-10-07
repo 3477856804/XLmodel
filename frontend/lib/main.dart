@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme/theme.dart';
@@ -11,6 +12,11 @@ import 'pages/growth_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/model_store_page.dart';
 import 'pages/plugins_page.dart';
+import 'widgets/notif_panel.dart';
+import 'widgets/persona_panel.dart';
+import 'rpc/client.dart';
+import 'rpc/xiaoling_client_ext.dart';
+import 'rpc/xiaoling_ext.dart';
 
 Process? _backendProc;
 
@@ -40,6 +46,22 @@ Future<void> _killBackend() async {
   } catch (_) {}
 }
 
+/// 启动时主动探测后端，并开启健康探针。
+///
+/// 此前 App **从不主动连后端**——只有切到某个页面、该页面调 RPC 时才建连，
+/// 于是聊天页顶部的「未连接后端」会一直挂着，哪怕后端其实好好的。
+/// 这里在 runApp 之前先探一次，把状态摆正。
+Future<void> _probeBackend() async {
+  if (Platform.environment['FLUTTER_TEST'] == '1') return;
+  try {
+    await XlClient.ping();
+    // 探活通过后开健康探针：断线自动重连（含端点故障转移）
+    XlClient.setAutoReconnect(true);
+  } catch (_) {
+    XlClient.setAutoReconnect(true); // 也开启，后端可能稍后才起
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -47,6 +69,9 @@ void main() async {
     systemNavigationBarColor: Colors.transparent,
   ));
   await _startBackend();
+  // 给后端一点启动时间，再探测（最多等 3 秒）
+  await Future.delayed(const Duration(milliseconds: 800));
+  await _probeBackend();
   runApp(const XiaoLingApp());
 }
 
@@ -124,8 +149,14 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   int _index = 0;
   bool _sidebarCollapsed = false;
   bool _searchOpen = false;
+  bool _notifOpen = false;
+  bool _personaOpen = false;
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode();
+
+  /// 铃铛红点用的未读提醒数。null =尚未拉到。
+  int? _unreadReminders;
+  Timer? _reminderTimer;
   late AnimationController _glowCtrl;
   late AnimationController _sidebarCtrl;
   late Animation<double> _sidebarAnim;
@@ -172,15 +203,43 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       parent: _sidebarCtrl,
       curve: XlCurve.springSoft,
     );
+    // 轮询未读提醒，驱动铃铛红点
+    _refreshUnread();
+    _reminderTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshUnread(),
+    );
   }
 
   @override
   void dispose() {
+    _reminderTimer?.cancel();
     _glowCtrl.dispose();
     _sidebarCtrl.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  /// 拉取未读提醒数。红点是否亮完全由真实数据决定，不再是静态装饰。
+  Future<void> _refreshUnread() async {
+    try {
+      final r = await XlClient.stub.safe(() => XlClient.stub.fetchReminders());
+      if (!mounted || r == null) return;
+      if (r.unread != _unreadReminders) {
+        setState(() => _unreadReminders = r.unread);
+      }
+    } catch (_) {
+      // 后端还没起来时静默失败，下次轮询再试
+    }
+  }
+
+  void _closeOverlays() {
+    setState(() {
+      _searchOpen = false;
+      _notifOpen = false;
+      _personaOpen = false;
+    });
   }
 
   void _navigate(int i) {
@@ -199,7 +258,13 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   void _toggleSearch() {
-    setState(() => _searchOpen = !_searchOpen);
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (_searchOpen) {
+        _notifOpen = false;
+        _personaOpen = false;
+      }
+    });
     if (_searchOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _searchFocus.requestFocus();
@@ -249,6 +314,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
         const SingleActivator(LogicalKeyboardKey.keyB, control: true): const _ToggleSidebarIntent(),
         const SingleActivator(LogicalKeyboardKey.keyK, control: true): const _SearchIntent(),
         const SingleActivator(LogicalKeyboardKey.keyT, control: true): const _ThemeIntent(),
+        const SingleActivator(LogicalKeyboardKey.escape): const _CloseOverlayIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -276,6 +342,14 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               return null;
             },
           ),
+          _CloseOverlayIntent: CallbackAction<_CloseOverlayIntent>(
+            onInvoke: (_) {
+              if (_searchOpen || _notifOpen || _personaOpen) {
+                _closeOverlays();
+              }
+              return null;
+            },
+          ),
         },
         child: Focus(
           autofocus: true,
@@ -294,6 +368,13 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                   ],
                 ),
                 if (_searchOpen) _searchOverlay(p),
+                if (_notifOpen)
+                  NotifPanel(
+                    onClose: _closeOverlays,
+                    onOpenTraining: () => _navigate(2),
+                  ),
+                if (_personaOpen)
+                  PersonaPanel(onClose: _closeOverlays),
               ],
             ),
           ),
@@ -709,12 +790,20 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   Widget _topNotif(XlPalette p) {
+    // 未读提醒数（已到期未确认）。null = 还没拉到，按 0 处理（不显示红点）。
+    final unread = _unreadReminders ?? 0;
     return Stack(
       children: [
         Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: () {},
+            onTap: () {
+              setState(() {
+                _notifOpen = true;
+                _searchOpen = false;
+                _personaOpen = false;
+              });
+            },
             borderRadius: BorderRadius.circular(XlRadius.md),
             child: Container(
               width: 42,
@@ -724,31 +813,72 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
             ),
           ),
         ),
-        Positioned(
-          top: 10,
-          right: 10,
-          child: Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: p.pink, shape: BoxShape.circle, boxShadow: [BoxShadow(color: p.pink.withOpacity(0.6), blurRadius: 8, spreadRadius: -1)]),
+        // 红点只在真有未读提醒时显示（此前是写死的静态装饰）
+        if (unread > 0)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              decoration: BoxDecoration(
+                color: p.pink,
+                shape: BoxShape.circle,
+                border: Border.all(color: p.bg, width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                      color: p.pink.withOpacity(0.6),
+                      blurRadius: 8,
+                      spreadRadius: -1)
+                ],
+              ),
+              child: Center(
+                child: Text(unread > 99 ? '99+' : '$unread',
+                    style: TextStyle(
+                        fontSize: 9,
+                        height: 1.1,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk)),
+              ),
+            ),
           ),
-        ),
       ],
     );
   }
 
   Widget _topAvatar(XlPalette p) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        gradient: p.gradBrand,
+    // 此前这里只是个装饰性 Container，连 InkWell 都没有，点击完全无响应
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _personaOpen = true;
+            _searchOpen = false;
+            _notifOpen = false;
+          });
+        },
         borderRadius: BorderRadius.circular(XlRadius.md),
-        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 1.5),
-        boxShadow: [...p.raisedXs, BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 14, spreadRadius: -3)],
-      ),
-      child: Center(
-        child: Text('凌', style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.btnInk)),
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            gradient: p.gradBrand,
+            borderRadius: BorderRadius.circular(XlRadius.md),
+            border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.35 : 0.5), width: 1.5),
+            boxShadow: [
+              ...p.raisedXs,
+              BoxShadow(color: p.pink.withOpacity(0.35), blurRadius: 14, spreadRadius: -3)
+            ],
+          ),
+          child: Center(
+            child: Text('凌',
+                style: TextStyle(
+                    fontSize: XlFont.h6,
+                    fontWeight: FontWeight.w800,
+                    color: p.btnInk)),
+          ),
+        ),
       ),
     );
   }
@@ -940,6 +1070,10 @@ class _SearchIntent extends Intent {
 
 class _ThemeIntent extends Intent {
   const _ThemeIntent();
+}
+
+class _CloseOverlayIntent extends Intent {
+  const _CloseOverlayIntent();
 }
 
 class _SearchItem {

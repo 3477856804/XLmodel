@@ -2,7 +2,7 @@
 //  Generated code. Do not modify.
 //  source: xiaoling.proto
 //
-// @dart = 3.3
+// @dart = 2.12
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
 // ignore_for_file: constant_identifier_names, library_prefixes
@@ -11,9 +11,8 @@
 
 import 'dart:core' as $core;
 
+import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
-
-export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
 /// ===== 基础消息 =====
 class Empty extends $pb.GeneratedMessage {
@@ -95,7 +94,7 @@ class ChatRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasText() => $_has(0);
   @$pb.TagNumber(1)
-  void clearText() => $_clearField(1);
+  void clearText() => clearField(1);
 }
 
 class ChatChunk extends $pb.GeneratedMessage {
@@ -155,7 +154,7 @@ class ChatChunk extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasDelta() => $_has(0);
   @$pb.TagNumber(1)
-  void clearDelta() => $_clearField(1);
+  void clearDelta() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.bool get done => $_getBF(1);
@@ -164,7 +163,7 @@ class ChatChunk extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasDone() => $_has(1);
   @$pb.TagNumber(2)
-  void clearDone() => $_clearField(2);
+  void clearDone() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get error => $_getSZ(2);
@@ -173,7 +172,7 @@ class ChatChunk extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasError() => $_has(2);
   @$pb.TagNumber(3)
-  void clearError() => $_clearField(3);
+  void clearError() => clearField(3);
 }
 
 class StatusRequest extends $pb.GeneratedMessage {
@@ -285,7 +284,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasOk() => $_has(0);
   @$pb.TagNumber(1)
-  void clearOk() => $_clearField(1);
+  void clearOk() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get message => $_getSZ(1);
@@ -294,7 +293,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasMessage() => $_has(1);
   @$pb.TagNumber(2)
-  void clearMessage() => $_clearField(2);
+  void clearMessage() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get stage => $_getSZ(2);
@@ -303,7 +302,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasStage() => $_has(2);
   @$pb.TagNumber(3)
-  void clearStage() => $_clearField(3);
+  void clearStage() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.String get model => $_getSZ(3);
@@ -312,7 +311,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasModel() => $_has(3);
   @$pb.TagNumber(4)
-  void clearModel() => $_clearField(4);
+  void clearModel() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.String get backend => $_getSZ(4);
@@ -321,7 +320,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasBackend() => $_has(4);
   @$pb.TagNumber(5)
-  void clearBackend() => $_clearField(5);
+  void clearBackend() => clearField(5);
 
   @$pb.TagNumber(6)
   $core.double get progress => $_getN(5);
@@ -330,7 +329,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasProgress() => $_has(5);
   @$pb.TagNumber(6)
-  void clearProgress() => $_clearField(6);
+  void clearProgress() => clearField(6);
 
   @$pb.TagNumber(7)
   $core.String get version => $_getSZ(6);
@@ -339,7 +338,7 @@ class StatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   $core.bool hasVersion() => $_has(6);
   @$pb.TagNumber(7)
-  void clearVersion() => $_clearField(7);
+  void clearVersion() => clearField(7);
 }
 
 class ListRequest extends $pb.GeneratedMessage {
@@ -431,7 +430,7 @@ class ModelInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearName() => $_clearField(1);
+  void clearName() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get path => $_getSZ(1);
@@ -440,7 +439,7 @@ class ModelInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasPath() => $_has(1);
   @$pb.TagNumber(2)
-  void clearPath() => $_clearField(2);
+  void clearPath() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.double get sizeMb => $_getN(2);
@@ -449,7 +448,7 @@ class ModelInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasSizeMb() => $_has(2);
   @$pb.TagNumber(3)
-  void clearSizeMb() => $_clearField(3);
+  void clearSizeMb() => clearField(3);
 }
 
 class ModelList extends $pb.GeneratedMessage {
@@ -493,7 +492,7 @@ class ModelList extends $pb.GeneratedMessage {
   static ModelList? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $pb.PbList<ModelInfo> get models => $_getList(0);
+  $core.List<ModelInfo> get models => $_getList(0);
 }
 
 class SwitchModelRequest extends $pb.GeneratedMessage {
@@ -543,7 +542,7 @@ class SwitchModelRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasPath() => $_has(0);
   @$pb.TagNumber(1)
-  void clearPath() => $_clearField(1);
+  void clearPath() => clearField(1);
 }
 
 class CommandRequest extends $pb.GeneratedMessage {
@@ -593,7 +592,7 @@ class CommandRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasCommand() => $_has(0);
   @$pb.TagNumber(1)
-  void clearCommand() => $_clearField(1);
+  void clearCommand() => clearField(1);
 }
 
 class CommandReply extends $pb.GeneratedMessage {
@@ -643,7 +642,7 @@ class CommandReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasOutput() => $_has(0);
   @$pb.TagNumber(1)
-  void clearOutput() => $_clearField(1);
+  void clearOutput() => clearField(1);
 }
 
 class ActionInfo extends $pb.GeneratedMessage {
@@ -708,7 +707,7 @@ class ActionInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearName() => $_clearField(1);
+  void clearName() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get path => $_getSZ(1);
@@ -717,7 +716,7 @@ class ActionInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasPath() => $_has(1);
   @$pb.TagNumber(2)
-  void clearPath() => $_clearField(2);
+  void clearPath() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.bool get dance => $_getBF(2);
@@ -726,7 +725,7 @@ class ActionInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasDance() => $_has(2);
   @$pb.TagNumber(3)
-  void clearDance() => $_clearField(3);
+  void clearDance() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.bool get idle => $_getBF(3);
@@ -735,7 +734,7 @@ class ActionInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasIdle() => $_has(3);
   @$pb.TagNumber(4)
-  void clearIdle() => $_clearField(4);
+  void clearIdle() => clearField(4);
 }
 
 class ActionList extends $pb.GeneratedMessage {
@@ -779,7 +778,7 @@ class ActionList extends $pb.GeneratedMessage {
   static ActionList? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $pb.PbList<ActionInfo> get actions => $_getList(0);
+  $core.List<ActionInfo> get actions => $_getList(0);
 }
 
 class PlayActionRequest extends $pb.GeneratedMessage {
@@ -829,7 +828,7 @@ class PlayActionRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasPath() => $_has(0);
   @$pb.TagNumber(1)
-  void clearPath() => $_clearField(1);
+  void clearPath() => clearField(1);
 }
 
 class ShutdownRequest extends $pb.GeneratedMessage {
@@ -875,6 +874,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
     $core.String? currentRank,
     $core.String? emotion,
     $core.bool? trainingPaused,
+    $core.String? statusText,
   }) {
     final $result = create();
     if (stage != null) {
@@ -901,6 +901,9 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
     if (trainingPaused != null) {
       $result.trainingPaused = trainingPaused;
     }
+    if (statusText != null) {
+      $result.statusText = statusText;
+    }
     return $result;
   }
   GrowthStatusReply._() : super();
@@ -916,6 +919,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
     ..aOS(6, _omitFieldNames ? '' : 'currentRank')
     ..aOS(7, _omitFieldNames ? '' : 'emotion')
     ..aOB(8, _omitFieldNames ? '' : 'trainingPaused')
+    ..aOS(9, _omitFieldNames ? '' : 'statusText')
     ..hasRequiredFields = false
   ;
 
@@ -947,7 +951,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasStage() => $_has(0);
   @$pb.TagNumber(1)
-  void clearStage() => $_clearField(1);
+  void clearStage() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.double get progressPercent => $_getN(1);
@@ -956,7 +960,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasProgressPercent() => $_has(1);
   @$pb.TagNumber(2)
-  void clearProgressPercent() => $_clearField(2);
+  void clearProgressPercent() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.int get totalInteractions => $_getIZ(2);
@@ -965,7 +969,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasTotalInteractions() => $_has(2);
   @$pb.TagNumber(3)
-  void clearTotalInteractions() => $_clearField(3);
+  void clearTotalInteractions() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.int get currentGeneration => $_getIZ(3);
@@ -974,7 +978,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasCurrentGeneration() => $_has(3);
   @$pb.TagNumber(4)
-  void clearCurrentGeneration() => $_clearField(4);
+  void clearCurrentGeneration() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.int get totalGenerations => $_getIZ(4);
@@ -983,7 +987,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasTotalGenerations() => $_has(4);
   @$pb.TagNumber(5)
-  void clearTotalGenerations() => $_clearField(5);
+  void clearTotalGenerations() => clearField(5);
 
   @$pb.TagNumber(6)
   $core.String get currentRank => $_getSZ(5);
@@ -992,7 +996,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasCurrentRank() => $_has(5);
   @$pb.TagNumber(6)
-  void clearCurrentRank() => $_clearField(6);
+  void clearCurrentRank() => clearField(6);
 
   @$pb.TagNumber(7)
   $core.String get emotion => $_getSZ(6);
@@ -1001,7 +1005,7 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   $core.bool hasEmotion() => $_has(6);
   @$pb.TagNumber(7)
-  void clearEmotion() => $_clearField(7);
+  void clearEmotion() => clearField(7);
 
   @$pb.TagNumber(8)
   $core.bool get trainingPaused => $_getBF(7);
@@ -1010,7 +1014,16 @@ class GrowthStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   $core.bool hasTrainingPaused() => $_has(7);
   @$pb.TagNumber(8)
-  void clearTrainingPaused() => $_clearField(8);
+  void clearTrainingPaused() => clearField(8);
+
+  @$pb.TagNumber(9)
+  $core.String get statusText => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set statusText($core.String v) { $_setString(8, v); }
+  @$pb.TagNumber(9)
+  $core.bool hasStatusText() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearStatusText() => clearField(9);
 }
 
 /// ===== 训练状态（Flutter 五维可视化） =====
@@ -1071,7 +1084,7 @@ class TrainingDimension extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearName() => $_clearField(1);
+  void clearName() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.double get value => $_getN(1);
@@ -1080,7 +1093,7 @@ class TrainingDimension extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasValue() => $_has(1);
   @$pb.TagNumber(2)
-  void clearValue() => $_clearField(2);
+  void clearValue() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get label => $_getSZ(2);
@@ -1089,7 +1102,7 @@ class TrainingDimension extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasLabel() => $_has(2);
   @$pb.TagNumber(3)
-  void clearLabel() => $_clearField(3);
+  void clearLabel() => clearField(3);
 }
 
 class TrainingStatusReply extends $pb.GeneratedMessage {
@@ -1164,7 +1177,7 @@ class TrainingStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasIsTraining() => $_has(0);
   @$pb.TagNumber(1)
-  void clearIsTraining() => $_clearField(1);
+  void clearIsTraining() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.int get currentEpoch => $_getIZ(1);
@@ -1173,7 +1186,7 @@ class TrainingStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasCurrentEpoch() => $_has(1);
   @$pb.TagNumber(2)
-  void clearCurrentEpoch() => $_clearField(2);
+  void clearCurrentEpoch() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.int get totalEpochs => $_getIZ(2);
@@ -1182,7 +1195,7 @@ class TrainingStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasTotalEpochs() => $_has(2);
   @$pb.TagNumber(3)
-  void clearTotalEpochs() => $_clearField(3);
+  void clearTotalEpochs() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.double get loss => $_getN(3);
@@ -1191,10 +1204,10 @@ class TrainingStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasLoss() => $_has(3);
   @$pb.TagNumber(4)
-  void clearLoss() => $_clearField(4);
+  void clearLoss() => clearField(4);
 
   @$pb.TagNumber(5)
-  $pb.PbList<TrainingDimension> get dimensions => $_getList(4);
+  $core.List<TrainingDimension> get dimensions => $_getList(4);
 
   @$pb.TagNumber(6)
   $core.String get statusText => $_getSZ(5);
@@ -1203,7 +1216,7 @@ class TrainingStatusReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasStatusText() => $_has(5);
   @$pb.TagNumber(6)
-  void clearStatusText() => $_clearField(6);
+  void clearStatusText() => clearField(6);
 }
 
 /// ===== 插件列表 =====
@@ -1274,7 +1287,7 @@ class PluginInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearName() => $_clearField(1);
+  void clearName() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get description => $_getSZ(1);
@@ -1283,7 +1296,7 @@ class PluginInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasDescription() => $_has(1);
   @$pb.TagNumber(2)
-  void clearDescription() => $_clearField(2);
+  void clearDescription() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get version => $_getSZ(2);
@@ -1292,7 +1305,7 @@ class PluginInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasVersion() => $_has(2);
   @$pb.TagNumber(3)
-  void clearVersion() => $_clearField(3);
+  void clearVersion() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.bool get enabled => $_getBF(3);
@@ -1301,7 +1314,7 @@ class PluginInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasEnabled() => $_has(3);
   @$pb.TagNumber(4)
-  void clearEnabled() => $_clearField(4);
+  void clearEnabled() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.String get category => $_getSZ(4);
@@ -1310,7 +1323,7 @@ class PluginInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasCategory() => $_has(4);
   @$pb.TagNumber(5)
-  void clearCategory() => $_clearField(5);
+  void clearCategory() => clearField(5);
 }
 
 class PluginList extends $pb.GeneratedMessage {
@@ -1354,7 +1367,150 @@ class PluginList extends $pb.GeneratedMessage {
   static PluginList? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $pb.PbList<PluginInfo> get plugins => $_getList(0);
+  $core.List<PluginInfo> get plugins => $_getList(0);
+}
+
+/// ===== 启动训练请求 / 进度 =====
+class TrainingRequest extends $pb.GeneratedMessage {
+  factory TrainingRequest({
+    $core.int? steps,
+  }) {
+    final $result = create();
+    if (steps != null) {
+      $result.steps = steps;
+    }
+    return $result;
+  }
+  TrainingRequest._() : super();
+  factory TrainingRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory TrainingRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'TrainingRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..a<$core.int>(1, _omitFieldNames ? '' : 'steps', $pb.PbFieldType.O3)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  TrainingRequest clone() => TrainingRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  TrainingRequest copyWith(void Function(TrainingRequest) updates) => super.copyWith((message) => updates(message as TrainingRequest)) as TrainingRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static TrainingRequest create() => TrainingRequest._();
+  TrainingRequest createEmptyInstance() => create();
+  static $pb.PbList<TrainingRequest> createRepeated() => $pb.PbList<TrainingRequest>();
+  @$core.pragma('dart2js:noInline')
+  static TrainingRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TrainingRequest>(create);
+  static TrainingRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get steps => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set steps($core.int v) { $_setSignedInt32(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasSteps() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSteps() => clearField(1);
+}
+
+class TrainingProgress extends $pb.GeneratedMessage {
+  factory TrainingProgress({
+    $core.int? step,
+    $core.int? totalSteps,
+    $core.double? loss,
+    $core.String? status,
+  }) {
+    final $result = create();
+    if (step != null) {
+      $result.step = step;
+    }
+    if (totalSteps != null) {
+      $result.totalSteps = totalSteps;
+    }
+    if (loss != null) {
+      $result.loss = loss;
+    }
+    if (status != null) {
+      $result.status = status;
+    }
+    return $result;
+  }
+  TrainingProgress._() : super();
+  factory TrainingProgress.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory TrainingProgress.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'TrainingProgress', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..a<$core.int>(1, _omitFieldNames ? '' : 'step', $pb.PbFieldType.O3)
+    ..a<$core.int>(2, _omitFieldNames ? '' : 'totalSteps', $pb.PbFieldType.O3)
+    ..a<$core.double>(3, _omitFieldNames ? '' : 'loss', $pb.PbFieldType.OF)
+    ..aOS(4, _omitFieldNames ? '' : 'status')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  TrainingProgress clone() => TrainingProgress()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  TrainingProgress copyWith(void Function(TrainingProgress) updates) => super.copyWith((message) => updates(message as TrainingProgress)) as TrainingProgress;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static TrainingProgress create() => TrainingProgress._();
+  TrainingProgress createEmptyInstance() => create();
+  static $pb.PbList<TrainingProgress> createRepeated() => $pb.PbList<TrainingProgress>();
+  @$core.pragma('dart2js:noInline')
+  static TrainingProgress getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TrainingProgress>(create);
+  static TrainingProgress? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get step => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set step($core.int v) { $_setSignedInt32(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasStep() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearStep() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get totalSteps => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set totalSteps($core.int v) { $_setSignedInt32(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasTotalSteps() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTotalSteps() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.double get loss => $_getN(2);
+  @$pb.TagNumber(3)
+  set loss($core.double v) { $_setFloat(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasLoss() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLoss() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get status => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set status($core.String v) { $_setString(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasStatus() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearStatus() => clearField(4);
 }
 
 /// ===== 硬件检测 =====
@@ -1440,7 +1596,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasVramGb() => $_has(0);
   @$pb.TagNumber(1)
-  void clearVramGb() => $_clearField(1);
+  void clearVramGb() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.double get ramGb => $_getN(1);
@@ -1449,7 +1605,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasRamGb() => $_has(1);
   @$pb.TagNumber(2)
-  void clearRamGb() => $_clearField(2);
+  void clearRamGb() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.int get cpuCores => $_getIZ(2);
@@ -1458,7 +1614,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasCpuCores() => $_has(2);
   @$pb.TagNumber(3)
-  void clearCpuCores() => $_clearField(3);
+  void clearCpuCores() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.double get diskFreeGb => $_getN(3);
@@ -1467,7 +1623,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasDiskFreeGb() => $_has(3);
   @$pb.TagNumber(4)
-  void clearDiskFreeGb() => $_clearField(4);
+  void clearDiskFreeGb() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.String get gpuName => $_getSZ(4);
@@ -1476,7 +1632,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasGpuName() => $_has(4);
   @$pb.TagNumber(5)
-  void clearGpuName() => $_clearField(5);
+  void clearGpuName() => clearField(5);
 
   @$pb.TagNumber(6)
   $core.String get platform => $_getSZ(5);
@@ -1485,7 +1641,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasPlatform() => $_has(5);
   @$pb.TagNumber(6)
-  void clearPlatform() => $_clearField(6);
+  void clearPlatform() => clearField(6);
 
   @$pb.TagNumber(7)
   $core.bool get hasCuda => $_getBF(6);
@@ -1494,7 +1650,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   $core.bool hasHasCuda() => $_has(6);
   @$pb.TagNumber(7)
-  void clearHasCuda() => $_clearField(7);
+  void clearHasCuda() => clearField(7);
 
   @$pb.TagNumber(8)
   $core.bool get hasMetal => $_getBF(7);
@@ -1503,7 +1659,7 @@ class HardwareInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   $core.bool hasHasMetal() => $_has(7);
   @$pb.TagNumber(8)
-  void clearHasMetal() => $_clearField(8);
+  void clearHasMetal() => clearField(8);
 }
 
 class HardwareRequest extends $pb.GeneratedMessage {
@@ -1631,7 +1787,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearName() => $_clearField(1);
+  void clearName() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get params => $_getSZ(1);
@@ -1640,7 +1796,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasParams() => $_has(1);
   @$pb.TagNumber(2)
-  void clearParams() => $_clearField(2);
+  void clearParams() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get quant => $_getSZ(2);
@@ -1649,7 +1805,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasQuant() => $_has(2);
   @$pb.TagNumber(3)
-  void clearQuant() => $_clearField(3);
+  void clearQuant() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.double get vramGb => $_getN(3);
@@ -1658,7 +1814,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasVramGb() => $_has(3);
   @$pb.TagNumber(4)
-  void clearVramGb() => $_clearField(4);
+  void clearVramGb() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.double get ramGb => $_getN(4);
@@ -1667,7 +1823,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasRamGb() => $_has(4);
   @$pb.TagNumber(5)
-  void clearRamGb() => $_clearField(5);
+  void clearRamGb() => clearField(5);
 
   @$pb.TagNumber(6)
   $core.int get quality => $_getIZ(5);
@@ -1676,7 +1832,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasQuality() => $_has(5);
   @$pb.TagNumber(6)
-  void clearQuality() => $_clearField(6);
+  void clearQuality() => clearField(6);
 
   @$pb.TagNumber(7)
   $core.String get context => $_getSZ(6);
@@ -1685,7 +1841,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   $core.bool hasContext() => $_has(6);
   @$pb.TagNumber(7)
-  void clearContext() => $_clearField(7);
+  void clearContext() => clearField(7);
 
   @$pb.TagNumber(8)
   $core.double get sizeMb => $_getN(7);
@@ -1694,7 +1850,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   $core.bool hasSizeMb() => $_has(7);
   @$pb.TagNumber(8)
-  void clearSizeMb() => $_clearField(8);
+  void clearSizeMb() => clearField(8);
 
   @$pb.TagNumber(9)
   $core.bool get canRun => $_getBF(8);
@@ -1703,7 +1859,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(9)
   $core.bool hasCanRun() => $_has(8);
   @$pb.TagNumber(9)
-  void clearCanRun() => $_clearField(9);
+  void clearCanRun() => clearField(9);
 
   @$pb.TagNumber(10)
   $core.bool get recommended => $_getBF(9);
@@ -1712,7 +1868,7 @@ class RecommendedModel extends $pb.GeneratedMessage {
   @$pb.TagNumber(10)
   $core.bool hasRecommended() => $_has(9);
   @$pb.TagNumber(10)
-  void clearRecommended() => $_clearField(10);
+  void clearRecommended() => clearField(10);
 }
 
 class RecommendedModelList extends $pb.GeneratedMessage {
@@ -1756,7 +1912,7 @@ class RecommendedModelList extends $pb.GeneratedMessage {
   static RecommendedModelList? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $pb.PbList<RecommendedModel> get models => $_getList(0);
+  $core.List<RecommendedModel> get models => $_getList(0);
 }
 
 class DownloadRequest extends $pb.GeneratedMessage {
@@ -1811,7 +1967,7 @@ class DownloadRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasModelName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearModelName() => $_clearField(1);
+  void clearModelName() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get quant => $_getSZ(1);
@@ -1820,7 +1976,7 @@ class DownloadRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasQuant() => $_has(1);
   @$pb.TagNumber(2)
-  void clearQuant() => $_clearField(2);
+  void clearQuant() => clearField(2);
 }
 
 class DownloadProgress extends $pb.GeneratedMessage {
@@ -1885,7 +2041,7 @@ class DownloadProgress extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasPercent() => $_has(0);
   @$pb.TagNumber(1)
-  void clearPercent() => $_clearField(1);
+  void clearPercent() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.double get downloadedMb => $_getN(1);
@@ -1894,7 +2050,7 @@ class DownloadProgress extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasDownloadedMb() => $_has(1);
   @$pb.TagNumber(2)
-  void clearDownloadedMb() => $_clearField(2);
+  void clearDownloadedMb() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.double get totalMb => $_getN(2);
@@ -1903,7 +2059,7 @@ class DownloadProgress extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasTotalMb() => $_has(2);
   @$pb.TagNumber(3)
-  void clearTotalMb() => $_clearField(3);
+  void clearTotalMb() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.String get status => $_getSZ(3);
@@ -1912,7 +2068,7 @@ class DownloadProgress extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasStatus() => $_has(3);
   @$pb.TagNumber(4)
-  void clearStatus() => $_clearField(4);
+  void clearStatus() => clearField(4);
 }
 
 class ModelNameRequest extends $pb.GeneratedMessage {
@@ -1962,7 +2118,7 @@ class ModelNameRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearName() => $_clearField(1);
+  void clearName() => clearField(1);
 }
 
 /// ===== 音色 =====
@@ -2023,7 +2179,7 @@ class VoiceInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasId() => $_has(0);
   @$pb.TagNumber(1)
-  void clearId() => $_clearField(1);
+  void clearId() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get name => $_getSZ(1);
@@ -2032,7 +2188,7 @@ class VoiceInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasName() => $_has(1);
   @$pb.TagNumber(2)
-  void clearName() => $_clearField(2);
+  void clearName() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get lang => $_getSZ(2);
@@ -2041,7 +2197,7 @@ class VoiceInfo extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasLang() => $_has(2);
   @$pb.TagNumber(3)
-  void clearLang() => $_clearField(3);
+  void clearLang() => clearField(3);
 }
 
 class VoiceList extends $pb.GeneratedMessage {
@@ -2085,7 +2241,7 @@ class VoiceList extends $pb.GeneratedMessage {
   static VoiceList? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $pb.PbList<VoiceInfo> get voices => $_getList(0);
+  $core.List<VoiceInfo> get voices => $_getList(0);
 }
 
 class VoiceRequest extends $pb.GeneratedMessage {
@@ -2135,7 +2291,7 @@ class VoiceRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasVoiceId() => $_has(0);
   @$pb.TagNumber(1)
-  void clearVoiceId() => $_clearField(1);
+  void clearVoiceId() => clearField(1);
 }
 
 class ReadRequest extends $pb.GeneratedMessage {
@@ -2185,7 +2341,7 @@ class ReadRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasText() => $_has(0);
   @$pb.TagNumber(1)
-  void clearText() => $_clearField(1);
+  void clearText() => clearField(1);
 }
 
 class AudioChunk extends $pb.GeneratedMessage {
@@ -2240,7 +2396,7 @@ class AudioChunk extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasData() => $_has(0);
   @$pb.TagNumber(1)
-  void clearData() => $_clearField(1);
+  void clearData() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.bool get done => $_getBF(1);
@@ -2249,7 +2405,7 @@ class AudioChunk extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasDone() => $_has(1);
   @$pb.TagNumber(2)
-  void clearDone() => $_clearField(2);
+  void clearDone() => clearField(2);
 }
 
 /// ===== 设置 =====
@@ -2263,6 +2419,8 @@ class SettingsReply extends $pb.GeneratedMessage {
     $core.bool? asrEnabled,
     $core.bool? ttsEnabled,
     $core.bool? readAloudMode,
+    $core.String? persona,
+    $core.String? userName,
   }) {
     final $result = create();
     if (model != null) {
@@ -2289,6 +2447,12 @@ class SettingsReply extends $pb.GeneratedMessage {
     if (readAloudMode != null) {
       $result.readAloudMode = readAloudMode;
     }
+    if (persona != null) {
+      $result.persona = persona;
+    }
+    if (userName != null) {
+      $result.userName = userName;
+    }
     return $result;
   }
   SettingsReply._() : super();
@@ -2304,6 +2468,8 @@ class SettingsReply extends $pb.GeneratedMessage {
     ..aOB(6, _omitFieldNames ? '' : 'asrEnabled')
     ..aOB(7, _omitFieldNames ? '' : 'ttsEnabled')
     ..aOB(8, _omitFieldNames ? '' : 'readAloudMode')
+    ..aOS(9, _omitFieldNames ? '' : 'persona')
+    ..aOS(10, _omitFieldNames ? '' : 'userName')
     ..hasRequiredFields = false
   ;
 
@@ -2335,7 +2501,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasModel() => $_has(0);
   @$pb.TagNumber(1)
-  void clearModel() => $_clearField(1);
+  void clearModel() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get voice => $_getSZ(1);
@@ -2344,7 +2510,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasVoice() => $_has(1);
   @$pb.TagNumber(2)
-  void clearVoice() => $_clearField(2);
+  void clearVoice() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get renderBackend => $_getSZ(2);
@@ -2353,7 +2519,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasRenderBackend() => $_has(2);
   @$pb.TagNumber(3)
-  void clearRenderBackend() => $_clearField(3);
+  void clearRenderBackend() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.bool get alwaysOnTop => $_getBF(3);
@@ -2362,7 +2528,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasAlwaysOnTop() => $_has(3);
   @$pb.TagNumber(4)
-  void clearAlwaysOnTop() => $_clearField(4);
+  void clearAlwaysOnTop() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.bool get autoStart => $_getBF(4);
@@ -2371,7 +2537,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasAutoStart() => $_has(4);
   @$pb.TagNumber(5)
-  void clearAutoStart() => $_clearField(5);
+  void clearAutoStart() => clearField(5);
 
   @$pb.TagNumber(6)
   $core.bool get asrEnabled => $_getBF(5);
@@ -2380,7 +2546,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasAsrEnabled() => $_has(5);
   @$pb.TagNumber(6)
-  void clearAsrEnabled() => $_clearField(6);
+  void clearAsrEnabled() => clearField(6);
 
   @$pb.TagNumber(7)
   $core.bool get ttsEnabled => $_getBF(6);
@@ -2389,7 +2555,7 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   $core.bool hasTtsEnabled() => $_has(6);
   @$pb.TagNumber(7)
-  void clearTtsEnabled() => $_clearField(7);
+  void clearTtsEnabled() => clearField(7);
 
   @$pb.TagNumber(8)
   $core.bool get readAloudMode => $_getBF(7);
@@ -2398,7 +2564,27 @@ class SettingsReply extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   $core.bool hasReadAloudMode() => $_has(7);
   @$pb.TagNumber(8)
-  void clearReadAloudMode() => $_clearField(8);
+  void clearReadAloudMode() => clearField(8);
+
+  /// 人格预设名（活跃中），对应 config.persona
+  @$pb.TagNumber(9)
+  $core.String get persona => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set persona($core.String v) { $_setString(8, v); }
+  @$pb.TagNumber(9)
+  $core.bool hasPersona() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearPersona() => clearField(9);
+
+  /// 用户名，对应 config.user_name
+  @$pb.TagNumber(10)
+  $core.String get userName => $_getSZ(9);
+  @$pb.TagNumber(10)
+  set userName($core.String v) { $_setString(9, v); }
+  @$pb.TagNumber(10)
+  $core.bool hasUserName() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearUserName() => clearField(10);
 }
 
 class SettingsRequest extends $pb.GeneratedMessage {
@@ -2411,6 +2597,8 @@ class SettingsRequest extends $pb.GeneratedMessage {
     $core.bool? asrEnabled,
     $core.bool? ttsEnabled,
     $core.bool? readAloudMode,
+    $core.String? persona,
+    $core.String? userName,
   }) {
     final $result = create();
     if (model != null) {
@@ -2437,6 +2625,12 @@ class SettingsRequest extends $pb.GeneratedMessage {
     if (readAloudMode != null) {
       $result.readAloudMode = readAloudMode;
     }
+    if (persona != null) {
+      $result.persona = persona;
+    }
+    if (userName != null) {
+      $result.userName = userName;
+    }
     return $result;
   }
   SettingsRequest._() : super();
@@ -2452,6 +2646,8 @@ class SettingsRequest extends $pb.GeneratedMessage {
     ..aOB(6, _omitFieldNames ? '' : 'asrEnabled')
     ..aOB(7, _omitFieldNames ? '' : 'ttsEnabled')
     ..aOB(8, _omitFieldNames ? '' : 'readAloudMode')
+    ..aOS(9, _omitFieldNames ? '' : 'persona')
+    ..aOS(10, _omitFieldNames ? '' : 'userName')
     ..hasRequiredFields = false
   ;
 
@@ -2483,7 +2679,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   $core.bool hasModel() => $_has(0);
   @$pb.TagNumber(1)
-  void clearModel() => $_clearField(1);
+  void clearModel() => clearField(1);
 
   @$pb.TagNumber(2)
   $core.String get voice => $_getSZ(1);
@@ -2492,7 +2688,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   $core.bool hasVoice() => $_has(1);
   @$pb.TagNumber(2)
-  void clearVoice() => $_clearField(2);
+  void clearVoice() => clearField(2);
 
   @$pb.TagNumber(3)
   $core.String get renderBackend => $_getSZ(2);
@@ -2501,7 +2697,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $core.bool hasRenderBackend() => $_has(2);
   @$pb.TagNumber(3)
-  void clearRenderBackend() => $_clearField(3);
+  void clearRenderBackend() => clearField(3);
 
   @$pb.TagNumber(4)
   $core.bool get alwaysOnTop => $_getBF(3);
@@ -2510,7 +2706,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   $core.bool hasAlwaysOnTop() => $_has(3);
   @$pb.TagNumber(4)
-  void clearAlwaysOnTop() => $_clearField(4);
+  void clearAlwaysOnTop() => clearField(4);
 
   @$pb.TagNumber(5)
   $core.bool get autoStart => $_getBF(4);
@@ -2519,7 +2715,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   $core.bool hasAutoStart() => $_has(4);
   @$pb.TagNumber(5)
-  void clearAutoStart() => $_clearField(5);
+  void clearAutoStart() => clearField(5);
 
   @$pb.TagNumber(6)
   $core.bool get asrEnabled => $_getBF(5);
@@ -2528,7 +2724,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $core.bool hasAsrEnabled() => $_has(5);
   @$pb.TagNumber(6)
-  void clearAsrEnabled() => $_clearField(6);
+  void clearAsrEnabled() => clearField(6);
 
   @$pb.TagNumber(7)
   $core.bool get ttsEnabled => $_getBF(6);
@@ -2537,7 +2733,7 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   $core.bool hasTtsEnabled() => $_has(6);
   @$pb.TagNumber(7)
-  void clearTtsEnabled() => $_clearField(7);
+  void clearTtsEnabled() => clearField(7);
 
   @$pb.TagNumber(8)
   $core.bool get readAloudMode => $_getBF(7);
@@ -2546,7 +2742,747 @@ class SettingsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   $core.bool hasReadAloudMode() => $_has(7);
   @$pb.TagNumber(8)
-  void clearReadAloudMode() => $_clearField(8);
+  void clearReadAloudMode() => clearField(8);
+
+  @$pb.TagNumber(9)
+  $core.String get persona => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set persona($core.String v) { $_setString(8, v); }
+  @$pb.TagNumber(9)
+  $core.bool hasPersona() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearPersona() => clearField(9);
+
+  @$pb.TagNumber(10)
+  $core.String get userName => $_getSZ(9);
+  @$pb.TagNumber(10)
+  set userName($core.String v) { $_setString(9, v); }
+  @$pb.TagNumber(10)
+  $core.bool hasUserName() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearUserName() => clearField(10);
+}
+
+/// ===== 人格画像（PersonaEngine 快照） =====
+class PersonaReply extends $pb.GeneratedMessage {
+  factory PersonaReply({
+    $core.String? emotion,
+    $core.double? emotionIntensity,
+    $core.String? relationship,
+    $core.double? relationshipScore,
+    $core.double? relationshipProgress,
+    $core.int? remindersPending,
+    $core.String? persona,
+    $core.String? userName,
+    $core.Iterable<PersonaAxis>? axes,
+  }) {
+    final $result = create();
+    if (emotion != null) {
+      $result.emotion = emotion;
+    }
+    if (emotionIntensity != null) {
+      $result.emotionIntensity = emotionIntensity;
+    }
+    if (relationship != null) {
+      $result.relationship = relationship;
+    }
+    if (relationshipScore != null) {
+      $result.relationshipScore = relationshipScore;
+    }
+    if (relationshipProgress != null) {
+      $result.relationshipProgress = relationshipProgress;
+    }
+    if (remindersPending != null) {
+      $result.remindersPending = remindersPending;
+    }
+    if (persona != null) {
+      $result.persona = persona;
+    }
+    if (userName != null) {
+      $result.userName = userName;
+    }
+    if (axes != null) {
+      $result.axes.addAll(axes);
+    }
+    return $result;
+  }
+  PersonaReply._() : super();
+  factory PersonaReply.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory PersonaReply.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PersonaReply', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'emotion')
+    ..a<$core.double>(2, _omitFieldNames ? '' : 'emotionIntensity', $pb.PbFieldType.OD)
+    ..aOS(3, _omitFieldNames ? '' : 'relationship')
+    ..a<$core.double>(4, _omitFieldNames ? '' : 'relationshipScore', $pb.PbFieldType.OD)
+    ..a<$core.double>(5, _omitFieldNames ? '' : 'relationshipProgress', $pb.PbFieldType.OD)
+    ..a<$core.int>(6, _omitFieldNames ? '' : 'remindersPending', $pb.PbFieldType.O3)
+    ..aOS(7, _omitFieldNames ? '' : 'persona')
+    ..aOS(8, _omitFieldNames ? '' : 'userName')
+    ..pc<PersonaAxis>(9, _omitFieldNames ? '' : 'axes', $pb.PbFieldType.PM, subBuilder: PersonaAxis.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  PersonaReply clone() => PersonaReply()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  PersonaReply copyWith(void Function(PersonaReply) updates) => super.copyWith((message) => updates(message as PersonaReply)) as PersonaReply;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PersonaReply create() => PersonaReply._();
+  PersonaReply createEmptyInstance() => create();
+  static $pb.PbList<PersonaReply> createRepeated() => $pb.PbList<PersonaReply>();
+  @$core.pragma('dart2js:noInline')
+  static PersonaReply getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PersonaReply>(create);
+  static PersonaReply? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get emotion => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set emotion($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasEmotion() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearEmotion() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.double get emotionIntensity => $_getN(1);
+  @$pb.TagNumber(2)
+  set emotionIntensity($core.double v) { $_setDouble(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasEmotionIntensity() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearEmotionIntensity() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get relationship => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set relationship($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasRelationship() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearRelationship() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.double get relationshipScore => $_getN(3);
+  @$pb.TagNumber(4)
+  set relationshipScore($core.double v) { $_setDouble(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasRelationshipScore() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRelationshipScore() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.double get relationshipProgress => $_getN(4);
+  @$pb.TagNumber(5)
+  set relationshipProgress($core.double v) { $_setDouble(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasRelationshipProgress() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearRelationshipProgress() => clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.int get remindersPending => $_getIZ(5);
+  @$pb.TagNumber(6)
+  set remindersPending($core.int v) { $_setSignedInt32(5, v); }
+  @$pb.TagNumber(6)
+  $core.bool hasRemindersPending() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearRemindersPending() => clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.String get persona => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set persona($core.String v) { $_setString(6, v); }
+  @$pb.TagNumber(7)
+  $core.bool hasPersona() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearPersona() => clearField(7);
+
+  @$pb.TagNumber(8)
+  $core.String get userName => $_getSZ(7);
+  @$pb.TagNumber(8)
+  set userName($core.String v) { $_setString(7, v); }
+  @$pb.TagNumber(8)
+  $core.bool hasUserName() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearUserName() => clearField(8);
+
+  /// 五维情绪构成，用于雷达图
+  @$pb.TagNumber(9)
+  $core.List<PersonaAxis> get axes => $_getList(8);
+}
+
+class PersonaAxis extends $pb.GeneratedMessage {
+  factory PersonaAxis({
+    $core.String? name,
+    $core.String? label,
+    $core.double? value,
+  }) {
+    final $result = create();
+    if (name != null) {
+      $result.name = name;
+    }
+    if (label != null) {
+      $result.label = label;
+    }
+    if (value != null) {
+      $result.value = value;
+    }
+    return $result;
+  }
+  PersonaAxis._() : super();
+  factory PersonaAxis.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory PersonaAxis.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PersonaAxis', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..aOS(2, _omitFieldNames ? '' : 'label')
+    ..a<$core.double>(3, _omitFieldNames ? '' : 'value', $pb.PbFieldType.OD)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  PersonaAxis clone() => PersonaAxis()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  PersonaAxis copyWith(void Function(PersonaAxis) updates) => super.copyWith((message) => updates(message as PersonaAxis)) as PersonaAxis;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PersonaAxis create() => PersonaAxis._();
+  PersonaAxis createEmptyInstance() => create();
+  static $pb.PbList<PersonaAxis> createRepeated() => $pb.PbList<PersonaAxis>();
+  @$core.pragma('dart2js:noInline')
+  static PersonaAxis getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PersonaAxis>(create);
+  static PersonaAxis? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get name => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set name($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasName() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearName() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get label => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set label($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasLabel() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearLabel() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.double get value => $_getN(2);
+  @$pb.TagNumber(3)
+  set value($core.double v) { $_setDouble(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasValue() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearValue() => clearField(3);
+}
+
+/// ===== 人格预设 =====
+class PersonaPreset extends $pb.GeneratedMessage {
+  factory PersonaPreset({
+    $core.String? id,
+    $core.String? name,
+    $core.String? description,
+    $core.String? promptHint,
+    $core.bool? builtin,
+    $core.bool? active,
+  }) {
+    final $result = create();
+    if (id != null) {
+      $result.id = id;
+    }
+    if (name != null) {
+      $result.name = name;
+    }
+    if (description != null) {
+      $result.description = description;
+    }
+    if (promptHint != null) {
+      $result.promptHint = promptHint;
+    }
+    if (builtin != null) {
+      $result.builtin = builtin;
+    }
+    if (active != null) {
+      $result.active = active;
+    }
+    return $result;
+  }
+  PersonaPreset._() : super();
+  factory PersonaPreset.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory PersonaPreset.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PersonaPreset', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'id')
+    ..aOS(2, _omitFieldNames ? '' : 'name')
+    ..aOS(3, _omitFieldNames ? '' : 'description')
+    ..aOS(4, _omitFieldNames ? '' : 'promptHint')
+    ..aOB(5, _omitFieldNames ? '' : 'builtin')
+    ..aOB(6, _omitFieldNames ? '' : 'active')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  PersonaPreset clone() => PersonaPreset()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  PersonaPreset copyWith(void Function(PersonaPreset) updates) => super.copyWith((message) => updates(message as PersonaPreset)) as PersonaPreset;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PersonaPreset create() => PersonaPreset._();
+  PersonaPreset createEmptyInstance() => create();
+  static $pb.PbList<PersonaPreset> createRepeated() => $pb.PbList<PersonaPreset>();
+  @$core.pragma('dart2js:noInline')
+  static PersonaPreset getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PersonaPreset>(create);
+  static PersonaPreset? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get id => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set id($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get name => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set name($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearName() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get description => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set description($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasDescription() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearDescription() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get promptHint => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set promptHint($core.String v) { $_setString(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasPromptHint() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPromptHint() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.bool get builtin => $_getBF(4);
+  @$pb.TagNumber(5)
+  set builtin($core.bool v) { $_setBool(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasBuiltin() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearBuiltin() => clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.bool get active => $_getBF(5);
+  @$pb.TagNumber(6)
+  set active($core.bool v) { $_setBool(5, v); }
+  @$pb.TagNumber(6)
+  $core.bool hasActive() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearActive() => clearField(6);
+}
+
+class PersonaList extends $pb.GeneratedMessage {
+  factory PersonaList({
+    $core.Iterable<PersonaPreset>? presets,
+  }) {
+    final $result = create();
+    if (presets != null) {
+      $result.presets.addAll(presets);
+    }
+    return $result;
+  }
+  PersonaList._() : super();
+  factory PersonaList.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory PersonaList.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PersonaList', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..pc<PersonaPreset>(1, _omitFieldNames ? '' : 'presets', $pb.PbFieldType.PM, subBuilder: PersonaPreset.create)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  PersonaList clone() => PersonaList()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  PersonaList copyWith(void Function(PersonaList) updates) => super.copyWith((message) => updates(message as PersonaList)) as PersonaList;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PersonaList create() => PersonaList._();
+  PersonaList createEmptyInstance() => create();
+  static $pb.PbList<PersonaList> createRepeated() => $pb.PbList<PersonaList>();
+  @$core.pragma('dart2js:noInline')
+  static PersonaList getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PersonaList>(create);
+  static PersonaList? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<PersonaPreset> get presets => $_getList(0);
+}
+
+class PersonaRequest extends $pb.GeneratedMessage {
+  factory PersonaRequest({
+    $core.String? id,
+    $core.String? name,
+    $core.String? description,
+    $core.String? promptHint,
+  }) {
+    final $result = create();
+    if (id != null) {
+      $result.id = id;
+    }
+    if (name != null) {
+      $result.name = name;
+    }
+    if (description != null) {
+      $result.description = description;
+    }
+    if (promptHint != null) {
+      $result.promptHint = promptHint;
+    }
+    return $result;
+  }
+  PersonaRequest._() : super();
+  factory PersonaRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory PersonaRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'PersonaRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'id')
+    ..aOS(2, _omitFieldNames ? '' : 'name')
+    ..aOS(3, _omitFieldNames ? '' : 'description')
+    ..aOS(4, _omitFieldNames ? '' : 'promptHint')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  PersonaRequest clone() => PersonaRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  PersonaRequest copyWith(void Function(PersonaRequest) updates) => super.copyWith((message) => updates(message as PersonaRequest)) as PersonaRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static PersonaRequest create() => PersonaRequest._();
+  PersonaRequest createEmptyInstance() => create();
+  static $pb.PbList<PersonaRequest> createRepeated() => $pb.PbList<PersonaRequest>();
+  @$core.pragma('dart2js:noInline')
+  static PersonaRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PersonaRequest>(create);
+  static PersonaRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get id => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set id($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearId() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get name => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set name($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearName() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get description => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set description($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasDescription() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearDescription() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get promptHint => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set promptHint($core.String v) { $_setString(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasPromptHint() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPromptHint() => clearField(4);
+}
+
+/// ===== 提醒队列 =====
+class ReminderItem extends $pb.GeneratedMessage {
+  factory ReminderItem({
+    $core.String? text,
+    $core.double? dueAt,
+    $core.bool? done,
+    $core.double? createdAt,
+    $fixnum.Int64? secondsLeft,
+  }) {
+    final $result = create();
+    if (text != null) {
+      $result.text = text;
+    }
+    if (dueAt != null) {
+      $result.dueAt = dueAt;
+    }
+    if (done != null) {
+      $result.done = done;
+    }
+    if (createdAt != null) {
+      $result.createdAt = createdAt;
+    }
+    if (secondsLeft != null) {
+      $result.secondsLeft = secondsLeft;
+    }
+    return $result;
+  }
+  ReminderItem._() : super();
+  factory ReminderItem.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory ReminderItem.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ReminderItem', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'text')
+    ..a<$core.double>(2, _omitFieldNames ? '' : 'dueAt', $pb.PbFieldType.OD)
+    ..aOB(3, _omitFieldNames ? '' : 'done')
+    ..a<$core.double>(4, _omitFieldNames ? '' : 'createdAt', $pb.PbFieldType.OD)
+    ..aInt64(5, _omitFieldNames ? '' : 'secondsLeft')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  ReminderItem clone() => ReminderItem()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  ReminderItem copyWith(void Function(ReminderItem) updates) => super.copyWith((message) => updates(message as ReminderItem)) as ReminderItem;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ReminderItem create() => ReminderItem._();
+  ReminderItem createEmptyInstance() => create();
+  static $pb.PbList<ReminderItem> createRepeated() => $pb.PbList<ReminderItem>();
+  @$core.pragma('dart2js:noInline')
+  static ReminderItem getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ReminderItem>(create);
+  static ReminderItem? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get text => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set text($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasText() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearText() => clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.double get dueAt => $_getN(1);
+  @$pb.TagNumber(2)
+  set dueAt($core.double v) { $_setDouble(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasDueAt() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearDueAt() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.bool get done => $_getBF(2);
+  @$pb.TagNumber(3)
+  set done($core.bool v) { $_setBool(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasDone() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearDone() => clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.double get createdAt => $_getN(3);
+  @$pb.TagNumber(4)
+  set createdAt($core.double v) { $_setDouble(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasCreatedAt() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCreatedAt() => clearField(4);
+
+  @$pb.TagNumber(5)
+  $fixnum.Int64 get secondsLeft => $_getI64(4);
+  @$pb.TagNumber(5)
+  set secondsLeft($fixnum.Int64 v) { $_setInt64(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasSecondsLeft() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSecondsLeft() => clearField(5);
+}
+
+class ReminderList extends $pb.GeneratedMessage {
+  factory ReminderList({
+    $core.Iterable<ReminderItem>? items,
+    $core.int? unread,
+    $core.int? pending,
+  }) {
+    final $result = create();
+    if (items != null) {
+      $result.items.addAll(items);
+    }
+    if (unread != null) {
+      $result.unread = unread;
+    }
+    if (pending != null) {
+      $result.pending = pending;
+    }
+    return $result;
+  }
+  ReminderList._() : super();
+  factory ReminderList.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory ReminderList.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ReminderList', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..pc<ReminderItem>(1, _omitFieldNames ? '' : 'items', $pb.PbFieldType.PM, subBuilder: ReminderItem.create)
+    ..a<$core.int>(2, _omitFieldNames ? '' : 'unread', $pb.PbFieldType.O3)
+    ..a<$core.int>(3, _omitFieldNames ? '' : 'pending', $pb.PbFieldType.O3)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  ReminderList clone() => ReminderList()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  ReminderList copyWith(void Function(ReminderList) updates) => super.copyWith((message) => updates(message as ReminderList)) as ReminderList;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ReminderList create() => ReminderList._();
+  ReminderList createEmptyInstance() => create();
+  static $pb.PbList<ReminderList> createRepeated() => $pb.PbList<ReminderList>();
+  @$core.pragma('dart2js:noInline')
+  static ReminderList getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ReminderList>(create);
+  static ReminderList? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<ReminderItem> get items => $_getList(0);
+
+  @$pb.TagNumber(2)
+  $core.int get unread => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set unread($core.int v) { $_setSignedInt32(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasUnread() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearUnread() => clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.int get pending => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set pending($core.int v) { $_setSignedInt32(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasPending() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPending() => clearField(3);
+}
+
+class ReminderRequest extends $pb.GeneratedMessage {
+  factory ReminderRequest({
+    $core.double? dueAt,
+  }) {
+    final $result = create();
+    if (dueAt != null) {
+      $result.dueAt = dueAt;
+    }
+    return $result;
+  }
+  ReminderRequest._() : super();
+  factory ReminderRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory ReminderRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ReminderRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..a<$core.double>(1, _omitFieldNames ? '' : 'dueAt', $pb.PbFieldType.OD)
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  ReminderRequest clone() => ReminderRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  ReminderRequest copyWith(void Function(ReminderRequest) updates) => super.copyWith((message) => updates(message as ReminderRequest)) as ReminderRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ReminderRequest create() => ReminderRequest._();
+  ReminderRequest createEmptyInstance() => create();
+  static $pb.PbList<ReminderRequest> createRepeated() => $pb.PbList<ReminderRequest>();
+  @$core.pragma('dart2js:noInline')
+  static ReminderRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ReminderRequest>(create);
+  static ReminderRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.double get dueAt => $_getN(0);
+  @$pb.TagNumber(1)
+  set dueAt($core.double v) { $_setDouble(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasDueAt() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDueAt() => clearField(1);
 }
 
 

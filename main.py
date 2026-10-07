@@ -1,35 +1,154 @@
-"""小凌 · 后端启动入口"""
-import sys, os, threading
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""小凌 v0.0.1 - 启动入口（三语言架构）
 
+架构：
+    Flutter(UI)  ──gRPC/localhost:50051──>  Python 后端（本进程）
+
+默认行为：
+    1) 启动 gRPC 后端服务（后台线程），等待 Flutter 前端连接
+    2) 同时启动临时 Web 实测面板 http://127.0.0.1:8765
+       （本机若未安装 Flutter SDK，可用浏览器直接与小凌对话、验证后端是否真的可用）
+
+常用：
+    python main.py                 # gRPC + Web 面板（推荐：双击即测）
+    python main.py --no-web        # 仅 gRPC（正式 Flutter 联调时使用）
+    python main.py --no-grpc       # 仅 Web 面板
+    python main.py --status        # 打印引擎状态后退出
+    python main.py --selftest      # 运行自检后退出
+"""
+import sys
+import os
+import time
+
+# 兼容开发态与 PyInstaller 打包态：把项目根（含 backend/ 包）加入 sys.path。
 if getattr(sys, 'frozen', False):
+    # PyInstaller onefile：资源解包在 sys._MEIPASS
     _ROOT = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
 else:
     _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
+# 内部模块统一用 `from core.xxx` 导入，需把 backend/ 也加入路径。
 sys.path.insert(0, os.path.join(_ROOT, 'backend'))
 
-import importlib, importlib.machinery
-from importlib.abc import MetaPathFinder, Loader
 
-class _AliasLoader(Loader):
-    def __init__(self, mod): self._mod = mod
-    def create_module(self, spec): return self._mod
-    def exec_module(self, module): pass
+def _install_core_alias():
+    """让 `import core.xxx` 在打包态也能解析到 `backend.core.xxx`。
 
-class _CoreAliasFinder(MetaPathFinder):
-    def find_spec(self, fullname, path=None, target=None):
-        if fullname != 'core' and not fullname.startswith('core.'): return None
-        try: mod = importlib.import_module('backend.' + fullname)
-        except Exception: return None
-        return importlib.machinery.ModuleSpec(fullname, _AliasLoader(mod), is_package=hasattr(mod, '__path__'))
+    背景：源码里大量使用 `from core.xxx import ...`（开发态靠上面那句
+    `sys.path.insert(_ROOT/'backend')` 解析）。但 PyInstaller 只会把**实际被
+    import 过的名字**收进产物，`backend/` 目录未必在磁盘上存在（取决于
+    contents_directory 是否平铺、以及是否把源码当 data 拷进去）。一旦
+    `core` 不可解析，所有 `from core.*` 都会 ImportError，而调用方多半有
+    try/except 兜底 —— 结果是功能静默失效（模型路径、成长引擎、配置全废），
+    表面上程序却"能跑"，极难排查。
 
-try:
-    import backend.core
-    sys.modules.setdefault('core', sys.modules['backend.core'])
-    sys.meta_path.insert(0, _CoreAliasFinder())
-except Exception:
-    pass
+    兜底手段：装一个 meta path finder，把 `core.*` 改写到 `backend.core.*`
+    并把真实模块登记为别名，两边共用同一个模块对象（不会重复初始化单例）。
+    """
+    import importlib
+    import importlib.machinery
+    from importlib.abc import MetaPathFinder, Loader
 
-threading.Thread(target=lambda: __import__('backend.rpc.server', fromlist=['serve']).serve(port=50051), daemon=True).start()
-import time
-while True: time.sleep(3600)
+    class _AliasLoader(Loader):
+        def __init__(self, module):
+            self._module = module
+
+        def create_module(self, spec):
+            return self._module
+
+        def exec_module(self, module):
+            pass                       # 真实模块已经执行过，这里只需挂别名
+
+    class _CoreAliasFinder(MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname != 'core' and not fullname.startswith('core.'):
+                return None
+            try:
+                mod = importlib.import_module('backend.' + fullname)
+            except Exception:
+                return None
+            return importlib.machinery.ModuleSpec(
+                fullname, _AliasLoader(mod),
+                is_package=hasattr(mod, '__path__'))
+
+    try:
+        import backend.core                      # 真实包名存在才装别名
+        sys.modules.setdefault('core', sys.modules['backend.core'])
+        sys.meta_path.insert(0, _CoreAliasFinder())
+    except Exception:
+        pass
+
+
+_install_core_alias()
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="小凌 v0.0.1 后端服务")
+    parser.add_argument("--status", action="store_true", help="打印引擎状态后退出")
+    parser.add_argument("--selftest", action="store_true", help="运行自检后退出")
+    parser.add_argument("--port", type=int, default=50051, help="gRPC 监听端口（默认 50051）")
+    parser.add_argument("--web-port", type=int, default=8765,
+                        help="Web 实测面板端口（默认 8765）")
+    parser.add_argument("--no-web", action="store_true",
+                        help="不启动 Web 面板（仅跑 gRPC）")
+    parser.add_argument("--no-grpc", action="store_true",
+                        help="不启动 gRPC（仅跑 Web 面板）")
+    args = parser.parse_args()
+
+    try:
+        if args.status:
+            from backend.core.engine import XiaoLing
+            app = XiaoLing()
+            print(app.show_status())
+            return
+
+        if args.selftest:
+            from backend.core import system
+            result = system.selftest()
+            print(result)
+            return
+
+        # ---- gRPC 后端（后台线程，Flutter 前端连它）----
+        if not args.no_grpc:
+            import threading
+
+            def _grpc_worker():
+                try:
+                    from backend.rpc.server import serve
+                    serve(port=args.port)
+                except Exception as e:
+                    print(f"  [gRPC] 启动失败：{e}")
+                    import traceback
+                    traceback.print_exc()
+
+            threading.Thread(target=_grpc_worker, daemon=True).start()
+            print(f"  [gRPC] 后端已启动：localhost:{args.port}（等待 Flutter 前端连接）")
+
+        # ---- Web 实测面板（主线程阻塞跑）----
+        if not args.no_web:
+            try:
+                from backend.core.webpanel import run_blocking
+                run_blocking(port=args.web_port)
+            except Exception as e:  # webpanel 模块缺失或出错时，降级为仅跑 gRPC
+                print(f"  [Web 面板] 未能启动（webpanel 模块缺失或出错）：{e}")
+                print(f"  已降级为仅运行 gRPC 后端（localhost:{args.port}）。按 Ctrl+C 退出。")
+                while True:
+                    time.sleep(3600)
+        else:
+            print("  已按 --no-web 启动，主线程保持存活；Ctrl+C 退出。")
+            while True:
+                time.sleep(3600)
+
+    except KeyboardInterrupt:
+        print("\n已退出。")
+    except Exception as e:
+        print(f"\n错误：{e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

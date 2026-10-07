@@ -1,11 +1,56 @@
-grpcio>=1.60
-grpcio-tools>=1.60
-protobuf>=4.25
-edge-tts>=6.1
-torch>=2.0
-transformers>=4.35
-peft>=0.7
-safetensors>=0.40
-Pillow>=10.0
-openai>=1.0
-requests>=2.31
+# 小凌 v1.0 融合版 · 依赖清单（业务逻辑与 3D 渲染层全部为 Python）
+# =============================================
+# 一键安装：pip install -r requirements.txt
+
+# 【核心必需】形象素材处理 + 数学
+Pillow>=9.0.0
+numpy>=1.24.0
+
+# 【3D 渲染层】纯 Python 渲染：OpenGL 后端（真实 GPU；无 GPU 时自动用 Mesa 软件 GL）
+PyOpenGL>=3.1.6                # 渲染内核（GLSL 蒙皮/贴图/卡通光照）
+PySide6>=6.5.0                 # 桌面宠物窗口（透明置顶窗 + 气泡/菜单/设置页）
+# 说明：两者都装不上也能跑——渲染会自动退化为 numpy 软件光栅（renderer/soft.py），
+#       窗口退化为 2D 视频桌宠（pet.py）或纯命令行（python3 xl.py --no-pet）
+
+# 【本地模型推理 + 成长训练】蒸馏/合并/晋升必需（也是选Python 作唯一语言的原因）
+torch>=2.0.0
+transformers>=4.30.0
+peft>=0.4.0
+accelerate>=0.20.0
+#
+# ⚠️ 重要：torch 默认装的是 **CPU 版**（`torch.__version__` 带 `+cpu` 后缀），
+#    即使机器有 NVIDIA 独显，`torch.cuda.is_available()` 也会是 False，
+#    成长训练会静默退回 CPU（0.5B 模型 2 steps 约 3 分钟）。
+#
+#    要用GPU，装 CUDA 版（版本号需与你的 CUDA 匹配，下面以 13.0 为例）：
+#        pip install torch==2.14.1+cu130 \
+#            --index-url https://download.pytorch.org/whl/cu130
+#        # 国内网络不稳时用断点续传下到本地再装（pip 不支持续传，断了要重来）：
+#        curl -L -C - --retry 20 --retry-all-errors \
+#          -o torch-2.14.1+cu130-cp3xx-cp3xx-win_amd64.whl \
+#          "https://download.pytorch.org/whl/cu130/torch-2.14.1%2Bcu130-cp3xx-cp3xx-win_amd64.whl"
+#        pip install --no-index --no-deps .\torch-2.14.1+cu130-cp3xx-cp3xx-win_amd64.whl
+#
+#    CUDA 版本索引对照：cu126 / cu128 / cu130，RTX 50 系（Blackwell, sm_120）需 cu130。
+#    装完自查：python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+
+# 【gRPC 后端通信】必装（Flutter/Web 前端通过它连后端；原 requirements 漏了，已补）
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+
+# 【可选能力】装了即自动启用
+opencv-python>=4.8.0           # 2D 兜底桌宠的 WEBM 视频动画
+pyttsx3>=2.90                  # 离线语音朗读
+sounddevice>=0.4.6             # 语音输入（麦克风）
+edge-tts>=6.1.0                # 联网高质量情感语音（语音朗读 ReadAloud 依赖；multimodal.py 懒加载）
+
+# 【多平台接入】装对应平台的库即启用
+# wechaty / itchat             # 微信
+# lark-oapi                    # 飞书
+# websocket-client             # QQ（OneBot/go-cqhttp）
+# （企业微信/钉钉用 Webhook，Telegram/Discord 用 Bot API，无需额外库）
+
+# 【系统依赖提示】
+# Win/macOS 一般开箱可用；Linux 无 GPU 时建议装 Mesa 软件光栅：
+#   sudo apt install libosmesa6 libgl1-mesa-dri     （或 libgl1 + libglx-mesa0）
+# tkinter 仅 2D 兜底桌宠需要：sudo apt install python3-tk

@@ -126,9 +126,9 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         try:
             from core import config as _cfg
             from core.growth import GrowthEngine
-            from core.paths import APP_DIR
+            from core.config import APP_DIR
             cfg = _cfg.load()
-            st = GrowthEngine(base_dir=APP_DIR, log=lambda *a: None).status()
+            st = GrowthEngine().status()
             return pb.StatusReply(
                 ok=True,
                 stage=str(st.get('stage', '初始化')),
@@ -144,7 +144,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListModels ----------------
     def ListModels(self, request, context):
         try:
-            from core.paths import resource
+            from core.config import resource
             from pathlib import Path
             d = resource('models')
             out = []
@@ -193,7 +193,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def ListActions(self, request, context):
         try:
             import glob as _glob
-            from core.paths import resource
+            from core.config import resource
             d = resource('animations')
             out = []
             for p in sorted(_glob.glob(os.path.join(str(d), '*.vrma'))):
@@ -230,8 +230,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def GetGrowthStatus(self, request, context):
         try:
             from core.growth import GrowthEngine
-            from core.paths import APP_DIR
-            eng = GrowthEngine(base_dir=APP_DIR, log=lambda *a: None)
+            from core.config import APP_DIR
+            eng = GrowthEngine()
             st = eng.status()
             rank = '青铜'
             try:
@@ -255,8 +255,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def GetTrainingStatus(self, request, context):
         try:
             from core.growth import GrowthEngine
-            from core.paths import APP_DIR
-            eng = GrowthEngine(base_dir=APP_DIR, log=lambda *a: None)
+            from core.config import APP_DIR
+            eng = GrowthEngine()
             st = eng.status()
             prog = float(st.get('progress_percent', 0.0))
             dims = [
@@ -280,7 +280,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListPlugins（Flutter 插件管理） ----------------
     def ListPlugins(self, request, context):
         try:
-            from core.plugin_manager import PluginManager
+            from core.config import PluginManager
             pm = PluginManager()
             out = []
             for p in pm.list_plugins():
@@ -363,17 +363,20 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def DetectHardware(self, request, context):
         try:
             import platform as _pl
-            from core.system import get_system_info, detect_best_device
-            info = get_system_info()
-            mem = info.get('memory', {}) or {}
-            device = detect_best_device()
+            from core.model import detect_hardware
+            hw = detect_hardware()
+            # 注意：core.model.HardwareInfo 与 pb.HardwareInfo 是两个不同结构，
+            # 这里做字段映射。vram_gb / disk_free_gb 此前从未赋值，导致前端
+            # 拿到的显存恒为 0（即使 detect_hardware 已正确识别显卡）。
             return pb.HardwareInfo(
-                ram_gb=float(mem.get('total_gb', 0.0) or 0.0),
-                cpu_cores=int(os.cpu_count() or 0),
-                gpu_name=str(info.get('gpu', '')),
-                platform=info.get('os', _pl.system()),
-                has_cuda=(device == 'cuda'),
-                has_metal=(device == 'mps'),
+                vram_gb=float(getattr(hw, 'gpu_memory_gb', 0.0) or 0.0),
+                ram_gb=float(getattr(hw, 'ram_total_gb', 0.0) or 0.0),
+                cpu_cores=int(getattr(hw, 'cpu_cores', 0) or 0),
+                disk_free_gb=float(getattr(hw, 'disk_free_gb', 0.0) or 0.0),
+                gpu_name=str(getattr(hw, 'gpu_name', '') or ''),
+                platform=str(getattr(hw, 'platform', '') or _pl.system()),
+                has_cuda=bool(getattr(hw, 'has_cuda', False)),
+                has_metal=bool(getattr(hw, 'has_metal', False)),
             )
         except Exception as e:
             context.set_details(f'硬件检测失败：{e}')
@@ -459,8 +462,9 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     # ---------------- ListVoices ----------------
     def ListVoices(self, request, context):
         try:
-            from core.multimodal import VOICE_MAP
-            out = [pb.VoiceInfo(id=v, name=k, lang='zh-CN') for k, v in VOICE_MAP.items()]
+            from core.multimodal import VOICES
+            out = [pb.VoiceInfo(id=str(v.get("id", "")), name=str(v.get("name", "")),
+                                lang=str(v.get("lang", "zh-CN"))) for v in VOICES]
             return pb.VoiceList(voices=out)
         except Exception as e:
             context.set_details(f'列出音色失败：{e}')
@@ -478,15 +482,35 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
 
     # ---------------- ReadAloud（流式音频） ----------------
     def ReadAloud(self, request, context):
+        # 注意：TTS 的真实方法名是 synth()（不是 synthesize），
+        # 且返回 TTSResult 对象而非 bytes，需取 .data 并判空。
+        # 旧代码调 TTS().synthesize() 会抛 AttributeError 又被 except 吞掉，
+        # 导致前端永远收到 0 字节音频。
+        # 注意：AudioChunk 只有 data/done 两个字段，没有 error，错误只能写日志。
         try:
-            from core.multimodal import TTS
-            audio = TTS().synthesize(request.text) or b''
-            # 分块发送
-            chunk_size = 4096
-            for i in range(0, len(audio), chunk_size):
-                yield pb.AudioChunk(data=audio[i:i+chunk_size])
-            yield pb.AudioChunk(done=True)
-        except Exception:
+            text = (request.text or '').strip()
+            if not text:
+                yield pb.AudioChunk(done=True)
+                return
+            from core.multimodal import TTS  # 懒加载：避免拖慢后端启动
+            voice = 'zh-CN-XiaoxiaoNeural'
+            try:
+                from core import config as _cfg
+                voice = str((_cfg.load().get('voice') or {}).get('id') or voice)
+            except Exception:
+                pass
+            result = TTS().synth(text, voice=voice)
+            data = bytes(getattr(result, 'data', b'') or b'')
+            if not data:
+                print(f"  [ReadAloud] TTS 未产出音频："
+                      f"{getattr(result, 'error', '') or 'empty audio'} voice={voice}")
+            else:
+                chunk_size = 4096
+                for i in range(0, len(data), chunk_size):
+                    yield pb.AudioChunk(data=data[i:i + chunk_size])
+        except Exception as e:
+            print(f"  [ReadAloud] 异常：{type(e).__name__}: {e}")
+        finally:
             yield pb.AudioChunk(done=True)
 
     # ---------------- GetSettings ----------------
@@ -503,6 +527,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 asr_enabled=bool((cfg.get('asr') or {}).get('enabled', True)),
                 tts_enabled=bool((cfg.get('tts') or {}).get('enabled', True)),
                 read_aloud_mode=bool((cfg.get('tts') or {}).get('read_aloud', False)),
+                persona=str(cfg.get('persona') or '活泼'),
+                user_name=str(cfg.get('user_name') or '你'),
             )
         except Exception as e:
             return pb.SettingsReply()
@@ -528,8 +554,220 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 patch.setdefault('tts', {})['enabled'] = request.tts_enabled
             if request.HasField('read_aloud_mode'):
                 patch.setdefault('tts', {})['read_aloud'] = request.read_aloud_mode
+            if request.HasField('persona'):
+                name = (request.persona or '').strip()
+                if not name:
+                    raise ValueError('人格名不能为空')
+                # 必须是已存在的预设（内置或自定义），防止写入脏值
+                from core import persona_presets as _pp
+                if not _pp.resolve(name):
+                    raise ValueError(f'人格「{name}」不存在，请先添加为自定义人格')
+                patch['persona'] = name
+            if request.HasField('user_name'):
+                patch['user_name'] = (request.user_name or '').strip()[:20] or '你'
             _cfg.patch(patch)
             return pb.StatusReply(ok=True, message='设置已更新')
+        except Exception as e:
+            return pb.StatusReply(ok=False, message=str(e))
+
+    # ======================================================================== #
+    #  人格 / Agent
+    # ======================================================================== #
+
+    # 八种情绪 -> proto 六维雷达轴（value 统一0-100）
+    _EMOTION_AXES = {
+        'happy':    ('joy', '喜悦'),
+        'angry':    ('anger', '愤怒'),
+        'sad':      ('sad', '悲伤'),
+        'scared':   ('fear', '恐惧'),
+        'tired':    ('calm', '平静'),
+        'neutral':  ('calm', '平静'),
+        'shy':      ('surprise', '惊讶'),
+        'surprised': ('surprise', '惊讶'),
+    }
+
+    def GetPersona(self, request, context):
+        """人格画像：情绪 / 亲密度 / 等级 / 人格预设 + 六维情绪轴。"""
+        try:
+            from core import config as _cfg
+            from core import persona_presets as _pp
+            cfg = _cfg.load()
+            persona_name = str(cfg.get('persona') or '活泼')
+
+            reply = pb.PersonaReply(
+                persona=persona_name,
+                user_name=str(cfg.get('user_name') or '你'),
+                emotion='平静',
+                emotion_intensity=0.0,
+                relationship='陌生人',
+                relationship_score=0.0,
+                relationship_progress=0.0,
+                reminders_pending=0,
+            )
+            engine = _get_engine()
+            if engine is None or engine.persona is None:
+                return reply
+            st = engine.persona.stats()
+            reply.emotion = str(st.get('emotion') or '平静')
+            reply.emotion_intensity = float(st.get('emotion_intensity') or 0.0)
+            reply.relationship = str(st.get('relationship') or '陌生人')
+            reply.relationship_score = float(st.get('relationship_score') or 0.0)
+            reply.relationship_progress = float(st.get('relationship_progress') or 0.0)
+            reply.reminders_pending = int(st.get('reminders') or 0)
+
+            # 六维情绪轴：以当前情绪为主峰，其余按强度衰减铺开
+            cur = 'neutral'
+            try:
+                cur = engine.persona.emotion.get_emotion().value
+            except Exception:
+                pass
+            peak = max(0.0, min(1.0, reply.emotion_intensity))
+            seen: set[str] = set()
+            for key in sorted(self._EMOTION_AXES,
+                              key=lambda k: 0 if k == cur else 1):
+                axis_name, label = self._EMOTION_AXES[key]
+                if axis_name in seen:
+                    continue
+                seen.add(axis_name)
+                val = peak * 100.0 if key == cur else peak * 45.0
+                reply.axes.add(name=axis_name, label=label,
+                               value=round(max(0.0, min(100.0, val)), 1))
+            # 补齐未覆盖到的轴，保证前端雷达图是闭合六边形
+            for key, (axis_name, label) in self._EMOTION_AXES.items():
+                if axis_name not in seen:
+                    seen.add(axis_name)
+                    reply.axes.add(name=axis_name, label=label, value=0.0)
+            return reply
+        except Exception as e:                                             # noqa: BLE001
+            return pb.PersonaReply(emotion='平静', relationship='陌生人')
+
+    def ListPersonas(self, request, context):
+        try:
+            from core import config as _cfg
+            from core import persona_presets as _pp
+            active = str(_cfg.load().get('persona') or '')
+            out = pb.PersonaList()
+            for p in _pp.list_personas(active):
+                out.presets.add(
+                    id=str(p['id']), name=str(p['name']),
+                    description=str(p['description']),
+                    prompt_hint=str(p['prompt_hint']),
+                    builtin=bool(p['builtin']), active=bool(p['active']),
+                )
+            return out
+        except Exception as e:                                             # noqa: BLE001
+            print(f'  [ListPersonas] {type(e).__name__}: {e}')
+            return pb.PersonaList()
+
+    def SetPersona(self, request, context):
+        try:
+            from core import config as _cfg
+            from core import persona_presets as _pp
+            key = (request.id or request.name or '').strip()
+            if not key:
+                return pb.StatusReply(ok=False, message='人格名不能为空')
+            p = _pp.resolve(key)
+            if not p:
+                return pb.StatusReply(ok=False, message=f'人格「{key}」不存在')
+            # 统一存**名字**，不存 id（自定义人格没有稳定 id）
+            _cfg.patch({'persona': str(p['name'])})
+            return pb.StatusReply(ok=True, message=f'已切换为「{p["name"]}」人格')
+        except Exception as e:                                             # noqa: BLE001
+            return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
+
+    def AddPersona(self, request, context):
+        try:
+            from core import persona_presets as _pp
+            ok, msg = _pp.add_custom(
+                (request.name or '').strip(),
+                request.description,
+                request.prompt_hint,
+            )
+            return pb.StatusReply(ok=ok, message=msg)
+        except Exception as e:                                             # noqa: BLE001
+            return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
+
+    def DeletePersona(self, request, context):
+        try:
+            from core import config as _cfg
+            from core import persona_presets as _pp
+            ok, msg = _pp.delete_custom((request.name or '').strip())
+            # 删除的正好是当前人格时，回落到默认「活泼」
+            if ok and str(_cfg.load().get('persona')) == (request.name or '').strip():
+                _cfg.patch({'persona': _pp.DEFAULT_PERSONA})
+                msg += f"，已回落到「{_pp.DEFAULT_PERSONA}」"
+            return pb.StatusReply(ok=ok, message=msg)
+        except Exception as e:                                             # noqa: BLE001
+            return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
+
+    def ResetPersona(self, request, context):
+        try:
+            engine = _get_engine()
+            if engine is not None:
+                engine.reset_persona()
+                try:
+                    engine.persona.flush()
+                except Exception:
+                    pass
+            return pb.StatusReply(ok=True, message='人格画像已重置')
+        except Exception as e:                                             # noqa: BLE001
+            return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
+
+    # ======================================================================== #
+    #  提醒队列（铃铛面板）
+    # ======================================================================== #
+
+    def ListReminders(self, request, context):
+        """未读提醒队列：已到期未确认= 未读，未到期= 待办。"""
+        try:
+            import time as _time
+            engine = _get_engine()
+            out = pb.ReminderList()
+            if engine is None or engine.persona is None:
+                return out
+            now = _time.time()
+            items = engine.persona.proactive.pending_reminders()
+            for r in items:
+                due = float(r.get('time') or 0.0)
+                left = int(due - now)
+                out.items.add(
+                    text=str(r.get('text') or ''),
+                    due_at=due,
+                    done=False,
+                    created_at=float(r.get('created_at') or 0.0),
+                    seconds_left=left,
+                )
+            out.pending = len(items)
+            out.unread = sum(1 for i in out.items if i.seconds_left <= 0)
+            return out
+        except Exception as e:                                             # noqa: BLE001
+            print(f'  [ListReminders] {type(e).__name__}: {e}')
+            return pb.ReminderList()
+
+    def CompleteReminder(self, request, context):
+        """标记某条提醒为已读/完成（按 due_at 匹配）。"""
+        try:
+            engine = _get_engine()
+            if engine is None or engine.persona is None:
+                return pb.StatusReply(ok=False, message='引擎未就绪')
+            pro = engine.persona.proactive
+            with pro._lock:                                                # noqa: SLF001
+                hit = False
+                for r in pro.reminders:
+                    if not r['done'] and abs(float(r.get('time', 0.0))
+                                             - float(request.due_at)) < 1e-6:
+                        r['done'] = True
+                        hit = True
+                        break
+            if not hit:
+                return pb.StatusReply(ok=False, message='未找到该提醒')
+            try:
+                engine.persona.flush()
+            except Exception:
+                pass
+            return pb.StatusReply(ok=True, message='提醒已完成')
+        except Exception as e:                                             # noqa: BLE001
+            return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
         except Exception as e:
             return pb.StatusReply(ok=False, message=str(e))
 
@@ -550,3 +788,9 @@ def serve(port: int = 50051):
         server.stop(5)
 
 
+if __name__ == '__main__':
+    port = 50051
+    if '--port' in sys.argv:
+        i = sys.argv.index('--port')
+        port = int(sys.argv[i + 1])
+    serve(port)

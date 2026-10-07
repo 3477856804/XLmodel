@@ -778,6 +778,107 @@ extension XlApiRefresh on XiaoLingClient {
   }
 }
 
+/// 人格 / Agent 与提醒队列的带重试包装。
+///
+/// 与既有 XlApi* 扩展保持一致：走 `XlClient.withRetry`，
+/// 这样面板里直接 `XlClient.stub.getPersona()` 即可，不必关心超时/重试。
+/// 注意：Dart 里**实例方法优先于扩展方法**。pbgrpc 生成的 stub 已经有
+/// `getPersona` / `setPersona` 等同名实例方法，所以这里的包装方法**必须换名**
+/// （fetchPersona / switchPersona / ...），否则扩展永远不会被解析到。
+extension XlApiPersona on XiaoLingClient {
+  Future<PersonaReply> fetchPersona({XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.getPersona(Empty()),
+      timeout: opt.timeout,
+      label: opt.label ?? 'fetchPersona',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+
+  Future<PersonaList> fetchPersonas({XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.listPersonas(Empty()),
+      timeout: opt.timeout,
+      label: opt.label ?? 'fetchPersonas',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+
+  Future<StatusReply> switchPersona(String id,
+      {XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.setPersona(PersonaRequest(id: id)),
+      timeout: opt.timeout,
+      label: opt.label ?? 'switchPersona',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+
+  Future<StatusReply> createPersona(String name,
+      {String description = '', String promptHint = '',
+      XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.addPersona(PersonaRequest(
+        name: name,
+        description: description,
+        promptHint: promptHint,
+      )),
+      timeout: opt.timeout,
+      label: opt.label ?? 'createPersona',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+
+  Future<StatusReply> removePersona(String name,
+      {XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.deletePersona(ModelNameRequest(name: name)),
+      timeout: opt.timeout,
+      label: opt.label ?? 'removePersona',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+
+  Future<StatusReply> resetPersonaState({XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.resetPersona(Empty()),
+      timeout: opt.timeout,
+      label: opt.label ?? 'resetPersonaState',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+}
+
+/// 提醒队列（铃铛面板用）。
+extension XlApiReminder on XiaoLingClient {
+  Future<ReminderList> fetchReminders({XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.listReminders(Empty()),
+      timeout: opt.timeout,
+      label: opt.label ?? 'fetchReminders',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+
+  Future<StatusReply> finishReminder(double dueAt,
+      {XlCallOptions opt = XlCallOptions.none}) {
+    return XlClient.withRetry(
+      (s) => s.completeReminder(ReminderRequest(dueAt: dueAt)),
+      timeout: opt.timeout,
+      label: opt.label ?? 'finishReminder',
+      silent: opt.silent,
+      policy: opt.policy,
+    );
+  }
+}
+
 extension XlApiSafe on XiaoLingClient {
   Future<T?> safe<T>(Future<T> Function() call) async {
     try {

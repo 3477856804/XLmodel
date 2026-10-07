@@ -1142,6 +1142,13 @@ class PersonaEngine:
                 self.relationship._update_level()
             if "last_talk" in data:
                 self.proactive.last_talk = float(data["last_talk"])
+            # 此前 _load/_save 都漏了 reminders，导致后端重启后提醒队列整个丢空
+            # （铃铛面板永远显示「暂时没有提醒」）。这里补上双向持久化。
+            if isinstance(data.get("reminders"), list):
+                self.proactive.reminders = [
+                    r for r in data["reminders"]
+                    if isinstance(r, dict) and r.get("text")
+                ]
         except Exception:
             pass
 
@@ -1153,6 +1160,7 @@ class PersonaEngine:
                 "emotion": self.emotion.state.to_dict(),
                 "relationship": {"score": self.relationship.score},
                 "last_talk": self.proactive.last_talk,
+                "reminders": list(self.proactive.reminders),
             }
             self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
                                  encoding="utf-8")

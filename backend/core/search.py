@@ -111,3 +111,8 @@ def answer_with_search(query: str, n: int = 4, fetch: bool = True) -> dict:
             'context': ('【联网检索结果】\n' + '\n\n'.join(parts)) if parts else ''}
 
 
+if __name__ == '__main__':
+    import sys
+    q = ' '.join(sys.argv[1:]) or '今天有什么新闻'
+    for r in search_web(q):
+        print('-', r['title'][:60], r['url'])
