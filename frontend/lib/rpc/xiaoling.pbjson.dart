@@ -767,3 +767,277 @@ const ReminderRequest$json = {
 final $typed_data.Uint8List reminderRequestDescriptor = $convert.base64Decode(
     'Cg9SZW1pbmRlclJlcXVlc3QSFQoGZHVlX2F0GAEgASgBUgVkdWVBdA==');
 
+@$core.Deprecated('Use agentRequestDescriptor instead')
+const AgentRequest$json = {
+  '1': 'AgentRequest',
+  '2': [
+    {'1': 'task', '3': 1, '4': 1, '5': 9, '10': 'task'},
+    {'1': 'context', '3': 2, '4': 1, '5': 9, '10': 'context'},
+    {'1': 'autonomous', '3': 3, '4': 1, '5': 8, '10': 'autonomous'},
+    {'1': 'max_steps', '3': 4, '4': 1, '5': 5, '10': 'maxSteps'},
+  ],
+};
+
+/// Descriptor for `AgentRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List agentRequestDescriptor = $convert.base64Decode(
+    'CgxBZ2VudFJlcXVlc3QSEgoEdGFzaxgBIAEoCVIEdGFzaxIYCgdjb250ZXh0GAIgASgJUgdjb2'
+    '50ZXh0Eh4KCmF1dG9ub21vdXMYAyABKAhSCmF1dG9ub21vdXMSGwoJbWF4X3N0ZXBzGAQgASgF'
+    'UghtYXhTdGVwcw==');
+
+@$core.Deprecated('Use agentEventDescriptor instead')
+const AgentEvent$json = {
+  '1': 'AgentEvent',
+  '2': [
+    {'1': 'type', '3': 1, '4': 1, '5': 9, '10': 'type'},
+    {'1': 'content', '3': 2, '4': 1, '5': 9, '10': 'content'},
+    {'1': 'tool_name', '3': 3, '4': 1, '5': 9, '10': 'toolName'},
+    {'1': 'tool_args', '3': 4, '4': 1, '5': 9, '10': 'toolArgs'},
+    {'1': 'tool_result', '3': 5, '4': 1, '5': 9, '10': 'toolResult'},
+    {'1': 'step', '3': 6, '4': 1, '5': 5, '10': 'step'},
+    {'1': 'total_steps', '3': 7, '4': 1, '5': 5, '10': 'totalSteps'},
+    {'1': 'done', '3': 8, '4': 1, '5': 8, '10': 'done'},
+    {'1': 'error', '3': 9, '4': 1, '5': 9, '10': 'error'},
+  ],
+};
+
+/// Descriptor for `AgentEvent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List agentEventDescriptor = $convert.base64Decode(
+    'CgpBZ2VudEV2ZW50EhIKBHR5cGUYASABKAlSBHR5cGUSGAoHY29udGVudBgCIAEoCVIHY29udG'
+    'VudBIbCgl0b29sX25hbWUYAyABKAlSCHRvb2xOYW1lEhsKCXRvb2xfYXJncxgEIAEoCVIIdG9v'
+    'bEFyZ3MSHwoLdG9vbF9yZXN1bHQYBSABKAlSCnRvb2xSZXN1bHQSEgoEc3RlcBgGIAEoBVIEc3'
+    'RlcBIfCgt0b3RhbF9zdGVwcxgHIAEoBVIKdG90YWxTdGVwcxISCgRkb25lGAggASgIUgRkb25l'
+    'EhQKBWVycm9yGAkgASgJUgVlcnJvcg==');
+
+@$core.Deprecated('Use terminalSessionDescriptor instead')
+const TerminalSession$json = {
+  '1': 'TerminalSession',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+  ],
+};
+
+/// Descriptor for `TerminalSession`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List terminalSessionDescriptor = $convert.base64Decode(
+    'Cg9UZXJtaW5hbFNlc3Npb24SDgoCaWQYASABKAlSAmlk');
+
+@$core.Deprecated('Use terminalInputDescriptor instead')
+const TerminalInput$json = {
+  '1': 'TerminalInput',
+  '2': [
+    {'1': 'session_id', '3': 1, '4': 1, '5': 9, '10': 'sessionId'},
+    {'1': 'data', '3': 2, '4': 1, '5': 9, '10': 'data'},
+  ],
+};
+
+/// Descriptor for `TerminalInput`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List terminalInputDescriptor = $convert.base64Decode(
+    'Cg1UZXJtaW5hbElucHV0Eh0KCnNlc3Npb25faWQYASABKAlSCXNlc3Npb25JZBISCgRkYXRhGA'
+    'IgASgJUgRkYXRh');
+
+@$core.Deprecated('Use terminalSessionIdDescriptor instead')
+const TerminalSessionId$json = {
+  '1': 'TerminalSessionId',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+  ],
+};
+
+/// Descriptor for `TerminalSessionId`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List terminalSessionIdDescriptor = $convert.base64Decode(
+    'ChFUZXJtaW5hbFNlc3Npb25JZBIOCgJpZBgBIAEoCVICaWQ=');
+
+@$core.Deprecated('Use terminalOutputDescriptor instead')
+const TerminalOutput$json = {
+  '1': 'TerminalOutput',
+  '2': [
+    {'1': 'data', '3': 1, '4': 1, '5': 9, '10': 'data'},
+    {'1': 'closed', '3': 2, '4': 1, '5': 8, '10': 'closed'},
+  ],
+};
+
+/// Descriptor for `TerminalOutput`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List terminalOutputDescriptor = $convert.base64Decode(
+    'Cg5UZXJtaW5hbE91dHB1dBISCgRkYXRhGAEgASgJUgRkYXRhEhYKBmNsb3NlZBgCIAEoCFIGY2'
+    'xvc2Vk');
+
+@$core.Deprecated('Use fileListRequestDescriptor instead')
+const FileListRequest$json = {
+  '1': 'FileListRequest',
+  '2': [
+    {'1': 'path', '3': 1, '4': 1, '5': 9, '10': 'path'},
+  ],
+};
+
+/// Descriptor for `FileListRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileListRequestDescriptor = $convert.base64Decode(
+    'Cg9GaWxlTGlzdFJlcXVlc3QSEgoEcGF0aBgBIAEoCVIEcGF0aA==');
+
+@$core.Deprecated('Use fileItemDescriptor instead')
+const FileItem$json = {
+  '1': 'FileItem',
+  '2': [
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'path', '3': 2, '4': 1, '5': 9, '10': 'path'},
+    {'1': 'is_dir', '3': 3, '4': 1, '5': 8, '10': 'isDir'},
+    {'1': 'size', '3': 4, '4': 1, '5': 3, '10': 'size'},
+    {'1': 'modified', '3': 5, '4': 1, '5': 9, '10': 'modified'},
+    {'1': 'extension', '3': 6, '4': 1, '5': 9, '10': 'extension'},
+  ],
+};
+
+/// Descriptor for `FileItem`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileItemDescriptor = $convert.base64Decode(
+    'CghGaWxlSXRlbRISCgRuYW1lGAEgASgJUgRuYW1lEhIKBHBhdGgYAiABKAlSBHBhdGgSFQoGaX'
+    'NfZGlyGAMgASgIUgVpc0RpchISCgRzaXplGAQgASgDUgRzaXplEhoKCG1vZGlmaWVkGAUgASgJ'
+    'Ughtb2RpZmllZBIcCglleHRlbnNpb24YBiABKAlSCWV4dGVuc2lvbg==');
+
+@$core.Deprecated('Use fileListReplyDescriptor instead')
+const FileListReply$json = {
+  '1': 'FileListReply',
+  '2': [
+    {'1': 'items', '3': 1, '4': 3, '5': 11, '6': '.xiaoling.FileItem', '10': 'items'},
+    {'1': 'current_path', '3': 2, '4': 1, '5': 9, '10': 'currentPath'},
+    {'1': 'parent_path', '3': 3, '4': 1, '5': 9, '10': 'parentPath'},
+  ],
+};
+
+/// Descriptor for `FileListReply`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileListReplyDescriptor = $convert.base64Decode(
+    'Cg1GaWxlTGlzdFJlcGx5EigKBWl0ZW1zGAEgAygLMhIueGlhb2xpbmcuRmlsZUl0ZW1SBWl0ZW'
+    '1zEiEKDGN1cnJlbnRfcGF0aBgCIAEoCVILY3VycmVudFBhdGgSHwoLcGFyZW50X3BhdGgYAyAB'
+    'KAlSCnBhcmVudFBhdGg=');
+
+@$core.Deprecated('Use fileReadRequestDescriptor instead')
+const FileReadRequest$json = {
+  '1': 'FileReadRequest',
+  '2': [
+    {'1': 'path', '3': 1, '4': 1, '5': 9, '10': 'path'},
+  ],
+};
+
+/// Descriptor for `FileReadRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileReadRequestDescriptor = $convert.base64Decode(
+    'Cg9GaWxlUmVhZFJlcXVlc3QSEgoEcGF0aBgBIAEoCVIEcGF0aA==');
+
+@$core.Deprecated('Use fileContentDescriptor instead')
+const FileContent$json = {
+  '1': 'FileContent',
+  '2': [
+    {'1': 'path', '3': 1, '4': 1, '5': 9, '10': 'path'},
+    {'1': 'content', '3': 2, '4': 1, '5': 9, '10': 'content'},
+    {'1': 'language', '3': 3, '4': 1, '5': 9, '10': 'language'},
+    {'1': 'lines', '3': 4, '4': 1, '5': 5, '10': 'lines'},
+    {'1': 'size', '3': 5, '4': 1, '5': 3, '10': 'size'},
+  ],
+};
+
+/// Descriptor for `FileContent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileContentDescriptor = $convert.base64Decode(
+    'CgtGaWxlQ29udGVudBISCgRwYXRoGAEgASgJUgRwYXRoEhgKB2NvbnRlbnQYAiABKAlSB2Nvbn'
+    'RlbnQSGgoIbGFuZ3VhZ2UYAyABKAlSCGxhbmd1YWdlEhQKBWxpbmVzGAQgASgFUgVsaW5lcxIS'
+    'CgRzaXplGAUgASgDUgRzaXpl');
+
+@$core.Deprecated('Use fileWriteRequestDescriptor instead')
+const FileWriteRequest$json = {
+  '1': 'FileWriteRequest',
+  '2': [
+    {'1': 'path', '3': 1, '4': 1, '5': 9, '10': 'path'},
+    {'1': 'content', '3': 2, '4': 1, '5': 9, '10': 'content'},
+    {'1': 'append', '3': 3, '4': 1, '5': 8, '10': 'append'},
+  ],
+};
+
+/// Descriptor for `FileWriteRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fileWriteRequestDescriptor = $convert.base64Decode(
+    'ChBGaWxlV3JpdGVSZXF1ZXN0EhIKBHBhdGgYASABKAlSBHBhdGgSGAoHY29udGVudBgCIAEoCV'
+    'IHY29udGVudBIWCgZhcHBlbmQYAyABKAhSBmFwcGVuZA==');
+
+@$core.Deprecated('Use codeSearchRequestDescriptor instead')
+const CodeSearchRequest$json = {
+  '1': 'CodeSearchRequest',
+  '2': [
+    {'1': 'query', '3': 1, '4': 1, '5': 9, '10': 'query'},
+    {'1': 'type', '3': 2, '4': 1, '5': 9, '10': 'type'},
+    {'1': 'path', '3': 3, '4': 1, '5': 9, '10': 'path'},
+    {'1': 'max_results', '3': 4, '4': 1, '5': 5, '10': 'maxResults'},
+  ],
+};
+
+/// Descriptor for `CodeSearchRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List codeSearchRequestDescriptor = $convert.base64Decode(
+    'ChFDb2RlU2VhcmNoUmVxdWVzdBIUCgVxdWVyeRgBIAEoCVIFcXVlcnkSEgoEdHlwZRgCIAEoCV'
+    'IEdHlwZRISCgRwYXRoGAMgASgJUgRwYXRoEh8KC21heF9yZXN1bHRzGAQgASgFUgptYXhSZXN1'
+    'bHRz');
+
+@$core.Deprecated('Use codeMatchDescriptor instead')
+const CodeMatch$json = {
+  '1': 'CodeMatch',
+  '2': [
+    {'1': 'file', '3': 1, '4': 1, '5': 9, '10': 'file'},
+    {'1': 'line', '3': 2, '4': 1, '5': 5, '10': 'line'},
+    {'1': 'column', '3': 3, '4': 1, '5': 5, '10': 'column'},
+    {'1': 'text', '3': 4, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'symbol', '3': 5, '4': 1, '5': 9, '10': 'symbol'},
+    {'1': 'kind', '3': 6, '4': 1, '5': 9, '10': 'kind'},
+  ],
+};
+
+/// Descriptor for `CodeMatch`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List codeMatchDescriptor = $convert.base64Decode(
+    'CglDb2RlTWF0Y2gSEgoEZmlsZRgBIAEoCVIEZmlsZRISCgRsaW5lGAIgASgFUgRsaW5lEhYKBm'
+    'NvbHVtbhgDIAEoBVIGY29sdW1uEhIKBHRleHQYBCABKAlSBHRleHQSFgoGc3ltYm9sGAUgASgJ'
+    'UgZzeW1ib2wSEgoEa2luZBgGIAEoCVIEa2luZA==');
+
+@$core.Deprecated('Use codeSearchReplyDescriptor instead')
+const CodeSearchReply$json = {
+  '1': 'CodeSearchReply',
+  '2': [
+    {'1': 'matches', '3': 1, '4': 3, '5': 11, '6': '.xiaoling.CodeMatch', '10': 'matches'},
+    {'1': 'total', '3': 2, '4': 1, '5': 5, '10': 'total'},
+    {'1': 'elapsed_ms', '3': 3, '4': 1, '5': 1, '10': 'elapsedMs'},
+  ],
+};
+
+/// Descriptor for `CodeSearchReply`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List codeSearchReplyDescriptor = $convert.base64Decode(
+    'Cg9Db2RlU2VhcmNoUmVwbHkSLQoHbWF0Y2hlcxgBIAMoCzITLnhpYW9saW5nLkNvZGVNYXRjaF'
+    'IHbWF0Y2hlcxIUCgV0b3RhbBgCIAEoBVIFdG90YWwSHQoKZWxhcHNlZF9tcxgDIAEoAVIJZWxh'
+    'cHNlZE1z');
+
+@$core.Deprecated('Use projectFileDescriptor instead')
+const ProjectFile$json = {
+  '1': 'ProjectFile',
+  '2': [
+    {'1': 'path', '3': 1, '4': 1, '5': 9, '10': 'path'},
+    {'1': 'language', '3': 2, '4': 1, '5': 9, '10': 'language'},
+    {'1': 'lines', '3': 3, '4': 1, '5': 5, '10': 'lines'},
+  ],
+};
+
+/// Descriptor for `ProjectFile`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List projectFileDescriptor = $convert.base64Decode(
+    'CgtQcm9qZWN0RmlsZRISCgRwYXRoGAEgASgJUgRwYXRoEhoKCGxhbmd1YWdlGAIgASgJUghsYW'
+    '5ndWFnZRIUCgVsaW5lcxgDIAEoBVIFbGluZXM=');
+
+@$core.Deprecated('Use projectContextReplyDescriptor instead')
+const ProjectContextReply$json = {
+  '1': 'ProjectContextReply',
+  '2': [
+    {'1': 'root_path', '3': 1, '4': 1, '5': 9, '10': 'rootPath'},
+    {'1': 'project_name', '3': 2, '4': 1, '5': 9, '10': 'projectName'},
+    {'1': 'files', '3': 3, '4': 3, '5': 11, '6': '.xiaoling.ProjectFile', '10': 'files'},
+    {'1': 'total_files', '3': 4, '4': 1, '5': 5, '10': 'totalFiles'},
+    {'1': 'total_lines', '3': 5, '4': 1, '5': 5, '10': 'totalLines'},
+    {'1': 'languages', '3': 6, '4': 3, '5': 9, '10': 'languages'},
+    {'1': 'readme', '3': 7, '4': 1, '5': 9, '10': 'readme'},
+  ],
+};
+
+/// Descriptor for `ProjectContextReply`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List projectContextReplyDescriptor = $convert.base64Decode(
+    'ChNQcm9qZWN0Q29udGV4dFJlcGx5EhsKCXJvb3RfcGF0aBgBIAEoCVIIcm9vdFBhdGgSIQoMcH'
+    'JvamVjdF9uYW1lGAIgASgJUgtwcm9qZWN0TmFtZRIrCgVmaWxlcxgDIAMoCzIVLnhpYW9saW5n'
+    'LlByb2plY3RGaWxlUgVmaWxlcxIfCgt0b3RhbF9maWxlcxgEIAEoBVIKdG90YWxGaWxlcxIfCg'
+    't0b3RhbF9saW5lcxgFIAEoBVIKdG90YWxMaW5lcxIcCglsYW5ndWFnZXMYBiADKAlSCWxhbmd1'
+    'YWdlcxIWCgZyZWFkbWUYByABKAlSBnJlYWRtZQ==');
+

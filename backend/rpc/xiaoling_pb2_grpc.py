@@ -212,6 +212,56 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.ReminderRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.StatusReply.FromString,
                 _registered_method=True)
+        self.AgentStart = channel.unary_stream(
+                '/xiaoling.XiaoLing/AgentStart',
+                request_serializer=xiaoling__pb2.AgentRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.AgentEvent.FromString,
+                _registered_method=True)
+        self.TerminalCreate = channel.unary_unary(
+                '/xiaoling.XiaoLing/TerminalCreate',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.TerminalSession.FromString,
+                _registered_method=True)
+        self.TerminalWrite = channel.unary_unary(
+                '/xiaoling.XiaoLing/TerminalWrite',
+                request_serializer=xiaoling__pb2.TerminalInput.SerializeToString,
+                response_deserializer=xiaoling__pb2.Empty.FromString,
+                _registered_method=True)
+        self.TerminalRead = channel.unary_stream(
+                '/xiaoling.XiaoLing/TerminalRead',
+                request_serializer=xiaoling__pb2.TerminalSessionId.SerializeToString,
+                response_deserializer=xiaoling__pb2.TerminalOutput.FromString,
+                _registered_method=True)
+        self.TerminalClose = channel.unary_unary(
+                '/xiaoling.XiaoLing/TerminalClose',
+                request_serializer=xiaoling__pb2.TerminalSessionId.SerializeToString,
+                response_deserializer=xiaoling__pb2.Empty.FromString,
+                _registered_method=True)
+        self.FileList = channel.unary_unary(
+                '/xiaoling.XiaoLing/FileList',
+                request_serializer=xiaoling__pb2.FileListRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.FileListReply.FromString,
+                _registered_method=True)
+        self.FileRead = channel.unary_unary(
+                '/xiaoling.XiaoLing/FileRead',
+                request_serializer=xiaoling__pb2.FileReadRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.FileContent.FromString,
+                _registered_method=True)
+        self.FileWrite = channel.unary_unary(
+                '/xiaoling.XiaoLing/FileWrite',
+                request_serializer=xiaoling__pb2.FileWriteRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.StatusReply.FromString,
+                _registered_method=True)
+        self.CodeSearch = channel.unary_unary(
+                '/xiaoling.XiaoLing/CodeSearch',
+                request_serializer=xiaoling__pb2.CodeSearchRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.CodeSearchReply.FromString,
+                _registered_method=True)
+        self.ProjectContext = channel.unary_unary(
+                '/xiaoling.XiaoLing/ProjectContext',
+                request_serializer=xiaoling__pb2.Empty.SerializeToString,
+                response_deserializer=xiaoling__pb2.ProjectContextReply.FromString,
+                _registered_method=True)
 
 
 class XiaoLingServicer:
@@ -458,6 +508,71 @@ class XiaoLingServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AgentStart(self, request, context):
+        """===== Agent 自主任务模式 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TerminalCreate(self, request, context):
+        """===== 内置终端 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TerminalWrite(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TerminalRead(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TerminalClose(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FileList(self, request, context):
+        """===== 文件操作 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FileRead(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FileWrite(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CodeSearch(self, request, context):
+        """===== 代码搜索 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProjectContext(self, request, context):
+        """===== 项目上下文 =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_XiaoLingServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -635,6 +750,56 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     servicer.CompleteReminder,
                     request_deserializer=xiaoling__pb2.ReminderRequest.FromString,
                     response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'AgentStart': grpc.unary_stream_rpc_method_handler(
+                    servicer.AgentStart,
+                    request_deserializer=xiaoling__pb2.AgentRequest.FromString,
+                    response_serializer=xiaoling__pb2.AgentEvent.SerializeToString,
+            ),
+            'TerminalCreate': grpc.unary_unary_rpc_method_handler(
+                    servicer.TerminalCreate,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.TerminalSession.SerializeToString,
+            ),
+            'TerminalWrite': grpc.unary_unary_rpc_method_handler(
+                    servicer.TerminalWrite,
+                    request_deserializer=xiaoling__pb2.TerminalInput.FromString,
+                    response_serializer=xiaoling__pb2.Empty.SerializeToString,
+            ),
+            'TerminalRead': grpc.unary_stream_rpc_method_handler(
+                    servicer.TerminalRead,
+                    request_deserializer=xiaoling__pb2.TerminalSessionId.FromString,
+                    response_serializer=xiaoling__pb2.TerminalOutput.SerializeToString,
+            ),
+            'TerminalClose': grpc.unary_unary_rpc_method_handler(
+                    servicer.TerminalClose,
+                    request_deserializer=xiaoling__pb2.TerminalSessionId.FromString,
+                    response_serializer=xiaoling__pb2.Empty.SerializeToString,
+            ),
+            'FileList': grpc.unary_unary_rpc_method_handler(
+                    servicer.FileList,
+                    request_deserializer=xiaoling__pb2.FileListRequest.FromString,
+                    response_serializer=xiaoling__pb2.FileListReply.SerializeToString,
+            ),
+            'FileRead': grpc.unary_unary_rpc_method_handler(
+                    servicer.FileRead,
+                    request_deserializer=xiaoling__pb2.FileReadRequest.FromString,
+                    response_serializer=xiaoling__pb2.FileContent.SerializeToString,
+            ),
+            'FileWrite': grpc.unary_unary_rpc_method_handler(
+                    servicer.FileWrite,
+                    request_deserializer=xiaoling__pb2.FileWriteRequest.FromString,
+                    response_serializer=xiaoling__pb2.StatusReply.SerializeToString,
+            ),
+            'CodeSearch': grpc.unary_unary_rpc_method_handler(
+                    servicer.CodeSearch,
+                    request_deserializer=xiaoling__pb2.CodeSearchRequest.FromString,
+                    response_serializer=xiaoling__pb2.CodeSearchReply.SerializeToString,
+            ),
+            'ProjectContext': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProjectContext,
+                    request_deserializer=xiaoling__pb2.Empty.FromString,
+                    response_serializer=xiaoling__pb2.ProjectContextReply.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1585,6 +1750,276 @@ class XiaoLing:
             '/xiaoling.XiaoLing/CompleteReminder',
             xiaoling__pb2.ReminderRequest.SerializeToString,
             xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AgentStart(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/xiaoling.XiaoLing/AgentStart',
+            xiaoling__pb2.AgentRequest.SerializeToString,
+            xiaoling__pb2.AgentEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TerminalCreate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/TerminalCreate',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.TerminalSession.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TerminalWrite(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/TerminalWrite',
+            xiaoling__pb2.TerminalInput.SerializeToString,
+            xiaoling__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TerminalRead(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/xiaoling.XiaoLing/TerminalRead',
+            xiaoling__pb2.TerminalSessionId.SerializeToString,
+            xiaoling__pb2.TerminalOutput.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TerminalClose(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/TerminalClose',
+            xiaoling__pb2.TerminalSessionId.SerializeToString,
+            xiaoling__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FileList(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/FileList',
+            xiaoling__pb2.FileListRequest.SerializeToString,
+            xiaoling__pb2.FileListReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FileRead(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/FileRead',
+            xiaoling__pb2.FileReadRequest.SerializeToString,
+            xiaoling__pb2.FileContent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FileWrite(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/FileWrite',
+            xiaoling__pb2.FileWriteRequest.SerializeToString,
+            xiaoling__pb2.StatusReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CodeSearch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/CodeSearch',
+            xiaoling__pb2.CodeSearchRequest.SerializeToString,
+            xiaoling__pb2.CodeSearchReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProjectContext(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/ProjectContext',
+            xiaoling__pb2.Empty.SerializeToString,
+            xiaoling__pb2.ProjectContextReply.FromString,
             options,
             channel_credentials,
             insecure,

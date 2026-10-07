@@ -21,6 +21,7 @@ import os
 import sys
 import threading
 import time
+import uuid
 from concurrent import futures
 
 logger = logging.getLogger("xiaoling.rpc")
@@ -48,6 +49,48 @@ _engine_logged = False
 
 _renderer = None
 _renderer_lock = threading.Lock()
+
+# 项目根目录：server.py 位于 backend/rpc/，向上三级即 xl_project/
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Terminal / File 单例（懒加载 + 线程锁）
+_terminal_manager = None
+_terminal_manager_lock = threading.Lock()
+
+_file_manager = None
+_file_manager_lock = threading.Lock()
+
+
+def _get_terminal_manager():
+    """懒加载 TerminalManager 单例。"""
+    global _terminal_manager
+    if _terminal_manager is not None:
+        return _terminal_manager
+    with _terminal_manager_lock:
+        if _terminal_manager is not None:
+            return _terminal_manager
+        from core.terminal import TerminalManager
+        _terminal_manager = TerminalManager()
+    return _terminal_manager
+
+
+def _get_file_manager():
+    """懒加载 FileManager 单例（以项目根路径初始化）。"""
+    global _file_manager
+    if _file_manager is not None:
+        return _file_manager
+    with _file_manager_lock:
+        if _file_manager is not None:
+            return _file_manager
+        from core.fileops import FileManager
+        _file_manager = FileManager(_PROJECT_ROOT)
+    return _file_manager
+
+
+def _get_project_context():
+    """懒加载 ProjectContext（每次基于最新根路径新建，轻量）。"""
+    from core.context import ProjectContext
+    return ProjectContext(_PROJECT_ROOT)
 
 
 def _get_engine(log=print):
@@ -955,6 +998,189 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         except Exception as e:                                             # noqa: BLE001
             logger.exception('CompleteReminder failed: due_at=%s', request.due_at)
             return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
+
+    # ======================================================================== #
+    #  v0.0.1 新增：Agent / Terminal / File / Search / ProjectContext
+    # ======================================================================== #
+
+    # ---------------- AgentStart（流式） ----------------
+    def AgentStart(self, request, context):
+        try:
+            from core.agent import AgentEngine
+            engine = _get_engine()
+            agent = AgentEngine(engine)
+            task = request.task or ''
+            ctx = request.context or ''
+            autonomous = bool(request.autonomous)
+            max_steps = int(request.max_steps or 20)
+            for event in agent.run(task, ctx, autonomous, max_steps):
+                yield pb.AgentEvent(
+                    type=event.get("type", ""),
+                    content=event.get("content", ""),
+                    tool_name=event.get("tool_name", ""),
+                    tool_args=event.get("tool_args", ""),
+                    tool_result=event.get("tool_result", ""),
+                    step=int(event.get("step", 0)),
+                    total_steps=int(event.get("total_steps", 0)),
+                    done=bool(event.get("done", False)),
+                    error=event.get("error", ""),
+                )
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception("AgentStart failed")
+            yield pb.AgentEvent(type="error", error=str(e), done=True)
+
+    # ---------------- TerminalCreate ----------------
+    def TerminalCreate(self, request, context):
+        try:
+            tm = _get_terminal_manager()
+            session_id = tm.create()
+            return pb.TerminalSession(id=str(session_id))
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('TerminalCreate failed')
+            context.set_details(f'创建终端失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.TerminalSession()
+
+    # ---------------- TerminalWrite ----------------
+    def TerminalWrite(self, request, context):
+        try:
+            tm = _get_terminal_manager()
+            tm.write(request.session_id, request.data or '')
+            return pb.Empty()
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('TerminalWrite failed: %s', request.session_id)
+            context.set_details(f'写入终端失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.Empty()
+
+    # ---------------- TerminalRead（流式） ----------------
+    def TerminalRead(self, request, context):
+        try:
+            tm = _get_terminal_manager()
+            for chunk in tm.read(request.id):
+                yield pb.TerminalOutput(data=str(chunk), closed=False)
+            yield pb.TerminalOutput(data="", closed=True)
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('TerminalRead failed: %s', request.id)
+            yield pb.TerminalOutput(data=f'error: {e}', closed=True)
+
+    # ---------------- TerminalClose ----------------
+    def TerminalClose(self, request, context):
+        try:
+            tm = _get_terminal_manager()
+            tm.close(request.id)
+            return pb.Empty()
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('TerminalClose failed: %s', request.id)
+            context.set_details(f'关闭终端失败：{e}')
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return pb.Empty()
+
+    # ---------------- FileList ----------------
+    def FileList(self, request, context):
+        try:
+            fm = _get_file_manager()
+            result = fm.list_dir(request.path or '.')
+            items = []
+            for it in (result.get('items') or []):
+                items.append(pb.FileItem(
+                    name=str(it.get('name', '')),
+                    path=str(it.get('path', '')),
+                    is_dir=bool(it.get('is_dir', False)),
+                    size=int(it.get('size', 0) or 0),
+                    modified=str(it.get('modified', '')),
+                    extension=str(it.get('extension', '')),
+                ))
+            return pb.FileListReply(
+                items=items,
+                current_path=str(result.get('current_path', '')),
+                parent_path=str(result.get('parent_path', '')),
+            )
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('FileList failed: %s', request.path)
+            return pb.FileListReply()
+
+    # ---------------- FileRead ----------------
+    def FileRead(self, request, context):
+        try:
+            fm = _get_file_manager()
+            result = fm.read_file(request.path)
+            return pb.FileContent(
+                path=str(result.get('path', request.path)),
+                content=str(result.get('content', '')),
+                language=str(result.get('language', '')),
+                lines=int(result.get('lines', 0) or 0),
+                size=int(result.get('size', 0) or 0),
+            )
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('FileRead failed: %s', request.path)
+            return pb.FileContent(path=request.path)
+
+    # ---------------- FileWrite ----------------
+    def FileWrite(self, request, context):
+        try:
+            fm = _get_file_manager()
+            ok = bool(fm.write_file(request.path, request.content or '',
+                                    bool(request.append)))
+            return pb.StatusReply(ok=ok,
+                message='写入成功' if ok else '写入失败')
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('FileWrite failed: %s', request.path)
+            return pb.StatusReply(ok=False, message=f'{type(e).__name__}: {e}')
+
+    # ---------------- CodeSearch ----------------
+    def CodeSearch(self, request, context):
+        _t0 = time.time()
+        try:
+            from core.search import search_code
+            matches = search_code(
+                request.query or '',
+                request.path or _PROJECT_ROOT,
+                int(request.max_results or 50),
+            ) or []
+            code_matches = [
+                pb.CodeMatch(
+                    file=str(m.get('file', '')),
+                    line=int(m.get('line', 0) or 0),
+                    column=int(m.get('column', 0) or 0),
+                    text=str(m.get('text', '')),
+                    symbol=str(m.get('symbol', '')),
+                    kind=str(m.get('kind', '')),
+                ) for m in matches
+            ]
+            return pb.CodeSearchReply(
+                matches=code_matches,
+                total=len(code_matches),
+                elapsed_ms=(time.time() - _t0) * 1000.0,
+            )
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('CodeSearch failed: %s', request.query)
+            return pb.CodeSearchReply(total=0, elapsed_ms=(time.time() - _t0) * 1000.0)
+
+    # ---------------- ProjectContext ----------------
+    def ProjectContext(self, request, context):
+        try:
+            pc = _get_project_context()
+            result = pc.collect() or {}
+            files = [
+                pb.ProjectFile(
+                    path=str(f.get('path', '')),
+                    language=str(f.get('language', '')),
+                    lines=int(f.get('lines', 0) or 0),
+                ) for f in (result.get('files') or [])
+            ]
+            return pb.ProjectContextReply(
+                root_path=str(result.get('root_path', _PROJECT_ROOT)),
+                project_name=str(result.get('project_name', '')),
+                files=files,
+                total_files=int(result.get('total_files', len(files)) or 0),
+                total_lines=int(result.get('total_lines', 0) or 0),
+                languages=[str(x) for x in (result.get('languages') or [])],
+                readme=str(result.get('readme', '')),
+            )
+        except Exception as e:                                              # noqa: BLE001
+            logger.exception('ProjectContext failed')
+            return pb.ProjectContextReply(root_path=_PROJECT_ROOT)
 
 
 # --------------------------------------------------------------------------- #

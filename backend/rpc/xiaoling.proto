@@ -96,6 +96,26 @@ service XiaoLing {
 
   // ===== 标记提醒已读 / 完成 =====
   rpc CompleteReminder (ReminderRequest) returns (StatusReply);
+
+  // ===== Agent 自主任务模式 =====
+  rpc AgentStart (AgentRequest) returns (stream AgentEvent);
+
+  // ===== 内置终端 =====
+  rpc TerminalCreate (Empty) returns (TerminalSession);
+  rpc TerminalWrite (TerminalInput) returns (Empty);
+  rpc TerminalRead (TerminalSessionId) returns (stream TerminalOutput);
+  rpc TerminalClose (TerminalSessionId) returns (Empty);
+
+  // ===== 文件操作 =====
+  rpc FileList (FileListRequest) returns (FileListReply);
+  rpc FileRead (FileReadRequest) returns (FileContent);
+  rpc FileWrite (FileWriteRequest) returns (StatusReply);
+
+  // ===== 代码搜索 =====
+  rpc CodeSearch (CodeSearchRequest) returns (CodeSearchReply);
+
+  // ===== 项目上下文 =====
+  rpc ProjectContext (Empty) returns (ProjectContextReply);
 }
 
 // ===== 基础消息 =====
@@ -398,5 +418,122 @@ message ReminderList {
 }
 
 message ReminderRequest {
-  double due_at = 1;  // 匹配 ReminderItem.due_at
+  double due_at = 1;
+}
+
+// ===== Agent 自主任务 =====
+message AgentRequest {
+  string task = 1;
+  string context = 2;
+  bool autonomous = 3;
+  int32 max_steps = 4;
+}
+
+message AgentEvent {
+  string type = 1;
+  string content = 2;
+  string tool_name = 3;
+  string tool_args = 4;
+  string tool_result = 5;
+  int32 step = 6;
+  int32 total_steps = 7;
+  bool done = 8;
+  string error = 9;
+}
+
+// ===== 终端 =====
+message TerminalSession {
+  string id = 1;
+}
+
+message TerminalInput {
+  string session_id = 1;
+  string data = 2;
+}
+
+message TerminalSessionId {
+  string id = 1;
+}
+
+message TerminalOutput {
+  string data = 1;
+  bool closed = 2;
+}
+
+// ===== 文件操作 =====
+message FileListRequest {
+  string path = 1;
+}
+
+message FileItem {
+  string name = 1;
+  string path = 2;
+  bool is_dir = 3;
+  int64 size = 4;
+  string modified = 5;
+  string extension = 6;
+}
+
+message FileListReply {
+  repeated FileItem items = 1;
+  string current_path = 2;
+  string parent_path = 3;
+}
+
+message FileReadRequest {
+  string path = 1;
+}
+
+message FileContent {
+  string path = 1;
+  string content = 2;
+  string language = 3;
+  int32 lines = 4;
+  int64 size = 5;
+}
+
+message FileWriteRequest {
+  string path = 1;
+  string content = 2;
+  bool append = 3;
+}
+
+// ===== 代码搜索 =====
+message CodeSearchRequest {
+  string query = 1;
+  string type = 2;
+  string path = 3;
+  int32 max_results = 4;
+}
+
+message CodeMatch {
+  string file = 1;
+  int32 line = 2;
+  int32 column = 3;
+  string text = 4;
+  string symbol = 5;
+  string kind = 6;
+}
+
+message CodeSearchReply {
+  repeated CodeMatch matches = 1;
+  int32 total = 2;
+  double elapsed_ms = 3;
+}
+
+// ===== 项目上下文 =====
+message ProjectFile {
+  string path = 1;
+  string language = 2;
+  int32 lines = 3;
+}
+
+message ProjectContextReply {
+  string root_path = 1;
+  string project_name = 2;
+  repeated ProjectFile files = 3;
+  int32 total_files = 4;
+  int32 total_lines = 5;
+  repeated string languages = 6;
+  string readme = 7;
 }

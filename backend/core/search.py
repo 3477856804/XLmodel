@@ -16,6 +16,7 @@ from __future__ import annotations
 import gzip
 import html
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -229,6 +230,93 @@ def answer_with_search(query: str, n: int = 4, fetch: bool = True) -> dict:
         parts.append(f'[{i}] {r["title"]}\n{r["url"]}\n{body[:600]}')
     return {'query': query, 'results': results,
             'context': ('【联网检索结果】\n' + '\n\n'.join(parts)) if parts else ''}
+
+
+# ============================================================================
+# 代码搜索（code search）
+# ============================================================================
+
+# 需要跳过的目录名
+_CODE_SKIP_DIRS = {
+    ".git", "build", "__pycache__", ".dart_tool", "node_modules",
+    ".idea", "venv", ".venv", "dist", ".next", "resources",
+}
+# 视为文本的常见扩展名（其余扩展名直接跳过，避免误读二进制）
+_TEXT_EXTS = {
+    ".py", ".dart", ".js", ".jsx", ".ts", ".tsx", ".json", ".md",
+    ".markdown", ".yaml", ".yml", ".proto", ".css", ".scss", ".html",
+    ".htm", ".xml", ".go", ".rs", ".java", ".c", ".h", ".cpp", ".hpp",
+    ".sh", ".bash", ".sql", ".toml", ".ini", ".cfg", ".txt", ".kt",
+    ".swift", ".rb", ".php", ".lua", ".r", ".m", ".mm", ".vue",
+}
+_MAX_FILE_BYTES = 1024 * 1024  # 跳过超过 1MB 的文件
+
+# 定义行匹配：def / class / function / widget / func / struct / impl / interface
+_DEF_RE = re.compile(
+    r"^\s*(?:async\s+)?(?:def|class|function|func|struct|impl|interface|widget)\b"
+)
+
+
+def search_code(query: str, path: str = ".", max_results: int = 50) -> list:
+    """在 path 下逐行 grep 代码（不区分大小写）。
+
+    返回 [{file, line(1-based), column, text, symbol, kind}, ...]
+      * kind = "definition"  若命中行同时是 def/class/function 等定义行
+      * kind = "reference"   其余命中
+    用 time.time() 计时；跳过二进制 / 大文件 / 构建产物目录。
+    永不抛异常，出错返回 []。
+    """
+    import time as _t
+    t0 = _t.time()
+    out: list = []
+    if not query:
+        return out
+    q = query.lower()
+    root = os.path.abspath(os.path.expanduser(str(path or ".")))
+    if not os.path.isdir(root):
+        return out
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _CODE_SKIP_DIRS]
+            for fn in filenames:
+                ext = os.path.splitext(fn)[1].lower()
+                if ext not in _TEXT_EXTS:
+                    continue
+                full = os.path.join(dirpath, fn)
+                try:
+                    if os.path.getsize(full) > _MAX_FILE_BYTES:
+                        continue
+                    with open(full, "r", encoding="utf-8", errors="ignore") as f:
+                        for lineno, line in enumerate(f, 1):
+                            idx = line.lower().find(q)
+                            if idx < 0:
+                                continue
+                            stripped = line.strip()
+                            kind = "reference"
+                            symbol = ""
+                            if _DEF_RE.match(line):
+                                kind = "definition"
+                                m = re.search(
+                                    r"(?:def|class|function|func|struct|impl|"
+                                    r"interface|widget)\s+([A-Za-z_][A-Za-z0-9_]*)",
+                                    line)
+                                if m:
+                                    symbol = m.group(1)
+                            out.append({
+                                "file": os.path.relpath(full, root),
+                                "line": lineno,
+                                "column": idx + 1,
+                                "text": stripped[:300],
+                                "symbol": symbol,
+                                "kind": kind,
+                            })
+                            if len(out) >= max_results:
+                                return out
+                except OSError:
+                    continue
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 if __name__ == '__main__':

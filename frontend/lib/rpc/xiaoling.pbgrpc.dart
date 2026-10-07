@@ -161,6 +161,46 @@ class XiaoLingClient extends $grpc.Client {
       '/xiaoling.XiaoLing/CompleteReminder',
       ($0.ReminderRequest value) => value.writeToBuffer(),
       ($core.List<$core.int> value) => $0.StatusReply.fromBuffer(value));
+  static final _$agentStart = $grpc.ClientMethod<$0.AgentRequest, $0.AgentEvent>(
+      '/xiaoling.XiaoLing/AgentStart',
+      ($0.AgentRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.AgentEvent.fromBuffer(value));
+  static final _$terminalCreate = $grpc.ClientMethod<$0.Empty, $0.TerminalSession>(
+      '/xiaoling.XiaoLing/TerminalCreate',
+      ($0.Empty value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.TerminalSession.fromBuffer(value));
+  static final _$terminalWrite = $grpc.ClientMethod<$0.TerminalInput, $0.Empty>(
+      '/xiaoling.XiaoLing/TerminalWrite',
+      ($0.TerminalInput value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.Empty.fromBuffer(value));
+  static final _$terminalRead = $grpc.ClientMethod<$0.TerminalSessionId, $0.TerminalOutput>(
+      '/xiaoling.XiaoLing/TerminalRead',
+      ($0.TerminalSessionId value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.TerminalOutput.fromBuffer(value));
+  static final _$terminalClose = $grpc.ClientMethod<$0.TerminalSessionId, $0.Empty>(
+      '/xiaoling.XiaoLing/TerminalClose',
+      ($0.TerminalSessionId value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.Empty.fromBuffer(value));
+  static final _$fileList = $grpc.ClientMethod<$0.FileListRequest, $0.FileListReply>(
+      '/xiaoling.XiaoLing/FileList',
+      ($0.FileListRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.FileListReply.fromBuffer(value));
+  static final _$fileRead = $grpc.ClientMethod<$0.FileReadRequest, $0.FileContent>(
+      '/xiaoling.XiaoLing/FileRead',
+      ($0.FileReadRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.FileContent.fromBuffer(value));
+  static final _$fileWrite = $grpc.ClientMethod<$0.FileWriteRequest, $0.StatusReply>(
+      '/xiaoling.XiaoLing/FileWrite',
+      ($0.FileWriteRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.StatusReply.fromBuffer(value));
+  static final _$codeSearch = $grpc.ClientMethod<$0.CodeSearchRequest, $0.CodeSearchReply>(
+      '/xiaoling.XiaoLing/CodeSearch',
+      ($0.CodeSearchRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.CodeSearchReply.fromBuffer(value));
+  static final _$projectContext = $grpc.ClientMethod<$0.Empty, $0.ProjectContextReply>(
+      '/xiaoling.XiaoLing/ProjectContext',
+      ($0.Empty value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.ProjectContextReply.fromBuffer(value));
 
   XiaoLingClient(super.channel, {super.options, super.interceptors});
 
@@ -302,6 +342,46 @@ class XiaoLingClient extends $grpc.Client {
 
   $grpc.ResponseFuture<$0.StatusReply> completeReminder($0.ReminderRequest request, {$grpc.CallOptions? options}) {
     return $createUnaryCall(_$completeReminder, request, options: options);
+  }
+
+  $grpc.ResponseStream<$0.AgentEvent> agentStart($0.AgentRequest request, {$grpc.CallOptions? options}) {
+    return $createStreamingCall(_$agentStart, $async.Stream.fromIterable([request]), options: options);
+  }
+
+  $grpc.ResponseFuture<$0.TerminalSession> terminalCreate($0.Empty request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$terminalCreate, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.Empty> terminalWrite($0.TerminalInput request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$terminalWrite, request, options: options);
+  }
+
+  $grpc.ResponseStream<$0.TerminalOutput> terminalRead($0.TerminalSessionId request, {$grpc.CallOptions? options}) {
+    return $createStreamingCall(_$terminalRead, $async.Stream.fromIterable([request]), options: options);
+  }
+
+  $grpc.ResponseFuture<$0.Empty> terminalClose($0.TerminalSessionId request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$terminalClose, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.FileListReply> fileList($0.FileListRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$fileList, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.FileContent> fileRead($0.FileReadRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$fileRead, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.StatusReply> fileWrite($0.FileWriteRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$fileWrite, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.CodeSearchReply> codeSearch($0.CodeSearchRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$codeSearch, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.ProjectContextReply> projectContext($0.Empty request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$projectContext, request, options: options);
   }
 }
 
@@ -555,6 +635,76 @@ abstract class XiaoLingServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $0.ReminderRequest.fromBuffer(value),
         ($0.StatusReply value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.AgentRequest, $0.AgentEvent>(
+        'AgentStart',
+        agentStart_Pre,
+        false,
+        true,
+        ($core.List<$core.int> value) => $0.AgentRequest.fromBuffer(value),
+        ($0.AgentEvent value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.Empty, $0.TerminalSession>(
+        'TerminalCreate',
+        terminalCreate_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.Empty.fromBuffer(value),
+        ($0.TerminalSession value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.TerminalInput, $0.Empty>(
+        'TerminalWrite',
+        terminalWrite_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.TerminalInput.fromBuffer(value),
+        ($0.Empty value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.TerminalSessionId, $0.TerminalOutput>(
+        'TerminalRead',
+        terminalRead_Pre,
+        false,
+        true,
+        ($core.List<$core.int> value) => $0.TerminalSessionId.fromBuffer(value),
+        ($0.TerminalOutput value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.TerminalSessionId, $0.Empty>(
+        'TerminalClose',
+        terminalClose_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.TerminalSessionId.fromBuffer(value),
+        ($0.Empty value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.FileListRequest, $0.FileListReply>(
+        'FileList',
+        fileList_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.FileListRequest.fromBuffer(value),
+        ($0.FileListReply value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.FileReadRequest, $0.FileContent>(
+        'FileRead',
+        fileRead_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.FileReadRequest.fromBuffer(value),
+        ($0.FileContent value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.FileWriteRequest, $0.StatusReply>(
+        'FileWrite',
+        fileWrite_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.FileWriteRequest.fromBuffer(value),
+        ($0.StatusReply value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.CodeSearchRequest, $0.CodeSearchReply>(
+        'CodeSearch',
+        codeSearch_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.CodeSearchRequest.fromBuffer(value),
+        ($0.CodeSearchReply value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.Empty, $0.ProjectContextReply>(
+        'ProjectContext',
+        projectContext_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.Empty.fromBuffer(value),
+        ($0.ProjectContextReply value) => value.writeToBuffer()));
   }
 
   $async.Stream<$0.ChatChunk> chat_Pre($grpc.ServiceCall $call, $async.Future<$0.ChatRequest> $request) async* {
@@ -697,6 +847,46 @@ abstract class XiaoLingServiceBase extends $grpc.Service {
     return completeReminder($call, await $request);
   }
 
+  $async.Stream<$0.AgentEvent> agentStart_Pre($grpc.ServiceCall $call, $async.Future<$0.AgentRequest> $request) async* {
+    yield* agentStart($call, await $request);
+  }
+
+  $async.Future<$0.TerminalSession> terminalCreate_Pre($grpc.ServiceCall $call, $async.Future<$0.Empty> $request) async {
+    return terminalCreate($call, await $request);
+  }
+
+  $async.Future<$0.Empty> terminalWrite_Pre($grpc.ServiceCall $call, $async.Future<$0.TerminalInput> $request) async {
+    return terminalWrite($call, await $request);
+  }
+
+  $async.Stream<$0.TerminalOutput> terminalRead_Pre($grpc.ServiceCall $call, $async.Future<$0.TerminalSessionId> $request) async* {
+    yield* terminalRead($call, await $request);
+  }
+
+  $async.Future<$0.Empty> terminalClose_Pre($grpc.ServiceCall $call, $async.Future<$0.TerminalSessionId> $request) async {
+    return terminalClose($call, await $request);
+  }
+
+  $async.Future<$0.FileListReply> fileList_Pre($grpc.ServiceCall $call, $async.Future<$0.FileListRequest> $request) async {
+    return fileList($call, await $request);
+  }
+
+  $async.Future<$0.FileContent> fileRead_Pre($grpc.ServiceCall $call, $async.Future<$0.FileReadRequest> $request) async {
+    return fileRead($call, await $request);
+  }
+
+  $async.Future<$0.StatusReply> fileWrite_Pre($grpc.ServiceCall $call, $async.Future<$0.FileWriteRequest> $request) async {
+    return fileWrite($call, await $request);
+  }
+
+  $async.Future<$0.CodeSearchReply> codeSearch_Pre($grpc.ServiceCall $call, $async.Future<$0.CodeSearchRequest> $request) async {
+    return codeSearch($call, await $request);
+  }
+
+  $async.Future<$0.ProjectContextReply> projectContext_Pre($grpc.ServiceCall $call, $async.Future<$0.Empty> $request) async {
+    return projectContext($call, await $request);
+  }
+
   $async.Stream<$0.ChatChunk> chat($grpc.ServiceCall call, $0.ChatRequest request);
   $async.Future<$0.StatusReply> getStatus($grpc.ServiceCall call, $0.StatusRequest request);
   $async.Future<$0.GrowthStatusReply> getGrowthStatus($grpc.ServiceCall call, $0.Empty request);
@@ -732,4 +922,14 @@ abstract class XiaoLingServiceBase extends $grpc.Service {
   $async.Future<$0.StatusReply> resetPersona($grpc.ServiceCall call, $0.Empty request);
   $async.Future<$0.ReminderList> listReminders($grpc.ServiceCall call, $0.Empty request);
   $async.Future<$0.StatusReply> completeReminder($grpc.ServiceCall call, $0.ReminderRequest request);
+  $async.Stream<$0.AgentEvent> agentStart($grpc.ServiceCall call, $0.AgentRequest request);
+  $async.Future<$0.TerminalSession> terminalCreate($grpc.ServiceCall call, $0.Empty request);
+  $async.Future<$0.Empty> terminalWrite($grpc.ServiceCall call, $0.TerminalInput request);
+  $async.Stream<$0.TerminalOutput> terminalRead($grpc.ServiceCall call, $0.TerminalSessionId request);
+  $async.Future<$0.Empty> terminalClose($grpc.ServiceCall call, $0.TerminalSessionId request);
+  $async.Future<$0.FileListReply> fileList($grpc.ServiceCall call, $0.FileListRequest request);
+  $async.Future<$0.FileContent> fileRead($grpc.ServiceCall call, $0.FileReadRequest request);
+  $async.Future<$0.StatusReply> fileWrite($grpc.ServiceCall call, $0.FileWriteRequest request);
+  $async.Future<$0.CodeSearchReply> codeSearch($grpc.ServiceCall call, $0.CodeSearchRequest request);
+  $async.Future<$0.ProjectContextReply> projectContext($grpc.ServiceCall call, $0.Empty request);
 }

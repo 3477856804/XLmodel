@@ -623,6 +623,170 @@ class ToolKit:
         except Exception:
             pass
 
+    # ================================================================
+    # Agent 工具集（供 AgentEngine 调用）
+    # ================================================================
+    def agent_tools(self) -> list:
+        """返回 Agent 可用工具的定义列表（含参数 schema）。"""
+        return [
+            {
+                "name": "read_file",
+                "description": "读取指定文件内容，返回 {path, content, language, lines, size}",
+                "args": {
+                    "path": {"type": "string", "description": "文件相对或绝对路径",
+                             "required": True},
+                },
+            },
+            {
+                "name": "write_file",
+                "description": "写入（或追加）文件，自动创建父目录",
+                "args": {
+                    "path": {"type": "string", "description": "文件路径",
+                             "required": True},
+                    "content": {"type": "string", "description": "要写入的内容",
+                                 "required": True},
+                    "append": {"type": "boolean", "description": "是否追加模式",
+                               "required": False},
+                },
+            },
+            {
+                "name": "list_dir",
+                "description": "列出目录内容（目录在前、文件在后）",
+                "args": {
+                    "path": {"type": "string", "description": "目录路径，默认当前目录",
+                             "required": False},
+                },
+            },
+            {
+                "name": "search_code",
+                "description": "在项目代码中逐行搜索关键词（不区分大小写）",
+                "args": {
+                    "query": {"type": "string", "description": "搜索关键词",
+                               "required": True},
+                    "max_results": {"type": "integer", "description": "最大返回条数",
+                                    "required": False},
+                },
+            },
+            {
+                "name": "run_command",
+                "description": "执行一条 shell 命令（超时 30 秒），返回 stdout+stderr",
+                "args": {
+                    "cmd": {"type": "string", "description": "要执行的 shell 命令",
+                             "required": True},
+                },
+            },
+            {
+                "name": "web_search",
+                "description": "联网搜索，返回 [{title, url, snippet}]",
+                "args": {
+                    "query": {"type": "string", "description": "搜索查询词",
+                               "required": True},
+                },
+            },
+            {
+                "name": "get_project_context",
+                "description": "获取当前项目上下文（文件统计、语言分布、README）",
+                "args": {},
+            },
+        ]
+
+    def _file_manager(self):
+        """惰性构建 FileManager，避免循环导入与初始化开销。"""
+        try:
+            from .fileops import FileManager
+            return FileManager(str(self.tools.base_dir))
+        except Exception as e:  # noqa: BLE001
+            print(f"  [Tools] FileManager 初始化失败：{type(e).__name__}: {e}")
+            return None
+
+    def execute_tool(self, name: str, args: dict | None = None) -> str:
+        """按 name 分发执行 Agent 工具，统一返回字符串结果。异常被捕获。"""
+        args = dict(args) if isinstance(args, dict) else {}
+        try:
+            if name == "read_file":
+                fm = self._file_manager()
+                if fm is None:
+                    return "文件管理器不可用"
+                res = fm.read_file(args.get("path", "."))
+                if res.get("error"):
+                    return f"读取失败：{res['error']}"
+                header = f"[{res.get('language','text')}] {res.get('lines',0)} 行, {res.get('size',0)} 字节\n"
+                return header + res.get("content", "")
+
+            if name == "write_file":
+                fm = self._file_manager()
+                if fm is None:
+                    return "文件管理器不可用"
+                ok = fm.write_file(args.get("path", ""),
+                                   args.get("content", ""),
+                                   append=bool(args.get("append", False)))
+                return f"写入成功：{args.get('path')}" if ok else "写入失败"
+
+            if name == "list_dir":
+                fm = self._file_manager()
+                if fm is None:
+                    return "文件管理器不可用"
+                res = fm.list_dir(args.get("path", "."))
+                if res.get("error"):
+                    return f"列出失败：{res['error']}"
+                lines = []
+                for it in res.get("items", []):
+                    tag = "[D]" if it["is_dir"] else "[F]"
+                    lines.append(f"{tag} {it['name']}")
+                return "\n".join(lines) if lines else "（空目录）"
+
+            if name == "search_code":
+                from .search import search_code
+                query = args.get("query", "")
+                if not query:
+                    return "缺少 query"
+                matches = search_code(query,
+                                      path=str(self.tools.base_dir),
+                                      max_results=int(args.get("max_results", 50)))
+                if not matches:
+                    return f"未找到与「{query}」相关的代码"
+                out = [f"共 {len(matches)} 条："]
+                for m in matches[:20]:
+                    out.append(f"{m['file']}:{m['line']} ({m['kind']}) {m['text'][:80]}")
+                return "\n".join(out)
+
+            if name == "run_command":
+                import subprocess as _sp
+                cmd = args.get("cmd", "")
+                if not cmd:
+                    return "缺少 cmd"
+                proc = _sp.run(cmd, shell=True, capture_output=True,
+                               text=True, timeout=30)
+                out = (proc.stdout or "") + (proc.stderr or "")
+                return out.strip() or f"命令执行完成（退出码 {proc.returncode}，无输出）"
+
+            if name == "web_search":
+                from .search import search_web
+                query = args.get("query", "")
+                if not query:
+                    return "缺少 query"
+                results = search_web(query, n=5)
+                if not results:
+                    return f"未找到与「{query}」相关的结果"
+                lines = []
+                for i, r in enumerate(results, 1):
+                    lines.append(f"[{i}] {r.get('title','')}\n    {r.get('url','')}\n    {r.get('snippet','')[:120]}")
+                return "\n".join(lines)
+
+            if name == "get_project_context":
+                from .context import ProjectContext
+                pc = ProjectContext(str(self.tools.base_dir))
+                res = pc.collect()
+                return (f"项目：{res.get('project_name','')}\n"
+                        f"文件数：{res.get('total_files',0)}，"
+                        f"总行数：{res.get('total_lines',0)}\n"
+                        f"语言：{', '.join(res.get('languages', []))}\n"
+                        f"README：{(res.get('readme','') or '（无）')[:500]}")
+
+            return f"未知工具：{name}"
+        except Exception as e:  # noqa: BLE001
+            return f"工具 {name} 执行异常：{type(e).__name__}: {e}"
+
 
 def quick_calc(expr: str) -> str:
     return ToolManager._calculator(expr)

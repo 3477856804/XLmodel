@@ -8,6 +8,7 @@ import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
+import 'agent_page.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -485,6 +486,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 ],
               ),
             ),
+            _agentEntryBtn(p),
+            const SizedBox(width: 8),
             _headerBtn(
               p,
               _ttsOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
@@ -567,6 +570,31 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 letterSpacing: XlLetterSpacing.ultra,
               )),
         ],
+      ),
+    );
+  }
+
+  Widget _agentEntryBtn(XlPalette p) {
+    return _Pressable(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AgentPage())),
+      scale: 0.92,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: AppTheme.brand(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome_rounded, size: 15, color: p.btnInk),
+            const SizedBox(width: 6),
+            Text('Agent',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  fontWeight: FontWeight.w800,
+                  color: p.btnInk,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
       ),
     );
   }
