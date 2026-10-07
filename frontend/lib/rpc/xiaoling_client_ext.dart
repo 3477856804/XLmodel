@@ -26,14 +26,23 @@ class XlChatSession {
   DateTime startedAt = DateTime.now();
   DateTime? finishedAt;
   bool done = false;
+  bool cancelled = false;
   String? error;
+  ResponseStream<ChatChunk>? _stream;
   void Function(String delta)? onDelta;
   void Function(int count, int bytes)? onProgress;
   XlChatSession(this.text);
   Duration get elapsed => (finishedAt ?? DateTime.now()).difference(startedAt);
   String get result => buffer.toString();
-  bool get isComplete => done && error == null;
+  bool get isComplete => done && error == null && !cancelled;
   bool get hasError => error != null;
+  void attach(ResponseStream<ChatChunk> st) => _stream = st;
+  void detach() => _stream = null;
+  void cancel() {
+    cancelled = true;
+    _stream?.cancel();
+    _stream = null;
+  }
   double get estimatedSpeed {
     final ms = elapsed.inMilliseconds;
     if (ms <= 0) return 0;
@@ -47,6 +56,7 @@ class XlChatSession {
     startedAt = DateTime.now();
     finishedAt = null;
     done = false;
+    cancelled = false;
     error = null;
   }
 }
@@ -199,32 +209,56 @@ extension XlApiChat on XiaoLingClient {
     XlCallOptions opt = XlCallOptions.none,
     void Function(String delta)? onDelta,
     void Function(int count, int bytes)? onProgress,
+    void Function(XlChatSession session)? onAttached,
   }) async {
     final session = XlChatSession(text);
     session.onDelta = onDelta;
     session.onProgress = onProgress;
+    onAttached?.call(session);
+    final completer = Completer<void>();
+    void complete() {
+      if (!completer.isCompleted) completer.complete();
+    }
     try {
       final req = ChatRequest(text: text);
-      await for (final chunk in chat(req, options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!))) {
-        session.chunkCount++;
-        session.byteCount += chunk.delta.length;
-        if (chunk.error.isNotEmpty) {
-          session.error = chunk.error;
-          break;
-        }
-        if (chunk.delta.isNotEmpty) {
-          session.deltas.add(chunk.delta);
-          session.buffer.write(chunk.delta);
-          onDelta?.call(chunk.delta);
-        }
-        onProgress?.call(session.chunkCount, session.byteCount);
-        if (chunk.done) break;
-      }
-      session.done = true;
+      final stream = chat(req, options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!));
+      session.attach(stream);
+      stream.listen(
+        (chunk) {
+          if (session.cancelled) return;
+          session.chunkCount++;
+          session.byteCount += chunk.delta.length;
+          if (chunk.error.isNotEmpty) {
+            session.error = chunk.error;
+            complete();
+            return;
+          }
+          if (chunk.delta.isNotEmpty) {
+            session.deltas.add(chunk.delta);
+            session.buffer.write(chunk.delta);
+            onDelta?.call(chunk.delta);
+          }
+          onProgress?.call(session.chunkCount, session.byteCount);
+          if (chunk.done) {
+            session.done = true;
+            complete();
+          }
+        },
+        onError: (Object e) {
+          if (!session.cancelled) session.error = e.toString();
+          complete();
+        },
+        onDone: () {
+          session.done = true;
+          complete();
+        },
+      );
+      await completer.future;
     } catch (e) {
-      session.error = e.toString();
+      if (!session.cancelled) session.error = e.toString();
     } finally {
       session.finishedAt = DateTime.now();
+      session.detach();
     }
     return session;
   }

@@ -81,8 +81,6 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
     }
   }
 
-  int _todayCount(pb.GrowthStatusReply g) => (g.totalInteractions * 0.06).round();
-
   Future<void> _exportGrowthData() async {
     final g = _data;
     if (g == null) return;
@@ -132,9 +130,9 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
 
   Widget _dailyGoalCard(XlPalette p) {
     final g = _data!;
-    final today = _todayCount(g);
-    final ratio = (today / _dailyGoal).clamp(0.0, 1.0);
-    final done = today >= _dailyGoal;
+    final current = g.totalInteractions;
+    final ratio = (current / _dailyGoal).clamp(0.0, 1.0);
+    final done = current >= _dailyGoal;
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
@@ -145,7 +143,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
             children: [
               Icon(Icons.flag_rounded, size: 18, color: p.gold),
               const SizedBox(width: 10),
-              Text('每日互动目标',
+              Text('累计互动里程碑',
                   style: TextStyle(
                       fontSize: XlFont.h6,
                       fontWeight: FontWeight.w800,
@@ -161,7 +159,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
             textBaseline: TextBaseline.alphabetic,
             children: [
               _AnimatedCounter(
-                value: today.toDouble(),
+                value: current.toDouble(),
                 decimals: 0,
                 duration: const Duration(milliseconds: 700),
                 style: TextStyle(
@@ -215,7 +213,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               }),
               const SizedBox(width: 10),
               Expanded(
-                child: Text('目标每 5 次可调，今天再聊 ${(_dailyGoal - today).clamp(0, 999)} 次即可达标',
+                child: Text('里程碑每 5 次可调，再聊 ${(_dailyGoal - current).clamp(0, 999)} 次即可达成',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         fontSize: XlFont.label,
@@ -247,8 +245,12 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   }
 
   Widget _weekCompareCard(XlPalette p) {
-    final thisWeek = <double>[4, 6, 5, 8, 7, 9, 6];
-    final lastWeek = <double>[3, 5, 4, 6, 5, 7, 5];
+    final g = _data!;
+    final rows = <_RealMetric>[
+      _RealMetric('亲密度', g.normalizedProgress / 100, p.pink),
+      _RealMetric('进化进度', g.generationRatio, p.gold),
+      _RealMetric('情绪能量', g.emotionEnergy, p.violet),
+    ];
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
@@ -257,45 +259,56 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
         children: [
           Row(
             children: [
-              Icon(Icons.bar_chart_rounded, size: 18, color: p.pink),
+              Icon(Icons.insights_rounded, size: 18, color: p.pink),
               const SizedBox(width: 10),
-              Text('本周 vs 上周',
+              Text('当前状态',
                   style: TextStyle(
                       fontSize: XlFont.h6,
                       fontWeight: FontWeight.w800,
                       color: p.text1,
                       letterSpacing: XlLetterSpacing.normal)),
               const Spacer(),
-              _legendDot(p, p.pink, '本周'),
-              const SizedBox(width: 12),
-              _legendDot(p, p.text3, '上周'),
+              Text('实时',
+                  style: TextStyle(
+                      fontSize: XlFont.micro,
+                      color: p.green,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: XlLetterSpacing.wider)),
             ],
           ),
           const SizedBox(height: 18),
-          SizedBox(
-            height: 150,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: _WeekComparePainter(
-                thisWeek: thisWeek,
-                lastWeek: lastWeek,
-                pink: p.pink,
-                track: p.surfaceLo,
+          for (final r in rows) ...[
+            Row(
+              children: [
+                Container(width: 8, height: 8, decoration: AppTheme.glowDot(r.color, size: 8)),
+                const SizedBox(width: 10),
+                Text(r.label,
+                    style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        color: p.text2,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: XlLetterSpacing.wider)),
+                const Spacer(),
+                Text('${(r.value * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                    style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        color: r.color,
+                        fontWeight: FontWeight.w800,
+                        fontFeatures: const [FontFeature.tabularFigures()])),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: r.value.clamp(0.0, 1.0),
+                minHeight: 5,
+                backgroundColor: p.surfaceLo,
+                valueColor: AlwaysStoppedAnimation(r.color),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: ['一', '二', '三', '四', '五', '六', '日']
-                .map((d) => Text(d,
-                    style: TextStyle(
-                        fontSize: XlFont.micro,
-                        color: p.decor,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: XlLetterSpacing.wider)))
-                .toList(),
-          ),
+            const SizedBox(height: 16),
+          ],
         ],
       ),
     );
@@ -315,18 +328,13 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
 
   List<_TimelineNode> _buildTimeline() {
     final g = _data!;
-    final all = [
-      _TimelineNode('初识', '第一次和你说话', '已完成', true, 'pink', DateTime.now().subtract(const Duration(days: 30)), Icons.waving_hand_rounded),
-      _TimelineNode('第一次成长', '累计对话达到 10 次', '已达成', true, 'gold', DateTime.now().subtract(const Duration(days: 22)), Icons.trending_up_rounded),
-      _TimelineNode('记忆突破', '知识图谱节点超过 50', '已达成', true, 'violet', DateTime.now().subtract(const Duration(days: 14)), Icons.hub_rounded),
-      _TimelineNode('当前阶段', g.displayStage, '进行中', true, 'green', DateTime.now().subtract(const Duration(days: 3)), Icons.auto_awesome_rounded),
-      _TimelineNode('深度共鸣', '亲密度达到 80%', '未解锁', false, 'blue', DateTime.now().add(const Duration(days: 10)), Icons.favorite_rounded),
-      _TimelineNode('灵魂契合', '完成 1000 次对话', '未解锁', false, 'pink', DateTime.now().add(const Duration(days: 30)), Icons.psychology_rounded),
-    ];
     final now = DateTime.now();
-    final cutoffDays = _rangeIndex == 0 ? 7 : _rangeIndex == 1 ? 30 : 100000;
-    final cutoff = now.subtract(Duration(days: cutoffDays));
-    return all.where((n) => n.done || n.date.isAfter(cutoff)).toList();
+    return [
+      _TimelineNode('当前阶段', g.displayStage, '进行中', true, 'green', now, Icons.auto_awesome_rounded),
+      _TimelineNode('进化代数', g.generationLabel, g.totalGenerations > 0 ? '已完成进化' : '待启动', g.totalGenerations > 0, 'gold', now, Icons.trending_up_rounded),
+      _TimelineNode('累计互动', g.interactionsLabel, '记忆节点已写入', g.totalInteractions > 0, 'pink', now, Icons.chat_bubble_outline_rounded),
+      _TimelineNode('当前情绪', g.displayEmotion, '能量 ${(g.emotionEnergy * 100).toStringAsFixed(0)}%', true, 'violet', now, Icons.mood_rounded),
+    ];
   }
 
   @override
@@ -793,7 +801,7 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Text('近 7 天情绪趋势',
+                  Text('情绪能量',
                       style: TextStyle(
                         fontSize: XlFont.micro,
                         color: p.btnInk.withOpacity(0.6),
@@ -1108,10 +1116,10 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   Widget _statsGrid(XlPalette p) {
     final g = _data!;
     final items = <_GrowthStat>[
-      _GrowthStat('交互次数', '${g.totalInteractions}', '次', Icons.chat_bubble_outline_rounded, 'pink', (g.totalInteractions / 200).clamp(0.0, 1.0), '今日 +${(g.totalInteractions * 0.04).toInt()}', number: g.totalInteractions.toDouble()),
-      _GrowthStat('当前情绪', g.displayEmotion, '', Icons.mood_rounded, 'gold', g.emotionEnergy, '相比昨日 +12%'),
+      _GrowthStat('交互次数', '${g.totalInteractions}', '次', Icons.chat_bubble_outline_rounded, 'pink', (g.totalInteractions / 200).clamp(0.0, 1.0), '累计对话', number: g.totalInteractions.toDouble()),
+      _GrowthStat('当前情绪', g.displayEmotion, '', Icons.mood_rounded, 'gold', g.emotionEnergy, '能量 ${(g.emotionEnergy * 100).toStringAsFixed(0)}%'),
       _GrowthStat('训练状态', g.trainingLabel, '', Icons.auto_awesome_rounded, 'violet', g.paused ? 0.3 : 0.75, g.paused ? '手动暂停' : '后台运行'),
-      _GrowthStat('当前段位', g.displayRank, '', Icons.emoji_events_rounded, 'green', 0.62, '距下段位 38%'),
+      _GrowthStat('当前段位', g.displayRank, '', Icons.emoji_events_rounded, 'green', g.generationRatio, '第 ${g.currentGeneration} 代'),
     ];
     return LayoutBuilder(
       builder: (context, c) {
@@ -1250,15 +1258,19 @@ class _GrowthPageState extends State<GrowthPage> with TickerProviderStateMixin {
   }
 
   Widget _emotionSparkline(XlPalette p) {
-    final values = <double>[0.3, 0.45, 0.38, 0.55, 0.62, 0.58, 0.72];
+    final energy = (_data?.emotionEnergy ?? 0).clamp(0.0, 1.0);
     return Container(
       width: 60,
       height: 20,
       margin: const EdgeInsets.only(left: 4),
-      child: CustomPaint(
-        painter: _SparklinePainter(
-          values: values,
-          color: p.btnInk,
+      alignment: Alignment.center,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(99),
+        child: LinearProgressIndicator(
+          value: energy,
+          minHeight: 5,
+          backgroundColor: Colors.black.withOpacity(0.2),
+          valueColor: AlwaysStoppedAnimation(p.btnInk),
         ),
       ),
     );
@@ -2029,89 +2041,9 @@ class _AnimatedCounter extends StatelessWidget {
   }
 }
 
-class _SparklinePainter extends CustomPainter {
-  final List<double> values;
+class _RealMetric {
+  final String label;
+  final double value;
   final Color color;
-  _SparklinePainter({required this.values, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (values.length < 2) return;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-    final dx = size.width / (values.length - 1);
-    final maxV = values.reduce((a, b) => a > b ? a : b);
-    final minV = values.reduce((a, b) => a < b ? a : b);
-    final range = maxV - minV == 0 ? 1 : maxV - minV;
-    final path = Path();
-    for (var i = 0; i < values.length; i++) {
-      final x = i * dx;
-      final y = size.height - ((values[i] - minV) / range) * (size.height - 3) - 1.5;
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(path, paint);
-    final lastX = (values.length - 1) * dx;
-    final lastY = size.height - ((values.last - minV) / range) * (size.height - 3) - 1.5;
-    canvas.drawCircle(Offset(lastX, lastY), 2, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SparklinePainter old) =>
-      old.values != values || old.color != color;
-}
-
-class _WeekComparePainter extends CustomPainter {
-  final List<double> thisWeek;
-  final List<double> lastWeek;
-  final Color pink;
-  final Color track;
-  _WeekComparePainter({
-    required this.thisWeek,
-    required this.lastWeek,
-    required this.pink,
-    required this.track,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final n = thisWeek.length;
-    if (n == 0) return;
-    final maxV = math.max(
-      thisWeek.reduce(math.max),
-      lastWeek.reduce(math.max),
-    );
-    final groupW = size.width / n;
-    final barW = groupW * 0.26;
-    final baseline = size.height - 4;
-    for (var i = 0; i < n; i++) {
-      final cx = groupW * i + groupW / 2;
-      final hLast = (lastWeek[i] / maxV) * (size.height - 20);
-      final hThis = (thisWeek[i] / maxV) * (size.height - 20);
-      final lastRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: Offset(cx - barW * 0.7, baseline - hLast / 2), width: barW, height: hLast),
-        Radius.circular(barW / 2),
-      );
-      canvas.drawRRect(lastRect, Paint()..color = track);
-      final thisRect = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: Offset(cx + barW * 0.7, baseline - hThis / 2), width: barW, height: hThis),
-        Radius.circular(barW / 2),
-      );
-      canvas.drawRRect(
-        thisRect,
-        Paint()
-          ..shader = LinearGradient(colors: [pink, pink.withOpacity(0.7)]).createShader(thisRect.outerRect),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _WeekComparePainter old) =>
-      old.thisWeek != thisWeek || old.lastWeek != lastWeek || old.pink != pink;
+  const _RealMetric(this.label, this.value, this.color);
 }

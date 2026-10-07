@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
@@ -44,12 +45,17 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   final List<_Activity> _activities = [];
   Timer? _refreshTimer;
   Timer? _resTimer;
+  Timer? _sampleTimer;
   double _cpuPct = 0.26;
   double _memPct = 0.44;
   double _diskPct = 0.61;
+  double _cpuTarget = 0.26;
+  double _memTarget = 0.44;
+  double _diskTarget = 0.61;
   DateTime? _lastRefresh;
   int _refreshCountdown = 30;
   bool _autoRefresh = true;
+  bool _refreshing = false;
   int _refreshTick = 0;
 
   @override
@@ -66,37 +72,147 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _actAnim = CurvedAnimation(parent: _actCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
     _lastRefresh = DateTime.now();
-    _resTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) => _tickResource());
+    _resTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _tickResource());
+    _sampleTimer = Timer.periodic(const Duration(seconds: 3), (_) => _sampleResources());
     _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickRefresh());
+    _sampleResources();
     _bootstrap();
   }
 
   void _tickResource() {
     if (!mounted) return;
     setState(() {
-      _cpuPct = (_cpuPct + (DateTime.now().millisecond % 7 - 3) / 40).clamp(0.05, 0.95);
-      _memPct = (_memPct + (DateTime.now().second % 5 - 2) / 60).clamp(0.1, 0.92);
-      _diskPct = (_diskPct + 0.001).clamp(0.2, 0.95);
+      _cpuPct += (_cpuTarget - _cpuPct) * 0.25;
+      _memPct += (_memTarget - _memPct) * 0.25;
+      _diskPct += (_diskTarget - _diskPct) * 0.25;
     });
+  }
+
+  Future<void> _sampleResources() async {
+    if (!mounted) return;
+    try {
+      if (Platform.isLinux || Platform.isMacOS) {
+        final cpu = await _sampleCpuPosix();
+        final mem = await _sampleMemPosix();
+        final disk = await _sampleDiskPosix();
+        if (!mounted) return;
+        setState(() {
+          if (cpu != null) _cpuTarget = cpu;
+          if (mem != null) _memTarget = mem;
+          if (disk != null) _diskTarget = disk;
+        });
+      } else if (Platform.isWindows) {
+        final mem = await _sampleMemWindows();
+        if (!mounted) return;
+        if (mem != null) setState(() => _memTarget = mem);
+      }
+    } catch (_) {}
+  }
+
+  Future<double?> _sampleCpuPosix() async {
+    if (!Platform.isLinux) return null;
+    Future<List<int>> readProc() async {
+      final lines = await File('/proc/stat').readAsLines();
+      final parts = lines.first.split(RegExp(r'\s+'));
+      return parts.sublist(1).map(int.parse).toList();
+    }
+
+    try {
+      final a = await readProc();
+      await Future.delayed(const Duration(milliseconds: 180));
+      final b = await readProc();
+      final idleA = a[3] + (a.length > 4 ? a[4] : 0);
+      final idleB = b[3] + (b.length > 4 ? b[4] : 0);
+      final totalA = a.reduce((x, y) => x + y);
+      final totalB = b.reduce((x, y) => x + y);
+      final dt = totalB - totalA;
+      if (dt <= 0) return null;
+      final di = idleB - idleA;
+      return (1 - di / dt).clamp(0.03, 0.99);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<double?> _sampleMemPosix() async {
+    try {
+      final r = await Process.run('free', ['-m']);
+      if (r.exitCode != 0) return null;
+      for (final line in (r.stdout as String).split('\n')) {
+        if (!line.startsWith('Mem:')) continue;
+        final cols = line.trim().split(RegExp(r'\s+'));
+        final total = double.parse(cols[1]);
+        final avail = double.parse(cols[6]);
+        if (total <= 0) return null;
+        return ((total - avail) / total).clamp(0.03, 0.99);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<double?> _sampleDiskPosix() async {
+    try {
+      final r = await Process.run('df', ['-P', '/']);
+      if (r.exitCode != 0) return null;
+      final lines = (r.stdout as String).split('\n');
+      for (var i = 1; i < lines.length; i++) {
+        final cols = lines[i].trim().split(RegExp(r'\s+'));
+        if (cols.length < 5) continue;
+        final pct = cols[4].replaceAll('%', '');
+        final v = double.tryParse(pct);
+        if (v != null) return (v / 100).clamp(0.03, 0.99);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<double?> _sampleMemWindows() async {
+    try {
+      final r = await Process.run('wmic', ['OS', 'get', 'FreePhysicalMemory,TotalVisibleMemorySize', '/Value']);
+      if (r.exitCode != 0) return null;
+      double? freeMem;
+      double? totalMem;
+      for (final line in (r.stdout as String).split('\n')) {
+        final t = line.trim();
+        if (t.startsWith('FreePhysicalMemory=')) {
+          freeMem = double.tryParse(t.split('=')[1]);
+        } else if (t.startsWith('TotalVisibleMemorySize=')) {
+          totalMem = double.tryParse(t.split('=')[1]);
+        }
+      }
+      if (freeMem == null || totalMem == null || totalMem <= 0) return null;
+      return (1 - freeMem / totalMem).clamp(0.03, 0.99);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _tickRefresh() {
     if (!mounted) return;
     if (!_autoRefresh) return;
-    setState(() {
-      _refreshCountdown--;
-      if (_refreshCountdown <= 0) {
+    if (_refreshing) return;
+    setState(() => _refreshCountdown--);
+    if (_refreshCountdown <= 0) {
+      setState(() {
         _refreshCountdown = 30;
-        _refreshTick++;
+        _refreshing = true;
         _lastRefresh = DateTime.now();
-      }
-    });
+      });
+      unawaited(_bootstrap().whenComplete(() {
+        if (!mounted) return;
+        setState(() {
+          _refreshing = false;
+          _refreshTick++;
+        });
+      }));
+    }
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
     _resTimer?.cancel();
+    _sampleTimer?.cancel();
     _enterCtrl.dispose();
     _pulseCtrl.dispose();
     _ringCtrl.dispose();
@@ -1176,7 +1292,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               letterSpacing: XlLetterSpacing.wider,
             )),
         const SizedBox(width: 10),
-        Text(_autoRefresh ? '${_refreshCountdown}s 后更新' : '已暂停',
+        Text(
+            _refreshing
+                ? '正在刷新...'
+                : (_autoRefresh ? '${_refreshCountdown}s 后更新' : '已暂停'),
             style: TextStyle(
               fontSize: XlFont.micro,
               color: p.text3,

@@ -54,6 +54,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   final List<String> _inputHistory = [];
   int _historyIdx = -1;
   bool _interruptRequested = false;
+  XlChatSession? _activeSession;
   bool _showTimestamp = false;
   String? _quotedText;
   int _matchCount = 0;
@@ -176,6 +177,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     final text = (preset ?? _input.text).trim();
     if (text.isEmpty || _busy) return;
     if (preset == null) _input.clear();
+    _interruptRequested = false;
     final myId = 'm${_msgSeq++}';
     final replyId = 'm${_msgSeq++}';
     setState(() {
@@ -201,20 +203,25 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     try {
       final session = await XlClient.stub.chatSession(
         text,
+        onAttached: (s) => _activeSession = s,
         onDelta: (delta) {
-          if (!mounted) return;
+          if (!mounted || _interruptRequested) return;
           final idx = _msgs.indexWhere((m) => m.id == replyId);
           if (idx < 0) return;
+          if (_msgs[idx].status != _MsgStatus.streaming) return;
           setState(() {
             _msgs[idx] = _msgs[idx].copyWith(text: _msgs[idx].text + delta);
           });
           _scrollBottom();
         },
       );
+      _activeSession = null;
       if (!mounted) return;
       final idx = _msgs.indexWhere((m) => m.id == replyId);
       if (idx < 0) return;
-      if (session.hasError) {
+      if (session.cancelled) {
+        return;
+      } else if (session.hasError) {
         setState(() {
           _msgs[idx] = _msgs[idx].copyWith(
             text: session.error ?? '出错了',
@@ -231,6 +238,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         }
       }
     } catch (e) {
+      _activeSession = null;
       if (!mounted) return;
       final idx = _msgs.indexWhere((m) => m.id == replyId);
       if (idx >= 0) {
@@ -242,6 +250,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         });
       }
     } finally {
+      _activeSession = null;
       if (mounted) setState(() => _busy = false);
       _scrollBottom();
     }
@@ -258,23 +267,30 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     }
     if (prompt == null || prompt.isEmpty) return;
     final targetId = _msgs[errorIdx].id;
+    _interruptRequested = false;
     setState(() {
       _msgs[errorIdx] = _msgs[errorIdx].copyWith(text: '', status: _MsgStatus.streaming);
       _busy = true;
     });
     _scrollBottom(force: true);
     try {
-      final session = await XlClient.stub.chatSession(prompt, onDelta: (delta) {
-        if (!mounted) return;
+      final session = await XlClient.stub.chatSession(prompt,
+          onAttached: (s) => _activeSession = s,
+          onDelta: (delta) {
+        if (!mounted || _interruptRequested) return;
         final idx = _msgs.indexWhere((m) => m.id == targetId);
         if (idx < 0) return;
+        if (_msgs[idx].status != _MsgStatus.streaming) return;
         setState(() => _msgs[idx] = _msgs[idx].copyWith(text: _msgs[idx].text + delta));
         _scrollBottom();
       });
+      _activeSession = null;
       if (!mounted) return;
       final idx = _msgs.indexWhere((m) => m.id == targetId);
       if (idx < 0) return;
-      if (session.hasError) {
+      if (session.cancelled) {
+        return;
+      } else if (session.hasError) {
         setState(() => _msgs[idx] = _msgs[idx].copyWith(text: session.error ?? '出错了', status: _MsgStatus.error));
       } else {
         setState(() => _msgs[idx] = _msgs[idx].copyWith(status: _MsgStatus.done));
@@ -282,12 +298,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         if (_ttsOn && reply.isNotEmpty) _speak(reply, targetId);
       }
     } catch (e) {
+      _activeSession = null;
       if (!mounted) return;
       final idx = _msgs.indexWhere((m) => m.id == targetId);
       if (idx >= 0) {
         setState(() => _msgs[idx] = _msgs[idx].copyWith(text: '出错了：$e', status: _MsgStatus.error));
       }
     } finally {
+      _activeSession = null;
       if (mounted) setState(() => _busy = false);
       _scrollBottom();
     }
@@ -412,13 +430,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   void _interruptGeneration() {
     if (!_busy || _interruptRequested) return;
+    _activeSession?.cancel();
     setState(() {
       _interruptRequested = true;
       final idx = _msgs.indexWhere((m) => m.status == _MsgStatus.streaming);
       if (idx >= 0) {
         _msgs[idx] = _msgs[idx].copyWith(
-          text: _msgs[idx].text.isEmpty ? '（已手动中断）' : '${_msgs[idx].text}\n（已手动中断）',
-          status: _MsgStatus.done,
+          text: _msgs[idx].text.isEmpty ? '已中断' : '${_msgs[idx].text}\n已中断',
+          status: _MsgStatus.interrupted,
         );
       }
       _busy = false;
@@ -1148,6 +1167,21 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                                     ),
                                   if (!isMe && m.status == _MsgStatus.done && m.text.isNotEmpty)
                                     _bubbleActions(p, m),
+                                  if (!isMe && m.status == _MsgStatus.interrupted)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Row(children: [
+                                        Icon(Icons.stop_circle_outlined, size: 11, color: p.gold),
+                                        const SizedBox(width: 4),
+                                        Text('已中断',
+                                            style: TextStyle(
+                                              fontSize: XlFont.micro,
+                                              color: p.gold,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: XlLetterSpacing.wider,
+                                            )),
+                                      ]),
+                                    ),
                                 ],
                               ),
                   ),
@@ -1159,7 +1193,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               ],
             ),
           ),
-          if (!isMe && m.status == _MsgStatus.done && m.text.isNotEmpty)
+          if (!isMe && (m.status == _MsgStatus.done || m.status == _MsgStatus.interrupted) && m.text.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(left: 46, bottom: 4),
               child: Text(formatClock(m.time),
@@ -1756,7 +1790,7 @@ class _SendButtonState extends State<_SendButton> {
   }
 }
 
-enum _MsgStatus { streaming, done, error }
+enum _MsgStatus { streaming, done, interrupted, error }
 
 class _Msg {
   final String id;
