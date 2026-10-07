@@ -30,6 +30,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   pb.TrainingStatusReply? _training;
   pb.StatusReply? _status;
   pb.HardwareInfo? _hardware;
+  pb.PersonaReply? _persona;
+  pb.SettingsReply? _settings;
   String? _modelPath;
   String _modelName = '小凌';
   bool _loading = true;
@@ -46,12 +48,13 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   Timer? _refreshTimer;
   Timer? _resTimer;
   Timer? _sampleTimer;
-  double _cpuPct = 0.26;
-  double _memPct = 0.44;
-  double _diskPct = 0.61;
-  double _cpuTarget = 0.26;
-  double _memTarget = 0.44;
-  double _diskTarget = 0.61;
+  double _cpuPct = 0.0;
+  double _memPct = 0.0;
+  double _diskPct = 0.0;
+  double _cpuTarget = 0.0;
+  double _memTarget = 0.0;
+  double _diskTarget = 0.0;
+  bool _resReady = false;
   DateTime? _lastRefresh;
   int _refreshCountdown = 30;
   bool _autoRefresh = true;
@@ -106,7 +109,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         if (!mounted) return;
         if (mem != null) setState(() => _memTarget = mem);
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
+    if (mounted) setState(() => _resReady = true);
   }
 
   Future<double?> _sampleCpuPosix() async {
@@ -146,7 +150,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         if (total <= 0) return null;
         return ((total - avail) / total).clamp(0.03, 0.99);
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return null;
   }
 
@@ -162,7 +166,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         final v = double.tryParse(pct);
         if (v != null) return (v / 100).clamp(0.03, 0.99);
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('操作失败: $e'); }
     return null;
   }
 
@@ -265,20 +269,24 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       }
       _loading = false;
     });
-    _seedActivities();
+    unawaited(_fetchPersona());
+    unawaited(_fetchSettings());
     _ringCtrl.forward(from: 0);
     _actCtrl.forward(from: 0);
   }
 
-  void _seedActivities() {
-    _activities.clear();
-    final g = _growth;
-    if (g == null) return;
-    _activities
-      ..add(_Activity('成长进度更新', g.shortSummary, Icons.trending_up_rounded, 'pink', DateTime.now().subtract(const Duration(minutes: 2))))
-      ..add(_Activity('记忆已写入', g.interactionsLabel, Icons.psychology_outlined, 'violet', DateTime.now().subtract(const Duration(minutes: 18))))
-      ..add(_Activity('情绪状态', g.displayEmotion, Icons.mood_rounded, 'gold', DateTime.now().subtract(const Duration(hours: 1))))
-      ..add(_Activity('进化代数', g.generationLabel, Icons.auto_awesome_rounded, 'green', DateTime.now().subtract(const Duration(hours: 3))));
+  Future<void> _fetchPersona() async {
+    final stub = XlClient.stub;
+    final p = await stub.safe(() => stub.fetchPersona());
+    if (!mounted) return;
+    setState(() => _persona = p);
+  }
+
+  Future<void> _fetchSettings() async {
+    final stub = XlClient.stub;
+    final s = await stub.safe(() => stub.settings());
+    if (!mounted) return;
+    setState(() => _settings = s);
   }
 
   Color _colorOf(XlPalette p, String key) {
@@ -509,15 +517,19 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
 
   Widget _statsGrid(XlPalette p) {
     final g = _growth;
+    final persona = _persona;
     final prog = g?.normalizedProgress ?? 0.0;
     final inter = g?.totalInteractions ?? 0;
     final gen = g?.currentGeneration ?? 0;
     final totalGen = g?.totalGenerations ?? 0;
+    final rawScore = persona?.relationshipScore ?? 0.0;
+    final intimacy = persona == null ? 0.0 : (rawScore <= 1.0 ? rawScore * 100.0 : rawScore);
+    final relLabel = (persona == null || persona.relationship.isEmpty) ? '未同步' : persona.relationship;
     final items = <_Stat>[
-      _Stat('成长值', prog, '%', Icons.trending_up_rounded, 'pink', (prog / 100).clamp(0.0, 1.0), '本周 +${(prog * 0.08).toStringAsFixed(1)}%', 0),
-      _Stat('亲密度', (prog * 0.72), '%', Icons.favorite_rounded, 'gold', (prog * 0.72 / 100).clamp(0.0, 1.0), '今日聊了 ${(inter * 0.04).toInt()} 次', 1),
-      _Stat('记忆条数', inter.toDouble(), '条', Icons.psychology_outlined, 'violet', (inter / 200).clamp(0.0, 1.0), '新增 ${(inter * 0.03).toInt()} 条', 2),
-      _Stat('进化代数', gen.toDouble(), '/$totalGen', Icons.auto_awesome_rounded, 'green', totalGen == 0 ? 0.0 : (gen / totalGen).clamp(0.0, 1.0), '下一步：深度融合', 3),
+      _Stat('成长值', prog, '%', Icons.trending_up_rounded, 'pink', (prog / 100).clamp(0.0, 1.0), g?.displayRank ?? '—', 0),
+      _Stat('亲密度', intimacy, '%', Icons.favorite_rounded, 'gold', (intimacy / 100.0).clamp(0.0, 1.0), relLabel, 1),
+      _Stat('累计对话', inter.toDouble(), '次', Icons.psychology_outlined, 'violet', (inter / 200).clamp(0.0, 1.0), g?.displayEmotion ?? '—', 2),
+      _Stat('进化代数', gen.toDouble(), '/$totalGen', Icons.auto_awesome_rounded, 'green', totalGen == 0 ? 0.0 : (gen / totalGen).clamp(0.0, 1.0), g?.trainingLabel ?? '—', 3),
     ];
     return LayoutBuilder(
       builder: (context, c) {
@@ -737,20 +749,27 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               },
             ),
           ),
-          const SizedBox(height: 18),
-          _traitsRow(p),
+          if (_persona?.axes.isNotEmpty ?? false) ...[
+            const SizedBox(height: 18),
+            _traitsRow(p),
+          ],
         ],
       ),
     );
   }
 
   Widget _traitsRow(XlPalette p) {
+    final axes = _persona?.axes ?? const [];
+    const palette = ['pink', 'gold', 'violet', 'green'];
     final traits = <_Trait>[
-      const _Trait('温柔', 'pink', 0.82),
-      const _Trait('活泼', 'gold', 0.64),
-      const _Trait('聪慧', 'violet', 0.74),
-      const _Trait('专注', 'green', 0.56),
+      for (var i = 0; i < axes.length && i < 4; i++)
+        _Trait(
+          axes[i].label.isNotEmpty ? axes[i].label : axes[i].name,
+          palette[i % palette.length],
+          (axes[i].value <= 1.0 ? axes[i].value : axes[i].value / 100.0).clamp(0.0, 1.0),
+        ),
     ];
+    if (traits.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -985,7 +1004,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
           ),
           const SizedBox(height: 16),
           if (_activities.isEmpty)
-            _emptyState(p, '暂无活动', '数据加载后将显示最新动态')
+            _emptyState(p, '暂无活动记录', '后端暂未提供活动日志')
           else
             AnimatedBuilder(
               animation: _actAnim,
@@ -1119,12 +1138,12 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     final training = _training?.isTraining ?? false;
     final connected = _status != null;
     final hw = _hardware;
+    final ttsOn = _settings?.ttsEnabled ?? false;
     final items = <_Sys>[
       _Sys('后端服务', connected ? '运行中' : '未连接', Icons.dns_outlined, connected ? p.green : p.red, connected),
       _Sys('模型加载', _modelPath == null ? '待加载' : '已就绪', Icons.memory_outlined, _modelPath == null ? p.gold : p.green, _modelPath != null),
       _Sys('训练引擎', training ? '训练中' : '待机', Icons.auto_awesome_outlined, training ? p.pink : p.text3, training),
-      _Sys('语音合成', '就绪', Icons.volume_up_outlined, p.green, true),
-      _Sys('知识图谱', '${_growth?.totalInteractions ?? 0} 节点', Icons.hub_outlined, p.violet, true),
+      _Sys('语音合成', ttsOn ? '已启用' : '未配置', Icons.volume_up_outlined, ttsOn ? p.green : p.text3, ttsOn),
       _Sys('硬件加速', hw == null ? '未知' : hw.accelLabel, Icons.speed_rounded, hw?.hasGpu == true ? p.green : p.blue, hw?.hasGpu == true),
     ];
     return Container(
@@ -1222,24 +1241,37 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             SizedBox(
               width: 120,
               height: 120,
-              child: CustomPaint(
-                painter: _ResourceRingPainter(
-                  cpu: _cpuPct,
-                  mem: _memPct,
-                  disk: _diskPct,
-                  palette: p,
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    painter: _ResourceRingPainter(
+                      cpu: _cpuPct,
+                      mem: _memPct,
+                      disk: _diskPct,
+                      palette: p,
+                    ),
+                  ),
+                  if (!_resReady)
+                    Text('采样中...',
+                        style: TextStyle(
+                          fontSize: XlFont.micro,
+                          color: p.text3,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: XlLetterSpacing.wider,
+                        )),
+                ],
               ),
             ),
             const SizedBox(width: 18),
             Expanded(
               child: Column(
                 children: [
-                  _ringLegend(p, 'CPU', _cpuPct, p.pink),
+                  _ringLegend(p, 'CPU', _cpuPct, p.pink, _resReady),
                   const SizedBox(height: 12),
-                  _ringLegend(p, '内存', _memPct, p.gold),
+                  _ringLegend(p, '内存', _memPct, p.gold, _resReady),
                   const SizedBox(height: 12),
-                  _ringLegend(p, '磁盘', _diskPct, p.violet),
+                  _ringLegend(p, '磁盘', _diskPct, p.violet, _resReady),
                 ],
               ),
             ),
@@ -1249,7 +1281,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     );
   }
 
-  Widget _ringLegend(XlPalette p, String label, double v, Color c) {
+  Widget _ringLegend(XlPalette p, String label, double v, Color c, bool ready) {
     return Row(children: [
       Container(width: 8, height: 8, decoration: AppTheme.glowDot(c, size: 8)),
       const SizedBox(width: 8),
@@ -1261,7 +1293,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             letterSpacing: XlLetterSpacing.wider,
           )),
       const Spacer(),
-      Text('${(v * 100).toStringAsFixed(0)}%',
+      Text(ready ? '${(v * 100).toStringAsFixed(0)}%' : '—',
           style: TextStyle(
             fontSize: XlFont.captionSm,
             color: c,

@@ -47,12 +47,17 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     _Preset('深度', 'r=16 · 10 epochs', 'violet', Icons.auto_awesome_rounded, 0.85),
   ];
 
-  static const _milestones = <_Milestone>[
-    _Milestone('第一次对话', '完成', true, 'pink'),
-    _Milestone('累计 10 轮', '已达成', true, 'gold'),
-    _Milestone('首次微调', '待触发', false, 'violet'),
-    _Milestone('关系升级', '未解锁', false, 'green'),
-  ];
+  List<_Milestone> _buildMilestones() {
+    final inter = _growth?.totalInteractions ?? 0;
+    final gen = _growth?.currentGeneration ?? 0;
+    final trained = _history.isNotEmpty;
+    return <_Milestone>[
+      _Milestone('首次对话', inter > 0 ? '已完成' : '未开始', inter > 0, 'pink'),
+      _Milestone('累计 10 轮对话', inter >= 10 ? '已达成' : '$inter / 10', inter >= 10, 'gold'),
+      _Milestone('首次微调', trained ? '已完成' : '未触发', trained, 'violet'),
+      _Milestone('进化第 2 代', gen >= 2 ? '已达成' : '$gen 代', gen >= 2, 'green'),
+    ];
+  }
 
   @override
   void initState() {
@@ -98,7 +103,6 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
         _loading = false;
       });
       _radarCtrl.forward(from: 0);
-      _seedLogs(r);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -136,25 +140,6 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           .map((s) => {'name': s.name, 'lr': s.lr, 'bs': s.bs, 'rank': s.rank, 'steps': s.steps})
           .toList(),
     });
-  }
-
-  void _seedLogs(pb.TrainingStatusReply r) {
-    _logs
-      ..clear()
-      ..add(_LogLine('[ready] 训练引擎已就绪', _LogLevel.info))
-      ..add(_LogLine('[model] 冻结主干权重，注入低秩矩阵', _LogLevel.info))
-      ..add(_LogLine('[data] 数据集: 128 条 · 序列长度 512', _LogLevel.dim))
-      ..add(_LogLine('[device] 设备: CPU · 精度: fp32', _LogLevel.dim))
-      ..add(_LogLine(
-        r.isTraining ? '[state] 训练中 · ${r.statusText}' : '[state] 待机 · 等待指令',
-        r.isTraining ? _LogLevel.warn : _LogLevel.info,
-      ));
-    if (r.currentEpoch > 0) {
-      _logs.add(_LogLine('[epoch] 已完成 ${r.epochLabel} 轮', _LogLevel.ok));
-    }
-    if (r.loss > 0) {
-      _logs.add(_LogLine('[loss] 当前 ${r.lossLabel}', _LogLevel.ok));
-    }
   }
 
   Color _colorOf(XlPalette p, String key) {
@@ -1442,7 +1427,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             padding: const EdgeInsets.all(14),
             child: _logs.isEmpty
                 ? Center(
-                    child: Text('[empty] 暂无日志输出',
+                    child: Text('[idle] 等待训练开始...',
                         style: TextStyle(
                           fontSize: XlFont.label,
                           color: p.decor,
@@ -1491,8 +1476,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _milestonesCard(XlPalette p) {
-    final unlocked = _growth != null;
-    final done = _milestones.where((m) => m.done).length + (unlocked ? 1 : 0);
+    final milestones = _buildMilestones();
+    final done = milestones.where((m) => m.done).length;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
@@ -1509,7 +1494,7 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                     letterSpacing: XlLetterSpacing.normal,
                   )),
               const Spacer(),
-              Text('$done/${_milestones.length}',
+              Text('$done/${milestones.length}',
                   style: TextStyle(
                     fontSize: XlFont.label,
                     color: p.text3,
@@ -1520,10 +1505,10 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             ],
           ),
           const SizedBox(height: 16),
-          for (int i = 0; i < _milestones.length; i++)
+          for (int i = 0; i < milestones.length; i++)
             Padding(
-              padding: EdgeInsets.only(bottom: i == _milestones.length - 1 ? 0 : 12),
-              child: _milestoneRow(p, _milestones[i]),
+              padding: EdgeInsets.only(bottom: i == milestones.length - 1 ? 0 : 12),
+              child: _milestoneRow(p, milestones[i]),
             ),
         ],
       ),
@@ -1594,6 +1579,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     final total = _data!.totalEpochs == 0 ? 1 : _data!.totalEpochs;
     final loss = _data!.loss;
     final pct = _data!.progressRatio;
+    final lrLabel = _formatLr(_lrCtrl.text.trim());
+    final bsLabel = _bsCtrl.text.trim().isEmpty ? '未配置' : _bsCtrl.text.trim();
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
@@ -1614,12 +1601,20 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           const SizedBox(height: 14),
           _metricRow(p, 'Loss 值', loss == 0 ? '—' : loss.toStringAsFixed(4), '', p.violet, _data!.lossQuality),
           const SizedBox(height: 14),
-          _metricRow(p, '学习率', '2e-4', '', p.green, 0.6),
+          _metricRow(p, '学习率', lrLabel, '', p.green, 0.0),
           const SizedBox(height: 14),
-          _metricRow(p, '批次大小', '4', '', p.blue, 0.4),
+          _metricRow(p, '批次大小', bsLabel, '', p.blue, 0.0),
         ],
       ),
     );
+  }
+
+  String _formatLr(String raw) {
+    if (raw.isEmpty) return '未配置';
+    final v = double.tryParse(raw);
+    if (v == null || v <= 0) return '未配置';
+    if (v >= 0.001) return v.toStringAsFixed(4);
+    return v.toStringAsExponential(0).replaceAll('e-0', 'e-').replaceAll('e+0', 'e');
   }
 
   Widget _metricRow(XlPalette p, String label, String value, String unit, Color color, double progress) {
