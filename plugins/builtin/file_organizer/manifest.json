@@ -1,0 +1,11 @@
+{
+  "name": "file_organizer",
+  "version": "0.0.1",
+  "description": "文件整理：按类型分类、查找大文件、查找重复文件、清理临时文件",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["file:read", "file:write"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}
