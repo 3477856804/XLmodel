@@ -91,9 +91,16 @@ class LongTermMemory:
         self.max_items = max_items
         self.decay_rate = decay_rate
         self._items: list[MemoryItem] = []
+        # 语义向量 sidecar：与 _items 平行的列表，None 表示该条尚未计算向量。
+        # 持久化到 <memory>.vectors.json，避免把向量塞进主 memory.json 里
+        # 造成主文件膨胀；后端标签不匹配时整份丢弃、重新懒计算。
+        self.vectors_path = self.path.with_suffix(".vectors.json")
+        self._vectors: list = []
+        self._vector_model = ""
         self._lock = threading.RLock()
         self._dirty = False
         self._load()
+        self._load_vectors()
 
     def _load(self):
         if not self.path.exists():
@@ -105,6 +112,61 @@ class LongTermMemory:
         except Exception:
             self._items = []
 
+    def _load_vectors(self):
+        """从 sidecar 读取历史向量；后端标签不一致则整份丢弃。"""
+        try:
+            if not self.vectors_path.exists():
+                return
+            data = json.loads(self.vectors_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+            stored_model = data.get("model", "")
+            vecs = data.get("vectors", [])
+            if not isinstance(vecs, list):
+                return
+            # 只有当后端标签与当前一致时才信任旧向量；
+            # 后端一旦从 hash-ngram 切到 sentence-transformers（或反之），
+            # 维度与语义都对不上，整份丢弃、在 search 时懒重建。
+            if stored_model != get_embedding_backend():
+                self._vectors = []
+                self._vector_model = ""
+                return
+            self._vector_model = stored_model
+            # 长度对齐：旧文件可能比 _items 短（条目被清理后未重写）
+            self._vectors = [v if isinstance(v, list) else None for v in vecs]
+        except Exception:
+            self._vectors = []
+            self._vector_model = ""
+
+    def _save_vectors(self):
+        """把向量 sidecar 落盘；IO 失败静默忽略，不影响主流程。"""
+        try:
+            self.vectors_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "updated_at": time.time(),
+                "model": get_embedding_backend(),
+                "vectors": [v if isinstance(v, list) else None
+                           for v in self._vectors],
+            }
+            self.vectors_path.write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8")
+        except OSError:
+            pass
+
+    def _embed_content(self, text: str):
+        """为单条记忆计算向量；任何异常返回 None（search 时会懒重建）。"""
+        try:
+            vec, _backend = embed_text(text)
+            return vec
+        except Exception:
+            return None
+
+    def _ensure_vectors_aligned(self):
+        """保证 _vectors 与 _items 等长；缺失位置补 None。"""
+        while len(self._vectors) < len(self._items):
+            self._vectors.append(None)
+
     def _save(self):
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,6 +175,9 @@ class LongTermMemory:
             self.path.write_text(json.dumps(data, ensure_ascii=False, indent=1),
                                  encoding="utf-8")
             self._dirty = False
+            # 向量 sidecar 与主文件同步落盘
+            self._ensure_vectors_aligned()
+            self._save_vectors()
         except OSError:
             pass
 
@@ -121,23 +186,47 @@ class LongTermMemory:
             self._items.append(MemoryItem(role=role, content=content,
                                           timestamp=time.time(),
                                           importance=importance, tags=list(tags or [])))
+            self._vectors.append(self._embed_content(content))
             if len(self._items) > self.max_items:
                 self.forget()
-                self._items = self._items[-int(self.max_items * 0.75):]
+                keep = int(self.max_items * 0.75)
+                self._items = self._items[-keep:]
+                self._ensure_vectors_aligned()
+                self._vectors = self._vectors[-keep:]
             self._dirty = True
             self._save()
 
     def forget(self):
         now = time.time()
         with self._lock:
-            self._items = [
-                i for i in self._items
-                if (now - i.timestamp) * self.decay_rate * i.importance > 0.01
-            ]
+            kept_items = []
+            kept_vecs = []
+            self._ensure_vectors_aligned()
+            for i, v in zip(self._items, self._vectors):
+                if (now - i.timestamp) * self.decay_rate * i.importance > 0.01:
+                    kept_items.append(i)
+                    kept_vecs.append(v)
+            self._items = kept_items
+            self._vectors = kept_vecs
 
     def search(self, query: str, top_k: int = 5) -> list:
+        """语义检索入口：优先用嵌入向量做余弦相似度，失败/无向量时降级关键词。
+
+        - 若当前后端是 sentence-transformers，做真正的语义相似度检索；
+        - 若是 hash-ngram 降级后端，做 n-gram 哈希余弦（仍是关键词匹配，
+          不是语义；stats() 里会如实标注）；
+        - 任何异常或全部条目都缺向量时，回退到原有的子串关键词匹配，
+          保证行为不崩。
+        """
         if not query:
             return []
+        try:
+            return self.semantic_search(query, top_k=top_k)
+        except Exception:
+            return self._legacy_keyword_search(query, top_k=top_k)
+
+    def _legacy_keyword_search(self, query: str, top_k: int = 5) -> list:
+        """原有的子串关键词检索（降级兜底，行为与升级前一致）。"""
         words = [w for w in SPLIT_RE.split(query) if w]
         if not words:
             return []
@@ -148,6 +237,43 @@ class LongTermMemory:
             hit = sum(1 for w in words if w in i.content)
             if hit:
                 scored.append((hit * i.importance, i))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [i for _, i in scored[:top_k]]
+
+    def semantic_search(self, query: str, top_k: int = 5) -> list:
+        """显式语义检索：计算 query 向量，与所有记忆向量做余弦相似度。
+
+        与 :meth:`search` 的区别：本方法不做关键词子串降级；如果当前没有
+        可用的记忆向量（例如刚加载完旧数据），会现场懒计算缺失的向量并
+        落盘。后端身份见 ``get_embedding_backend()``。
+        """
+        if not query:
+            return []
+        qvec, qbackend = embed_text(query)
+        with self._lock:
+            items = list(self._items)
+            self._ensure_vectors_aligned()
+            # 懒补齐：旧记忆文件没有 sidecar 或后端切换后，现场算缺失的向量
+            changed = False
+            for idx, i in enumerate(items):
+                if idx >= len(self._vectors) or self._vectors[idx] is None:
+                    v = self._embed_content(i.content)
+                    while len(self._vectors) <= idx:
+                        self._vectors.append(None)
+                    self._vectors[idx] = v
+                    changed = True
+            if changed:
+                self._vector_model = qbackend
+                self._save_vectors()
+            vecs = list(self._vectors)
+        if not items:
+            return []
+        scored = []
+        for i, v in zip(items, vecs):
+            if not v or len(v) != len(qvec):
+                continue
+            s = _cosine(qvec, v) * i.importance
+            scored.append((s, i))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [i for _, i in scored[:top_k]]
 
@@ -162,6 +288,8 @@ class LongTermMemory:
     def clear(self):
         with self._lock:
             self._items = []
+            self._vectors = []
+            self._vector_model = ""
             self._save()
 
     def flush(self):
@@ -173,13 +301,17 @@ class LongTermMemory:
         with self._lock:
             n = len(self._items)
             if not n:
-                return {"total": 0, "path": str(self.path)}
+                return {"total": 0, "path": str(self.path),
+                        "embedding_backend": get_embedding_backend()}
             avg = sum(i.importance for i in self._items) / n
+            vectorized = sum(1 for v in self._vectors if isinstance(v, list))
             return {"total": n,
                     "avg_importance": round(avg, 3),
                     "oldest": min(i.timestamp for i in self._items),
                     "newest": max(i.timestamp for i in self._items),
-                    "path": str(self.path)}
+                    "path": str(self.path),
+                    "embedding_backend": get_embedding_backend(),
+                    "vectorized": vectorized}
 
     # ---- 增量：记忆统计 / 遗忘曲线 / 导入导出 ----
     def get_stats(self) -> dict:
@@ -354,8 +486,10 @@ class LongTermMemory:
                       if before_days else 0)
             removed = 0
             with self._lock:
-                keep = []
-                for i in self._items:
+                self._ensure_vectors_aligned()
+                keep_items = []
+                keep_vecs = []
+                for i, v in zip(self._items, self._vectors):
                     match = True
                     if before_days and i.timestamp >= cutoff:
                         match = False
@@ -366,8 +500,10 @@ class LongTermMemory:
                     if match:
                         removed += 1
                     else:
-                        keep.append(i)
-                self._items = keep
+                        keep_items.append(i)
+                        keep_vecs.append(v)
+                self._items = keep_items
+                self._vectors = keep_vecs
                 if removed:
                     self._dirty = True
                     self._save()
@@ -642,6 +778,65 @@ def _cosine(a: list, b: list) -> float:
     return float(sum(x * y for x, y in zip(a, b)))
 
 
+# ---------------------------------------------------------------------------
+# 语义嵌入后端（可选）：优先 sentence-transformers，失败自动降级哈希向量
+# ---------------------------------------------------------------------------
+# 核心原则：有真正的神经网络语义向量就用；没有就明确降级到哈希关键词向量，
+# 绝不把 n-gram 哈希向量伪装成语义向量。后端身份会写进 stats() 与 sidecar
+# 文件，调用方可以据此判断当前是否在做真正的语义检索。
+_ST_MODEL = None
+_ST_TRIED = False
+_ST_BACKEND = ""
+
+
+def get_embedding_backend() -> str:
+    """返回当前生效的嵌入后端标识。
+
+    - ``sentence-transformers/all-MiniLM-L6-v2``：真实神经网络语义向量（384 维）
+    - ``hash-ngram``：降级方案，n-gram + blake2b 哈希关键词向量（512 维，非语义）
+
+    首次调用时会尝试惰性加载 SentenceTransformer；任何失败（未安装 / 无网络
+    下载模型权重 / 模型初始化抛错）都会静默降级到哈希后端，绝不抛出。
+    """
+    global _ST_MODEL, _ST_TRIED, _ST_BACKEND
+    if _ST_TRIED:
+        return _ST_BACKEND
+    _ST_TRIED = True
+    try:
+        from sentence_transformers import SentenceTransformer  # 延迟导入
+        # all-MiniLM-L6-v2：384 维、CPU 友好、英文效果好；中文场景下
+        # 仍是当前生态里最轻量的可离线加载选项之一。
+        _ST_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+        _ST_BACKEND = "sentence-transformers/all-MiniLM-L6-v2"
+    except Exception:
+        # 未安装 / 无网络 / 权重损坏 / 其它任何异常 -> 诚实降级
+        _ST_MODEL = None
+        _ST_BACKEND = "hash-ngram"
+    return _ST_BACKEND
+
+
+def embed_text(text: str, hash_dim: int = 512) -> tuple:
+    """把文本编码成向量。
+
+    返回 ``(vector, backend_tag)``。``backend_tag`` 取值与
+    :func:`get_embedding_backend` 一致，调用方应把它落盘或写进 stats，
+    以便在后端切换时让旧向量自动失效。
+
+    - 成功加载 SentenceTransformer：返回 384 维归一化语义向量。
+    - 任何失败 / 未安装：返回 ``_hash_keyword_vector`` 的 512 维哈希向量，
+      并把 backend_tag 标为 ``hash-ngram``——这是关键词检索，不是语义检索。
+    """
+    backend = get_embedding_backend()
+    if backend.startswith("sentence-transformers") and _ST_MODEL is not None:
+        try:
+            vec = _ST_MODEL.encode(text or "", normalize_embeddings=True)
+            return [float(x) for x in vec], backend
+        except Exception:
+            # 单次 encode 失败也不炸，降级到哈希
+            pass
+    return _hash_keyword_vector(text, dim=hash_dim), "hash-ngram"
+
+
 class RAG:
     def __init__(self, dim: int = 512, max_docs: int = 3000, path: str | None = None):
         self.dim = dim
@@ -691,9 +886,15 @@ class RAG:
     def add_document(self, content: str, metadata: dict = None):
         if not content or not content.strip():
             return
+        try:
+            vec, backend = embed_text(content)
+        except Exception:
+            vec = _hash_keyword_vector(content, self.dim)
+            backend = "hash-ngram"
         doc = {"content": content.strip()[:4000],
                "metadata": metadata or {},
-               "embedding": _hash_keyword_vector(content, self.dim),
+               "embedding": vec,
+               "embedding_model": backend,
                "time": time.time()}
         with self._lock:
             self.documents.append(doc)
@@ -713,7 +914,7 @@ class RAG:
         """基于 n-gram 哈希的关键词检索（非语义向量检索）。
 
         返回与查询字面相似度最高的文档列表。该方法不理解同义词或语义，
-        仅做关键词层面的匹配。
+        仅做关键词层面的匹配。新代码请优先用 :meth:`search_semantic`。
         """
         if not query:
             return []
@@ -730,8 +931,44 @@ class RAG:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [d for _, d in scored[:top_k]]
 
+    def search_semantic(self, query: str, top_k: int = 5) -> list:
+        """语义检索：优先用嵌入模型向量做余弦相似度，失败自动降级关键词。
+
+        - 若当前后端是 sentence-transformers，做真正的语义相似度检索；
+        - 若是 hash-ngram 降级后端，做 n-gram 哈希余弦（仍是关键词匹配，
+          不是语义；stats() 里会如实标注）；
+        - 维度不匹配（旧文档是 512 维哈希、新 query 是 384 维语义，或反之）
+          时只对齐同维度的文档；若一个都对不上，降级到 :meth:`search_keyword`。
+        """
+        if not query:
+            return []
+        try:
+            qvec, qbackend = embed_text(query)
+            with self._lock:
+                docs = list(self.documents)
+            if not docs:
+                return []
+            scored = []
+            for d in docs:
+                emb = d.get("embedding") or []
+                # 维度必须一致才能算余弦；不一致说明是另一套后端写的旧文档
+                if not emb or len(emb) != len(qvec):
+                    continue
+                s = _cosine(qvec, emb)
+                if s > 0.05:
+                    scored.append((s, d))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            if scored:
+                return [d for _, d in scored[:top_k]]
+        except Exception:
+            pass
+        # 降级：关键词检索
+        return self.search_keyword(query, top_k=top_k)
+
     def format_for_prompt(self, query: str, top_k: int = 3) -> str:
-        docs = self.search_keyword(query, top_k=top_k)
+        # 优先语义检索；语义后端不可用或全部维度不匹配时，search_semantic
+        # 内部会自动降级到关键词检索，这里不需要再分叉。
+        docs = self.search_semantic(query, top_k=top_k)
         if not docs:
             return ""
         lines = ["【相关知识】"]
@@ -742,7 +979,8 @@ class RAG:
     def stats(self) -> dict:
         with self._lock:
             return {"documents": len(self.documents), "dim": self.dim,
-                    "path": str(self.path)}
+                    "path": str(self.path),
+                    "embedding_backend": get_embedding_backend()}
 
     def clear(self):
         with self._lock:
@@ -855,9 +1093,11 @@ class MemoryHub:
         return "\n".join(parts)
 
     def search_all(self, query: str, top_k: int = 5) -> dict:
+        # long.search 内部已优先语义、失败降级关键词；
+        # RAG 这里同样优先语义检索，后端不可用时 search_semantic 会自动降级。
         return {
             "long": [i.to_dict() for i in self.long.search(query, top_k)],
-            "rag": self.rag.search_keyword(query, top_k),
+            "rag": self.rag.search_semantic(query, top_k),
             "graph": self.graph.search(query, limit=top_k),
         }
 
