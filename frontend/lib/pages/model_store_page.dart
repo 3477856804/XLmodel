@@ -458,8 +458,10 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   Widget _body(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      padding: EdgeInsets.fromLTRB(hPad, 6, hPad, 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -488,6 +490,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   }
 
   Widget _heroRow(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -497,19 +500,23 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             children: [
               Row(
                 children: [
-                  Text('模型商店',
-                      style: TextStyle(
-                        fontSize: XlFont.h2,
-                        fontWeight: FontWeight.w800,
-                        color: p.text1,
-                        letterSpacing: XlLetterSpacing.normal,
-                      )),
-                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text('模型商店',
+                        style: TextStyle(
+                          fontSize: XlFont.h2,
+                          fontWeight: FontWeight.w800,
+                          color: p.text1,
+                          letterSpacing: XlLetterSpacing.normal,
+                        )),
+                  ),
+                  const SizedBox(width: 8),
                   _chip(p, '$_runnableCount 个可运行', p.green),
                 ],
               ),
               const SizedBox(height: 6),
               Text('根据你的硬件自动推荐最合适的本地模型',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: XlFont.caption,
                     color: p.text2,
@@ -519,12 +526,14 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
             ],
           ),
         ),
-        const SizedBox(width: 16),
+        SizedBox(width: isMobile ? 8 : 16),
         _iconBtn(p, Icons.folder_open_rounded, '本地模型',
             () => _showLocalModelDialog(p)),
-        const SizedBox(width: 8),
-        _iconBtn(p, Icons.hub_rounded, 'API 接口',
-            () => _showApiEndpointDialog(p)),
+        if (!isMobile) ...[
+          const SizedBox(width: 8),
+          _iconBtn(p, Icons.hub_rounded, 'API 接口',
+              () => _showApiEndpointDialog(p)),
+        ],
         const SizedBox(width: 8),
         _iconBtn(p, Icons.refresh_rounded, '重新扫描', _load),
       ],
@@ -962,8 +971,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
   Widget _hwCard(XlPalette p) {
     final hw = _hwSnap;
     if (hw == null) return _hwUnavailable(p);
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: EdgeInsets.all(isMobile ? 16 : 22),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1534,6 +1544,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
 
   Widget _modelCard(XlPalette p, _ModelItem m, int i) {
     final color = _colorOf(p, m.color);
+    final isMobile = MediaQuery.of(context).size.width < 600;
     final downloading = _downloading.contains(m.name);
     final dl = _dlInfo[m.name];
     final progress = dl?.ratio ?? 0.0;
@@ -1560,7 +1571,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
         child: Stack(
           children: [
           Container(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(isMobile ? 16 : 20),
           decoration: AppTheme.neu(context, r: XlRadius.xxl),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

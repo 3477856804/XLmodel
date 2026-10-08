@@ -10,6 +10,7 @@ import '../widgets/model_showcase.dart';
 import 'terminal_page.dart';
 import 'git_page.dart';
 import 'workflow_page.dart';
+import 'browser_page.dart';
 
 class DashboardPage extends StatefulWidget {
   final void Function(int) onNavigate;
@@ -277,6 +278,12 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     );
   }
 
+  void _openBrowser() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const BrowserPage()),
+    );
+  }
+
   Future<void> _bootstrap() async {
     // 必须整体兜住：这里是 fire-and-forget 调用的，一旦抛异常会冒泡到
     // runZonedGuarded，把整个应用替换成错误页（之前点「工作台」就是这个原因）。
@@ -376,8 +383,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   }
 
   Widget _body(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      padding: EdgeInsets.fromLTRB(hPad, 6, hPad, 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -760,12 +769,14 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               animation: _pulseCtrl,
               builder: (_, __) {
                 final t = _pulseCtrl.value;
+                final isMobile = MediaQuery.of(context).size.width < 600;
+                final showcaseSize = isMobile ? 220.0 : 300.0;
                 return Stack(
                   alignment: Alignment.center,
                   children: [
                     Container(
-                      width: 300 + t * 24,
-                      height: 300 + t * 24,
+                      width: showcaseSize + t * 24,
+                      height: showcaseSize + t * 24,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: RadialGradient(
@@ -779,8 +790,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                     ModelShowcase(
                       modelPath: _modelPath,
                       characterName: _modelName,
-                      width: 300,
-                      height: 300,
+                      width: showcaseSize,
+                      height: showcaseSize,
                       showControls: false,
                     ),
                   ],
@@ -879,6 +890,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       _Action('开发者工具', '终端 / 文件浏览', Icons.terminal_rounded, 'blue', () => _openTerminal()),
       _Action('版本控制', 'Git 变更与提交', Icons.commit_rounded, 'gold', () => _openGit()),
       _Action('工作流', '无代码自动化', Icons.account_tree_rounded, 'violet', () => _openWorkflow()),
+      _Action('浏览器', '网页访问 / JS 渲染', Icons.public_rounded, 'pink', () => _openBrowser()),
       _Action('开始训练', 'LoRA 微调', Icons.auto_awesome_outlined, 'blue', () => widget.onNavigate(2)),
       _Action('查看成长', '完整轨迹', Icons.trending_up_rounded, 'pink', () => widget.onNavigate(3)),
     ];
@@ -1258,8 +1270,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   }
 
   Widget _resourceRingCard(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final ringSize = isMobile ? 100.0 : 120.0;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(isMobile ? 16 : 20),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1278,8 +1292,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
           const SizedBox(height: 16),
           Row(children: [
             SizedBox(
-              width: 120,
-              height: 120,
+              width: ringSize,
+              height: ringSize,
               child: Stack(
                 alignment: Alignment.center,
                 children: [

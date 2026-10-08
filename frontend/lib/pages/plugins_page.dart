@@ -197,6 +197,8 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     return Stack(
       children: [
         Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
@@ -208,14 +210,14 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                 controller: _tabCtrl,
                 children: [
                   SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+                    padding: EdgeInsets.fromLTRB(hPad, 6, hPad, 30),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildHeader(p),
-                        const SizedBox(height: 22),
+                        SizedBox(height: isMobile ? 16 : 22),
                         _buildStats(p),
-                        const SizedBox(height: 22),
+                        SizedBox(height: isMobile ? 16 : 22),
                         _buildToolbar(p),
                         const SizedBox(height: 18),
                         _buildGrid(p),
@@ -224,9 +226,9 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                       ],
                     ),
                   ),
-                  const SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(26, 6, 26, 30),
-                    child: PluginStore(),
+                  SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(hPad, 6, hPad, 30),
+                    child: const PluginStore(),
                   ),
                   _buildCommunityTab(p),
                 ],
@@ -239,8 +241,9 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _buildTopTabs(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(26, 6, 26, 10),
+      padding: EdgeInsets.fromLTRB(isMobile ? 16 : 26, 6, isMobile ? 16 : 26, 10),
       child: Container(
         padding: const EdgeInsets.all(4),
         decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
@@ -299,10 +302,11 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _buildCommunityTab(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     final localCount = _market.length;
     final builtinCount = _market.where((e) => e['builtin'] == true).length;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      padding: EdgeInsets.fromLTRB(isMobile ? 16 : 26, 6, isMobile ? 16 : 26, 30),
       child: Container(
         padding: const EdgeInsets.all(26),
         decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
@@ -415,23 +419,25 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
           child: child,
         ),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final isMobile = c.maxWidth < 600;
+          if (isMobile) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Text('插件管理',
-                        style: TextStyle(
-                          fontSize: XlFont.h2,
-                          fontWeight: FontWeight.w800,
-                          color: p.text1,
-                          letterSpacing: XlLetterSpacing.normal,
-                        )),
-                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text('插件管理',
+                          style: TextStyle(
+                            fontSize: XlFont.h2,
+                            fontWeight: FontWeight.w800,
+                            color: p.text1,
+                            letterSpacing: XlLetterSpacing.normal,
+                          )),
+                    ),
+                    const SizedBox(width: 8),
                     _enabledChip(p),
                   ],
                 ),
@@ -443,14 +449,55 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                       fontWeight: FontWeight.w500,
                       letterSpacing: XlLetterSpacing.wide,
                     )),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _actionBtn(p, Icons.refresh_rounded, '刷新', _load),
+                    const SizedBox(width: 8),
+                    _actionBtn(p, Icons.add_rounded, '安装插件', () => _showInstallDialog(p)),
+                  ],
+                ),
               ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          _actionBtn(p, Icons.refresh_rounded, '刷新', _load),
-          const SizedBox(width: 8),
-          _actionBtn(p, Icons.add_rounded, '安装插件', () => _showInstallDialog(p)),
-        ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text('插件管理',
+                            style: TextStyle(
+                              fontSize: XlFont.h2,
+                              fontWeight: FontWeight.w800,
+                              color: p.text1,
+                              letterSpacing: XlLetterSpacing.normal,
+                            )),
+                        const SizedBox(width: 12),
+                        _enabledChip(p),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('每个功能都可插拔，像搭积木一样组合你的数字生命',
+                        style: TextStyle(
+                          fontSize: XlFont.caption,
+                          color: p.text2,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: XlLetterSpacing.wide,
+                        )),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              _actionBtn(p, Icons.refresh_rounded, '刷新', _load),
+              const SizedBox(width: 8),
+              _actionBtn(p, Icons.add_rounded, '安装插件', () => _showInstallDialog(p)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -525,6 +572,27 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
     return AnimatedBuilder(
       animation: _listAnim,
       builder: (_, __) {
+        final isMobile = MediaQuery.of(context).size.width < 600;
+        if (isMobile) {
+          return GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.6,
+            children: [
+              for (int i = 0; i < stats.length; i++)
+                Transform.translate(
+                  offset: Offset(0, (1 - _listAnim.value) * 20),
+                  child: Opacity(
+                    opacity: _listAnim.value.clamp(0.0, 1.0),
+                    child: _statCard(p, stats[i]),
+                  ),
+                ),
+            ],
+          );
+        }
         return Row(
           children: [
             for (int i = 0; i < stats.length; i++) ...[

@@ -575,8 +575,10 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _body(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      padding: EdgeInsets.fromLTRB(hPad, 6, hPad, 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -866,10 +868,11 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _contentPane(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Container(
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(isMobile ? 16 : 24),
         child: _loading
             ? _loadingPane(p)
             : AnimatedSwitcher(

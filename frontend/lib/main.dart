@@ -17,7 +17,6 @@ import 'widgets/notif_panel.dart';
 import 'widgets/persona_panel.dart';
 import 'rpc/client.dart';
 import 'rpc/xiaoling_client_ext.dart';
-import 'rpc/xiaoling_ext.dart';
 import 'services/sandbox.dart';
 import 'services/viewer_port.dart';
 
@@ -390,13 +389,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     '挑选适合的模型',
     '扩展能力边界',
   ];
-  static const _subtitles = [
-    '和小凌说说话',
-    '一眼看全所有状态',
-    'LoRA 微调面板',
-    '她的成长轨迹',
-    '一切都可以调',
-  ];
   static const _icons = [
     Icons.chat_bubble_outline_rounded,
     Icons.grid_view_outlined,
@@ -412,7 +404,6 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     Icons.tune_rounded,
   ];
   static const _iconColors = ['pink', 'gold', 'violet', 'green', 'pink'];
-  static const _keys = ['1', '2', '3', '4', '5'];
 
   @override
   void initState() {
@@ -519,6 +510,15 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     final p = XlPalette.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 600;
+    final isTablet = screenWidth >= 600 && screenWidth < 1200;
+    if (isTablet && !_sidebarCollapsed && _sidebarAnim.value > 0.9) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_sidebarCollapsed) {
+          setState(() => _sidebarCollapsed = true);
+          _sidebarCtrl.reverse();
+        }
+      });
+    }
     final pages = <Widget>[
       const ChatPage(),
       DashboardPage(
@@ -1132,7 +1132,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 60,
+          height: 64,
           child: Row(
             children: [
               for (int i = 0; i < _titles.length; i++)
@@ -1151,20 +1151,23 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _navigate(i),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(selected ? _iconsActive[i] : _icons[i], size: 22, color: color),
-            const SizedBox(height: 3),
-            Text(
-              _titles[i],
-              style: TextStyle(
-                fontSize: XlFont.labelSm,
-                color: color,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(selected ? _iconsActive[i] : _icons[i], size: 22, color: color),
+              const SizedBox(height: 3),
+              Text(
+                _titles[i],
+                style: TextStyle(
+                  fontSize: XlFont.labelSm,
+                  color: color,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

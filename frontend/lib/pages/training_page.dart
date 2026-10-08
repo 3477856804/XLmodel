@@ -179,8 +179,10 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _body(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
+      padding: EdgeInsets.fromLTRB(hPad, 6, hPad, 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -387,8 +389,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   Widget _statusBanner(XlPalette p) {
     final training = _data!.isTraining || _trainingActive;
     final color = training ? p.green : p.gold;
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(isMobile ? 16 : 20),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,26 +432,30 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                   );
                 },
               ),
-              const SizedBox(width: 18),
+              SizedBox(width: isMobile ? 12 : 18),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Text(training ? '正在训练' : '等待指令',
-                            style: TextStyle(
-                              fontSize: XlFont.h6,
-                              fontWeight: FontWeight.w800,
-                              color: p.text1,
-                              letterSpacing: XlLetterSpacing.normal,
-                            )),
-                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(training ? '正在训练' : '等待指令',
+                              style: TextStyle(
+                                fontSize: XlFont.h6,
+                                fontWeight: FontWeight.w800,
+                                color: p.text1,
+                                letterSpacing: XlLetterSpacing.normal,
+                              )),
+                        ),
+                        const SizedBox(width: 8),
                         _tinyChip(p, training ? 'ACTIVE' : 'STANDBY', color),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(_data!.displayStatus,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: XlFont.caption,
                           color: p.text2,
@@ -458,19 +465,34 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                   ],
                 ),
               ),
-              const Spacer(),
-              AnimatedSwitcher(
-                duration: XlDuration.normal,
-                transitionBuilder: (child, anim) => ScaleTransition(
-                  scale: anim,
-                  child: RotationTransition(turns: Tween(begin: 0.85, end: 1.0).animate(anim), child: child),
+              if (!isMobile) ...[
+                const Spacer(),
+                AnimatedSwitcher(
+                  duration: XlDuration.normal,
+                  transitionBuilder: (child, anim) => ScaleTransition(
+                    scale: anim,
+                    child: RotationTransition(turns: Tween(begin: 0.85, end: 1.0).animate(anim), child: child),
+                  ),
+                  child: _trainingActive
+                      ? _stopBtn(p, key: const ValueKey('stop'))
+                      : (_data!.isTraining ? _epochIndicator(p, key: const ValueKey('epoch')) : _startBtn(p, key: const ValueKey('start'))),
                 ),
-                child: _trainingActive
-                    ? _stopBtn(p, key: const ValueKey('stop'))
-                    : (_data!.isTraining ? _epochIndicator(p, key: const ValueKey('epoch')) : _startBtn(p, key: const ValueKey('start'))),
-              ),
+              ],
             ],
           ),
+          if (isMobile) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: AnimatedSwitcher(
+                duration: XlDuration.normal,
+                transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
+                child: _trainingActive
+                    ? Center(child: _stopBtn(p, key: const ValueKey('stop')))
+                    : (_data!.isTraining ? Center(child: _epochIndicator(p, key: const ValueKey('epoch'))) : Center(child: _startBtn(p, key: const ValueKey('start')))),
+              ),
+            ),
+          ],
           if (_trainingActive) ...[
             const SizedBox(height: 16),
             if (_trainError != null)
@@ -1806,8 +1828,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   }
 
   Widget _paramsCard(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(isMobile ? 16 : 20),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

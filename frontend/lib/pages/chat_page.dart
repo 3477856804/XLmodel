@@ -805,6 +805,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _header(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     return AnimatedBuilder(
       animation: _enterAnim,
       builder: (_, child) => Opacity(
@@ -815,11 +817,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(26, 20, 26, 10),
+        padding: EdgeInsets.fromLTRB(hPad, isMobile ? 12 : 20, hPad, 10),
         child: Row(
           children: [
             _avatar(p),
-            const SizedBox(width: 14),
+            SizedBox(width: isMobile ? 10 : 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -834,12 +836,14 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                             color: p.text1,
                             letterSpacing: XlLetterSpacing.normal,
                           )),
-                      const SizedBox(width: 10),
+                      SizedBox(width: isMobile ? 6 : 10),
                       _statusChip(p),
                     ],
                   ),
                   const SizedBox(height: 3),
                   Text(_stage.isEmpty ? '在线等你' : _stage,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: XlFont.label,
                         color: p.text3,
@@ -849,8 +853,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 ],
               ),
             ),
-            _agentEntryBtn(p),
-            const SizedBox(width: 8),
+            if (!isMobile) ...[
+              _agentEntryBtn(p),
+              const SizedBox(width: 8),
+            ],
             _headerBtn(
               p,
               _ttsOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
@@ -864,17 +870,19 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               _searchOpen ? p.pink : p.text2,
               _toggleSearch,
             ),
-            const SizedBox(width: 8),
-            _headerBtn(p, Icons.ios_share_rounded, p.text2, _exportChat),
-            const SizedBox(width: 8),
-            _headerBtn(
-              p,
-              Icons.schedule_rounded,
-              _showTimestamp ? p.gold : p.text2,
-              () => setState(() => _showTimestamp = !_showTimestamp),
-            ),
-            const SizedBox(width: 8),
-            _headerBtn(p, Icons.cleaning_services_outlined, p.text2, _clearChat),
+            if (!isMobile) ...[
+              const SizedBox(width: 8),
+              _headerBtn(p, Icons.ios_share_rounded, p.text2, _exportChat),
+              const SizedBox(width: 8),
+              _headerBtn(
+                p,
+                Icons.schedule_rounded,
+                _showTimestamp ? p.gold : p.text2,
+                () => setState(() => _showTimestamp = !_showTimestamp),
+              ),
+              const SizedBox(width: 8),
+              _headerBtn(p, Icons.cleaning_services_outlined, p.text2, _clearChat),
+            ],
           ],
         ),
       ),
@@ -992,6 +1000,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _statsRow(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
     final stats = <_MiniStat>[
       _MiniStat('对话', '$_chatCount', '轮', Icons.chat_bubble_outline_rounded, p.pink),
       _MiniStat('字符', '$_totalChars', '字', Icons.text_fields_rounded, p.gold),
@@ -999,7 +1009,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       _MiniStat('语音', _ttsOn ? '开' : '关', '', Icons.volume_up_rounded, p.green),
     ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(26, 0, 26, 10),
+      padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 10),
       child: Row(
         children: [
           for (int i = 0; i < stats.length; i++) ...[
@@ -1074,10 +1084,12 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _list(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 12.0 : 26.0;
     if (_msgs.isEmpty) return _emptyState(p);
     return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(26, 8, 26, 8),
+      padding: EdgeInsets.fromLTRB(hPad, 8, hPad, 8),
       itemCount: _msgs.length,
       itemBuilder: (_, i) {
         final m = _msgs[i];
@@ -1180,6 +1192,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     final isMe = m.who == 'me';
     final isEmptyStream = m.status == _MsgStatus.streaming && m.text.isEmpty;
     final isError = m.status == _MsgStatus.error && !isMe;
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final maxBubbleWidth = MediaQuery.of(context).size.width * (isMobile ? 0.85 : 0.62);
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -1207,9 +1221,11 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                   const SizedBox(width: 10),
                 ],
                 Flexible(
-                  child: Container(
+                  child: GestureDetector(
+                    onLongPress: m.text.isEmpty ? null : () => _showMsgContextMenu(p, m),
+                    child: Container(
                     constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.62,
+                      maxWidth: maxBubbleWidth,
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: isMe ? _meBubble(p) : _aiBubble(p, m.status),
@@ -1254,6 +1270,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                                 ],
                               ),
                   ),
+                    ),
                 ),
                 if (isMe) ...[
                   const SizedBox(width: 10),
@@ -1446,6 +1463,60 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
+  void _showMsgContextMenu(XlPalette p, _Msg m) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        margin: const EdgeInsets.all(12),
+        decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: p.decor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Icon(Icons.copy_rounded, color: p.pink),
+                title: Text('复制', style: TextStyle(fontSize: XlFont.bodySm, fontWeight: FontWeight.w600, color: p.text1)),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: m.text));
+                  Navigator.pop(ctx);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.format_quote_rounded, color: p.gold),
+                title: Text('引用', style: TextStyle(fontSize: XlFont.bodySm, fontWeight: FontWeight.w600, color: p.text1)),
+                onTap: () {
+                  setState(() => _quotedText = m.text);
+                  Navigator.pop(ctx);
+                  _inputFocus.requestFocus();
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_outline_rounded, color: p.red),
+                title: Text('删除', style: TextStyle(fontSize: XlFont.bodySm, fontWeight: FontWeight.w600, color: p.red)),
+                onTap: () {
+                  setState(() => _msgs.removeWhere((e) => e.id == m.id));
+                  Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _bubbleActions(XlPalette p, _Msg m) {
     final isSpeaking = _speaking.contains(m.id);
     final isPlaying = _playing && _playingId == m.id;
@@ -1545,8 +1616,10 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   }
 
   Widget _inputBar(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 12.0 : 26.0;
     return Container(
-      padding: const EdgeInsets.fromLTRB(26, 8, 26, 20),
+      padding: EdgeInsets.fromLTRB(hPad, 8, hPad, isMobile ? 8 : 20),
       child: Column(
         children: [
           _quickRepliesRow(p),
