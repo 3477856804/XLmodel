@@ -63,7 +63,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   String _cacheSize = '计算中…';
 
   final Map<String, bool> _channels = {
-    'Webhook': true,
+    'Webhook': false,
     'Telegram': false,
     'Discord': false,
     '飞书': false,
@@ -392,19 +392,8 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     if (confirmed != true) return;
     await XlClient.stub.safe(() => XlClient.stub.updateSettings(pb.SettingsRequest()));
     if (!mounted) return;
-    setState(() {
-      _toggles['alwaysOnTop'] = false;
-      _toggles['autoStart'] = false;
-      _toggles['asr'] = true;
-      _toggles['tts'] = true;
-      _toggles['readAloud'] = false;
-      _model = '小凌';
-      _voice = '晓晓';
-      _render = '软件光栅';
-      _threads = '4 线程';
-      _theme = '跟随系统';
-      _language = '简体中文';
-    });
+    await _loadSettings();
+    await _loadOptions();
     _showSnack('设置已重置');
   }
 
@@ -502,14 +491,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         ),
       ),
     );
-  }
-
-  Future<void> _toggleChannel(String name, bool current) async {
-    final next = !current;
-    setState(() => _channels[name] = next);
-    await _persistChannels();
-    if (!mounted) return;
-    _showSnack('$name ${next ? '已启用' : '已禁用'}');
   }
 
   Future<void> _persistChannels() async {
@@ -1574,19 +1555,14 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                 const SizedBox(height: 3),
                 Text(e['desc'] as String, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
                 const SizedBox(height: 4),
-                AnimatedDefaultTextStyle(
-                  duration: XlDuration.normal,
-                  curve: XlCurve.standard,
-                  style: TextStyle(
-                    fontSize: XlFont.micro,
-                    color: on ? p.green : p.decor,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: XlLetterSpacing.wider,
-                  ),
-                  child: Text(on ? '已启用' : '未配置'),
-                ),
+                Text('未配置 · 通道接入待后端支持',
+                    style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: p.decor,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: XlLetterSpacing.wider)),
               ])),
-              _toggle(p, on, p.gold, () => _toggleChannel(name, on)),
+              _toggle(p, false, p.gold, null),
             ]),
             ),
           );
@@ -2116,10 +2092,13 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     await XlClient.stub.safe(() => XlClient.stub.settings());
   }
 
-  Widget _toggle(XlPalette p, bool on, Color color, VoidCallback onTap) {
+  Widget _toggle(XlPalette p, bool on, Color color, VoidCallback? onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
+      child: AnimatedOpacity(
+        opacity: onTap == null ? 0.45 : 1.0,
+        duration: XlDuration.fast,
+        child: AnimatedContainer(
         duration: XlDuration.normal,
         curve: XlCurve.springSoft,
         width: 50,
@@ -2157,6 +2136,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                   : p.raisedXxs,
             ),
           ),
+        ),
         ),
       ),
     );
@@ -2383,9 +2363,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         children: [
           _cacheRow(p, '临时缓存目录', _cacheSize, Icons.folder_special_rounded, p.pink),
           const SizedBox(height: 8),
-          _cacheRow(p, '对话历史', '约 12.4 MB', Icons.chat_bubble_outline_rounded, p.violet),
+          _cacheRow(p, '对话历史', '未知', Icons.chat_bubble_outline_rounded, p.violet),
           const SizedBox(height: 8),
-          _cacheRow(p, '模型文件缓存', '约 2.1 GB', Icons.memory_rounded, p.gold),
+          _cacheRow(p, '模型文件缓存', '未知', Icons.memory_rounded, p.gold),
         ],
       ),
     );

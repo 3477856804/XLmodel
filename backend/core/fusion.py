@@ -173,16 +173,6 @@ def _model_command(rest: str, engine=None) -> str:
         except Exception as e:  # noqa: BLE001
             return _err(f"{type(e).__name__}: {e}")
 
-    if op in ("remove", "unregister", "摘除"):
-        if not arg:
-            return _err("名称不能为空")
-        try:
-            r = _store().unregister(arg)
-            return _ok(message=f"已摘除登记 {arg}") if r.get("ok") else _err(
-                r.get("error"))
-        except Exception as e:  # noqa: BLE001
-            return _err(f"{type(e).__name__}: {e}")
-
     return _err(f"未知模型指令：{op}（可用：scan / addlocal / listlocal / "
                 f"addapi / listapi / delapi / probeapi / listall / remove）")
 

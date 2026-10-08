@@ -128,14 +128,6 @@ def _command(cmd: str) -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
-def _download(name: str) -> dict:
-    try:
-        from core.model import ModelStore
-        return ModelStore().download(name)
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
-
-
 _START = time.time()
 _DL_LOCK = threading.Lock()
 _DL_STATE = {"running": None, "log": []}

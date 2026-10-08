@@ -119,9 +119,14 @@ def test_growth_base_and_adapter_dirs_exist():
 
     这是历史故障点：目录缺失时 stage_text() 会显示
     「无基底，适配器 XX 独自积累」，微调链路静默失效。
+
+    目录由 core.config.ensure_dirs() 在启动时统一创建；测试环境可能尚未
+    跑过引导，这里先调用一次（幂等），再断言契约成立。
     """
+    from core import config as _cfg
     from core.growth import ADAPTER_DIR, BASE_MODEL_DIR
 
+    _cfg.ensure_dirs()
     assert BASE_MODEL_DIR.exists(), f"成长基座目录缺失：{BASE_MODEL_DIR}"
     assert ADAPTER_DIR.exists(), f"适配器目录缺失：{ADAPTER_DIR}"
 

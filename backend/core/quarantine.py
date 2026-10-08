@@ -5,9 +5,11 @@
     任何情况下不得以任何方式删除磁盘上的文件。
 
 所有"需要删除"的文件一律：
-    1) 移动到 D:\\待处理\\ 目录（带时间戳与「待删除」后缀，绝不覆盖同名文件）
-    2) 记入清单 D:\\待处理\\_待删除清单.json
-    3) 清单副本同步到桌面，供人工复核
+    1) 移动到隔离区目录（Windows: D:\待处理；其它平台: ~/待处理；
+       可用环境变量 XIAOLING_PENDING_DIR 覆盖），带时间戳与「待删除」后缀，
+       绝不覆盖同名文件
+    2) 记入清单 <隔离区>/_待删除清单.json
+    3) 清单副本同步到桌面（或主目录），供人工复核
 
 只有人工（老板）复核后自行决定是否真正清除，本模块永不执行 delete/unlink/rmtree。
 """
@@ -16,13 +18,33 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
-# 隔离区根目录（可配置，默认 D:\待处理）
-PENDING_ROOT = Path(os.environ.get("XIAOLING_PENDING_DIR", r"D:\待处理"))
+
+def _default_pending_root() -> Path:
+    """隔离区默认目录（跨平台）。
+
+    Windows 沿用老板约定的 ``D:\\待处理``；Linux/macOS/Android 没有 D: 盘，
+    若照搬 ``D:\\待处理`` 会被当成 cwd 下一个带反斜杠的怪目录名。
+    非 Windows 一律落在用户主目录下的 ``待处理``，语义一致且可见。
+    """
+    env = os.environ.get("XIAOLING_PENDING_DIR")
+    if env:
+        return Path(env).expanduser()
+    if sys.platform.startswith("win"):
+        return Path(r"D:\待处理")
+    try:
+        return Path.home() / "待处理"
+    except Exception:
+        return Path("待处理")
+
+
+# 隔离区根目录（可用 XIAOLING_PENDING_DIR 覆盖）
+PENDING_ROOT = _default_pending_root()
 MANIFEST_NAME = "_待删除清单.json"
 
 _lock = threading.RLock()

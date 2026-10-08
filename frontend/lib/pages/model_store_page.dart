@@ -63,17 +63,6 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     'ram': '省内存',
   };
 
-  static const _fallbackHw = _HwSnapshot(
-    ram: 16.0,
-    vram: 8.0,
-    cores: 8,
-    diskFree: 240.0,
-    gpu: 'Integrated',
-    platform: 'Windows',
-    hasCuda: false,
-    hasMetal: false,
-  );
-
   @override
   void initState() {
     super.initState();
@@ -178,6 +167,19 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
         duration: const Duration(seconds: 4),
       ),
     );
+  }
+
+  Future<void> _uninstallModel(String name) async {
+    try {
+      final r = await XlClient.stub.deleteModel(name);
+      final ok = r.ok;
+      if (!mounted) return;
+      _toast(ok, ok ? '已删除模型：$name' : (r.message.isEmpty ? '删除失败' : r.message));
+      if (ok) await _load();
+    } catch (e) {
+      if (!mounted) return;
+      _toast(false, '删除失败：$e');
+    }
   }
 
   /// 汇总「可用的模型」：商店已安装 + 本地登记的，统一成一种结构渲染。
@@ -353,9 +355,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     }
   }
 
-  _HwSnapshot get _hwSnap {
+  _HwSnapshot? get _hwSnap {
     final hw = _hw;
-    if (hw == null) return _fallbackHw;
+    if (hw == null) return null;
     return _HwSnapshot(
       ram: hw.ramGb,
       vram: hw.vramGb,
@@ -959,6 +961,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
 
   Widget _hwCard(XlPalette p) {
     final hw = _hwSnap;
+    if (hw == null) return _hwUnavailable(p);
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: AppTheme.neu(context, r: XlRadius.xxl),
@@ -1034,6 +1037,89 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
           ),
           const SizedBox(height: 16),
           _accelPanel(p, hw),
+        ],
+      ),
+    );
+  }
+
+  Widget _hwUnavailable(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      child: Row(
+        children: [
+          AnimatedBuilder(
+            animation: _scanCtrl,
+            builder: (_, __) {
+              final t = _scanCtrl.value;
+              return Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: p.gold,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: p.gold.withOpacity(0.4 + t * 0.4),
+                      blurRadius: 8 + t * 4,
+                      spreadRadius: -1,
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('硬件检测',
+                        style: TextStyle(
+                          fontSize: XlFont.h6,
+                          fontWeight: FontWeight.w800,
+                          color: p.text1,
+                          letterSpacing: XlLetterSpacing.normal,
+                        )),
+                    const SizedBox(width: 10),
+                    _chip(p, '未检测到', p.gold),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text('无法读取本机硬件配置，以下模型推荐与可运行状态可能不准确',
+                    style: TextStyle(
+                      fontSize: XlFont.label,
+                      color: p.text3,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: XlLetterSpacing.wide,
+                    )),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _Pressable(
+            onTap: _load,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              decoration: AppTheme.btn(context, r: XlRadius.pill),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh_rounded, size: 14, color: p.btnInk),
+                  const SizedBox(width: 6),
+                  Text('重新检测',
+                      style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1884,9 +1970,9 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
     if (installed) {
       return Row(
         children: [
-          Expanded(child: _btn(p, Icons.check_circle_rounded, '已安装', () => setState(() => _installedName = null))),
+          Expanded(child: _btn(p, Icons.check_circle_rounded, '使用', () => _useModel(m.name))),
           const SizedBox(width: 8),
-          _iconAction(p, Icons.delete_outline_rounded, p.red, () => setState(() => _installedName = null)),
+          _iconAction(p, Icons.delete_outline_rounded, p.red, () => _uninstallModel(m.name)),
         ],
       );
     }

@@ -439,7 +439,8 @@ def get_battery() -> dict:
         if b is None:
             return {"percent": -1.0, "plugged": True}
         return {"percent": round(b.percent, 1), "plugged": bool(b.power_plugged)}
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError, OSError):
+        # 容器/部分 Linux 无 /sys/class/power_supply，psutil 会抛 FileNotFoundError
         return {"percent": -1.0, "plugged": True}
 
 
@@ -453,7 +454,8 @@ def get_cpu_temp() -> float:
         for entries in temps.values():
             if entries:
                 return round(entries[0].current, 1)
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError, OSError):
+        # 容器无 /sys/class/hwmon 时 psutil 会抛 OSError，不能让自检崩
         pass
     return -1.0
 

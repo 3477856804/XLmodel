@@ -137,10 +137,17 @@ def _check_features() -> list:
     except Exception as e:  # noqa: BLE001
         out.append(_line(False, "指令解析 fusion", str(e)))
     try:
-        from core.quarantine import PENDING_ROOT
-        out.append(_line(True, "安全隔离区", str(PENDING_ROOT)))
+        # 不能只 import PENDING_ROOT 就算 OK —— 要真的建目录并试写一次，
+        # 否则在 Linux/macOS（默认 D:\\待处理 不可用）上会误报"隔离区正常"。
+        # 红线：绝不删除文件，因此探针只覆写、不 unlink。
+        from core import quarantine
+        d = quarantine.ensure_pending_dir()
+        (d / ".write_test").write_text(
+            "ok " + __import__("datetime").datetime.now().isoformat(),
+            encoding="utf-8")
+        out.append(_line(True, "安全隔离区", str(d)))
     except Exception as e:  # noqa: BLE001
-        out.append(_line(False, "安全隔离区", str(e)))
+        out.append(_line(False, "安全隔离区", f"不可写：{e}"))
     return out
 
 
