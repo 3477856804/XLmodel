@@ -508,6 +508,339 @@ class EmailChannel(ChannelBase):
         server.quit()
 
 
+# ===== 企业微信（自定义机器人 Webhook，仅发送模式）=====
+class WeComChannel(ChannelBase):
+    """企业微信群机器人 Webhook。
+
+    配置：webhook_url（完整地址）或 key（机器人密钥）/ enabled。
+    机器人 Webhook 只支持出站发送，无接收回调。
+    """
+    name = "wecom"
+    WEBHOOK_BASE = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.webhook_url = str(config.get("webhook_url", "") or "")
+        self.key = str(config.get("key", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if not self.webhook_url and not self.key:
+            print("  [企业微信] 未配置 webhook_url/key，跳过启动")
+            return
+        self._running = True
+        print("  [企业微信] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    def is_config_valid(self) -> bool:
+        return bool(self.webhook_url or self.key)
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.enabled or not content:
+            return False
+        url = self.webhook_url
+        if not url and self.key:
+            url = f"{self.WEBHOOK_BASE}?key={self.key}"
+        if not url:
+            return False
+        try:
+            r = requests.post(
+                url,
+                json={"msgtype": "text", "text": {"content": content}},
+                timeout=HTTP_TIMEOUT,
+            )
+            data = {}
+            try:
+                data = r.json()
+            except Exception:
+                pass
+            # 企业微信成功返回 errcode=0
+            return r.status_code == 200 and data.get("errcode", 0) == 0
+        except Exception:
+            return False
+
+
+# ===== 钉钉（自定义机器人 Webhook，仅发送模式）=====
+class DingTalkChannel(ChannelBase):
+    """钉钉群机器人 Webhook。
+
+    配置：access_token / secret（加签密钥，可选）/ enabled。
+    机器人 Webhook 只支持出站发送，无接收回调。
+    """
+    name = "dingtalk"
+    WEBHOOK_BASE = "https://oapi.dingtalk.com/robot/send"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.access_token = str(config.get("access_token", "") or "")
+        self.secret = str(config.get("secret", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if not self.access_token:
+            print("  [钉钉] 未配置 access_token，跳过启动")
+            return
+        self._running = True
+        print("  [钉钉] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    def is_config_valid(self) -> bool:
+        return bool(self.access_token)
+
+    def _signed_url(self) -> str:
+        """按钉钉加签规则生成带 sign 的 webhook 地址。"""
+        import base64
+        import hashlib
+        import hmac
+        import urllib.parse
+        try:
+            timestamp = str(round(time.time() * 1000))
+            string_to_sign = f"{timestamp}\n{self.secret}"
+            hmac_code = hmac.new(
+                self.secret.encode("utf-8"),
+                string_to_sign.encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).digest()
+            sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+            return (f"{self.WEBHOOK_BASE}?access_token={self.access_token}"
+                    f"&timestamp={timestamp}&sign={sign}")
+        except Exception:
+            return f"{self.WEBHOOK_BASE}?access_token={self.access_token}"
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.enabled or not self.access_token or not content:
+            return False
+        try:
+            url = self._signed_url() if self.secret else \
+                f"{self.WEBHOOK_BASE}?access_token={self.access_token}"
+            r = requests.post(
+                url,
+                json={"msgtype": "text", "text": {"content": content}},
+                timeout=HTTP_TIMEOUT,
+            )
+            data = {}
+            try:
+                data = r.json()
+            except Exception:
+                pass
+            # 钉钉成功返回 errcode=0
+            return r.status_code == 200 and data.get("errcode", 0) == 0
+        except Exception:
+            return False
+
+
+# ===== 微信公众号（客服消息发送 + 回调 webhook 接收）=====
+class WeChatOAChannel(ChannelBase):
+    """微信公众号通道。
+
+    发送：调用「客服消息接口」，需要 access_token（由 appid + secret 换取并缓存）。
+    接收：公众号服务器回调（GET 签名校验 + POST XML 消息推送），
+          本通道内置一个 aiohttp 小服务接收事件。
+
+    配置：appid / secret / token（回调校验令牌）/ host / port / path / enabled。
+    """
+    name = "wechat_oa"
+    TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
+    SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/custom/send"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.appid = str(config.get("appid", "") or "")
+        self.secret = str(config.get("secret", "") or "")
+        self.token = str(config.get("token", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+        self.host = config.get("host", "0.0.0.0")
+        self.port = int(config.get("port", 9001))
+        self.path = config.get("path", "/wechat")
+        self._runner = None
+        self._access_token = ""
+        self._token_expires_at = 0.0
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if not self.appid or not self.secret:
+            print("  [微信公众号] 未配置 appid/secret，跳过启动")
+            return
+        from aiohttp import web
+        try:
+            app = web.Application()
+            app.router.add_get(self.path, self._handle_verify)
+            app.router.add_post(self.path, self._handle_callback)
+            self._runner = web.AppRunner(app)
+            await self._runner.setup()
+            site = web.TCPSite(self._runner, self.host, self.port)
+            await site.start()
+            self._running = True
+            print(f"  [微信公众号] 回调地址 http://{self.host}:{self.port}{self.path}")
+        except Exception as e:
+            print(f"  [微信公众号] 启动回调服务失败: {e}")
+            self._running = False
+
+    async def stop(self):
+        if self._runner:
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                pass
+        self._runner = None
+        self._running = False
+
+    def is_config_valid(self) -> bool:
+        return bool(self.appid and self.secret)
+
+    # ---- access_token（带缓存）----
+    def _get_access_token(self) -> str:
+        try:
+            if self._access_token and time.time() < self._token_expires_at - 120:
+                return self._access_token
+            r = requests.get(
+                self.TOKEN_URL,
+                params={
+                    "grant_type": "client_credential",
+                    "appid": self.appid,
+                    "secret": self.secret,
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            data = r.json()
+            token = data.get("access_token")
+            if token:
+                self._access_token = token
+                self._token_expires_at = time.time() + int(data.get("expires_in", 7200))
+                return token
+            logger.warning(f"[微信公众号] 获取 access_token 失败: {data}")
+        except Exception as e:
+            print(f"  [微信公众号] 获取 access_token 异常: {e}")
+        return ""
+
+    # ---- 发送：客服消息 ----
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.enabled or not content:
+            return False
+        openid = str(to or "")
+        if not openid:
+            return False
+        try:
+            token = self._get_access_token()
+            if not token:
+                return False
+            r = requests.post(
+                f"{self.SEND_URL}?access_token={token}",
+                json={
+                    "touser": openid,
+                    "msgtype": "text",
+                    "text": {"content": content},
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            data = r.json()
+            # 成功返回 errcode=0 / errmsg=ok
+            return r.status_code == 200 and data.get("errcode", 0) == 0
+        except Exception:
+            return False
+
+    # ---- 接收：回调校验与消息解析 ----
+    def _check_signature(self, signature: str, timestamp: str, nonce: str) -> bool:
+        import hashlib
+        try:
+            arr = sorted([self.token or "", timestamp or "", nonce or ""])
+            sha1 = hashlib.sha1("".join(arr).encode("utf-8")).hexdigest()
+            return bool(signature) and sha1 == signature
+        except Exception:
+            return False
+
+    @staticmethod
+    def _parse_incoming_xml(body: str) -> Message:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(body)
+
+        def _text(tag: str) -> str:
+            el = root.find(tag)
+            return el.text if el is not None and el.text else ""
+
+        return Message(
+            channel="wechat_oa",
+            sender_id=_text("FromUserName"),
+            sender_name=_text("FromUserName"),
+            content=_text("Content"),
+            message_id=_text("MsgId"),
+        )
+
+    @staticmethod
+    def _passive_reply_xml(from_user: str, to_user: str, text: str) -> str:
+        return (
+            f"<xml><ToUserName><![CDATA[{to_user}]]></ToUserName>"
+            f"<FromUserName><![CDATA[{from_user}]]></FromUserName>"
+            f"<CreateTime>{int(time.time())}</CreateTime>"
+            f"<MsgType><![CDATA[text]]></MsgType>"
+            f"<Content><![CDATA[{text}]]></Content></xml>"
+        )
+
+    async def _handle_verify(self, request):
+        from aiohttp import web
+        try:
+            if self._check_signature(
+                    request.query.get("signature", ""),
+                    request.query.get("timestamp", ""),
+                    request.query.get("nonce", "")):
+                return web.Response(text=request.query.get("echostr", ""))
+            return web.Response(text="forbidden", status=403)
+        except Exception:
+            return web.Response(text="error", status=500)
+
+    async def _handle_callback(self, request):
+        from aiohttp import web
+        try:
+            body = await request.text()
+            if not self._check_signature(
+                    request.query.get("signature", ""),
+                    request.query.get("timestamp", ""),
+                    request.query.get("nonce", "")):
+                return web.Response(text="forbidden", status=403)
+            msg = self._parse_incoming_xml(body)
+            reply_text = ""
+            if self._message_handler:
+                reply_text = await self._message_handler(msg)
+            else:
+                reply_text = self._reply(msg.content)
+            if reply_text:
+                xml = self._passive_reply_xml(
+                    msg.sender_id, msg.sender_id, reply_text)
+                return web.Response(text=xml, content_type="application/xml")
+            # 公众号要求兜底返回 success，否则会重试推送
+            return web.Response(text="success")
+        except Exception as e:
+            print(f"  [微信公众号] 回调处理异常: {e}")
+            return web.Response(text="success")
+
+    async def receive(self):
+        """接收入口说明：公众号消息由 _handle_callback 异步接收；
+        本方法仅用于显式触发一次空轮询占位，实际消息推送由微信服务器发起。
+        """
+        return self._running
+
+
 # ===== 通道管理器 =====
 CHANNEL_REGISTRY = {
     "webhook": WebhookChannel,
@@ -518,6 +851,9 @@ CHANNEL_REGISTRY = {
     "slack": SlackChannel,
     "signal": SignalChannel,
     "email": EmailChannel,
+    "wecom": WeComChannel,
+    "dingtalk": DingTalkChannel,
+    "wechat_oa": WeChatOAChannel,
 }
 
 
@@ -573,6 +909,22 @@ class ChannelManager:
                 "enabled": self.config.get("signal_enabled", False),
                 "api_url": self.config.get("signal_api_url", ""),
                 "phone_number": self.config.get("signal_phone_number", ""),
+            },
+            "wecom": {
+                "enabled": self.config.get("wecom_enabled", False),
+                "webhook_url": self.config.get("wecom_webhook_url", ""),
+                "key": self.config.get("wecom_key", ""),
+            },
+            "dingtalk": {
+                "enabled": self.config.get("dingtalk_enabled", False),
+                "access_token": self.config.get("dingtalk_access_token", ""),
+                "secret": self.config.get("dingtalk_secret", ""),
+            },
+            "wechat_oa": {
+                "enabled": self.config.get("wechat_oa_enabled", False),
+                "appid": self.config.get("wechat_oa_appid", ""),
+                "secret": self.config.get("wechat_oa_secret", ""),
+                "token": self.config.get("wechat_oa_token", ""),
             },
         }.get(name, {})
         for k, v in flat.items():
