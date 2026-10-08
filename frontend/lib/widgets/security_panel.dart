@@ -14,7 +14,7 @@ class _ToolPerm {
   final String name;
   final String desc;
   bool allowed;
-  final bool needApproval;
+  bool needApproval;
   _ToolPerm({
     required this.name,
     required this.desc,
@@ -37,34 +37,23 @@ class _AuditEntry {
 }
 
 class _SecurityPanelState extends State<SecurityPanel> {
-  bool _requireConfirm = true;
+  bool _loading = true;
 
   late final List<_ToolPerm> _tools = [
-    _ToolPerm(name: 'file_read', desc: '读取本地文件内容', allowed: true),
-    _ToolPerm(name: 'file_write', desc: '修改或创建本地文件', allowed: true, needApproval: true),
-    _ToolPerm(name: 'terminal', desc: '在终端执行 Shell 命令', allowed: true, needApproval: true),
-    _ToolPerm(name: 'network', desc: '发起外部网络请求', allowed: true),
-    _ToolPerm(name: 'browser', desc: '自动操作浏览器页面', allowed: true),
-    _ToolPerm(name: 'git', desc: '提交、推送与拉取代码', allowed: true, needApproval: true),
-    _ToolPerm(name: 'mcp', desc: '调用外部 MCP 服务器工具', allowed: true),
+    _ToolPerm(name: 'file_read', desc: '读取本地文件内容', allowed: false),
+    _ToolPerm(name: 'file_write', desc: '修改或创建本地文件', allowed: false),
+    _ToolPerm(name: 'terminal', desc: '在终端执行 Shell 命令', allowed: false),
+    _ToolPerm(name: 'network', desc: '发起外部网络请求', allowed: false),
+    _ToolPerm(name: 'browser', desc: '自动操作浏览器页面', allowed: false),
+    _ToolPerm(name: 'git', desc: '提交、推送与拉取代码', allowed: false),
+    _ToolPerm(name: 'mcp', desc: '调用外部 MCP 服务器工具', allowed: false),
   ];
 
-  final List<String> _protectedDirs = [
-    'resources/models',
-    'resources/sounds',
-    'frontend/assets',
-  ];
+  final List<String> _protectedDirs = [];
   final _dirCtrl = TextEditingController();
-  double _maxFileMb = 50;
+  final List<String> _requireApproval = [];
 
-  final List<_AuditEntry> _audit = [
-    _AuditEntry(time: '14:32:05', action: 'file_write', detail: '写入 data/notes.md (12 KB)', risk: 'medium'),
-    _AuditEntry(time: '14:28:41', action: 'terminal', detail: '执行 git status', risk: 'low'),
-    _AuditEntry(time: '14:21:10', action: 'network', detail: 'GET api.github.com/release', risk: 'low'),
-    _AuditEntry(time: '14:15:52', action: 'git', detail: '尝试推送受保护分支 main', risk: 'high'),
-    _AuditEntry(time: '14:09:30', action: 'file_read', detail: '读取 data/memory.db', risk: 'low'),
-    _AuditEntry(time: '14:02:18', action: 'mcp', detail: '调用 server.filesystem.read', risk: 'medium'),
-  ];
+  final List<_AuditEntry> _audit = [];
 
   Color _riskColor(XlPalette p, String risk) {
     switch (risk) {
@@ -106,28 +95,51 @@ class _SecurityPanelState extends State<SecurityPanel> {
             if (perms.containsKey(t.name)) t.allowed = perms[t.name] == true;
           }
         }
+        final approval = decoded['require_approval'];
+        if (approval is List) {
+          _requireApproval
+            ..clear()
+            ..addAll(approval.map((e) => e.toString()));
+          for (final t in _tools) {
+            t.needApproval = _requireApproval.contains(t.name);
+          }
+        }
         final dirs = decoded['protected_dirs'];
-        if (dirs is List && dirs.isNotEmpty) {
+        if (dirs is List) {
           _protectedDirs
             ..clear()
             ..addAll(dirs.map((e) => e.toString()));
         }
         final audit = decoded['audit_log'];
-        if (audit is List && audit.isNotEmpty) {
+        if (audit is List) {
           _audit
             ..clear()
             ..addAll(audit.map((a) {
-              final m = (a is Map) ? a : {};
+              final m = (a is Map) ? a : <String, dynamic>{};
+              final rawTime = m['time'];
+              String timeLabel = '—';
+              if (rawTime is num) {
+                final dt = DateTime.fromMillisecondsSinceEpoch(
+                    (rawTime * 1000).round());
+                timeLabel =
+                    '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+              } else if (rawTime != null) {
+                timeLabel = rawTime.toString();
+              }
               return _AuditEntry(
-                time: (m['time'] ?? '').toString(),
+                time: timeLabel,
                 action: (m['action'] ?? '').toString(),
                 detail: (m['detail'] ?? '').toString(),
                 risk: (m['risk'] ?? 'low').toString(),
               );
             }));
         }
+        _loading = false;
       });
-    } catch (e) { debugPrint('操作失败: $e'); }
+    } catch (e) {
+      debugPrint('操作失败: $e');
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -199,13 +211,15 @@ class _SecurityPanelState extends State<SecurityPanel> {
           const SizedBox(height: 14),
           SizedBox(
             height: 380,
-            child: TabBarView(
-              children: [
-                _permissionsTab(p),
-                _protectTab(p),
-                _auditTab(p),
-              ],
-            ),
+            child: _loading
+                ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: p.pink))
+                : TabBarView(
+                    children: [
+                      _permissionsTab(p),
+                      _protectTab(p),
+                      _auditTab(p),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -227,15 +241,31 @@ class _SecurityPanelState extends State<SecurityPanel> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('危险操作需确认',
+                    Text('执行前需审批的工具',
                         style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.wide)),
-                    const SizedBox(height: 3),
-                    Text('高危工具执行前弹出确认',
-                        style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
+                    const SizedBox(height: 6),
+                    _requireApproval.isEmpty
+                        ? Text('当前无需审批的工具',
+                            style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide))
+                        : Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: _requireApproval
+                                .map((t) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: p.gold.withOpacity(0.14),
+                                        borderRadius: BorderRadius.circular(XlRadius.pill),
+                                        border: Border.all(color: p.gold.withOpacity(0.35), width: 1),
+                                      ),
+                                      child: Text(t,
+                                          style: TextStyle(fontSize: XlFont.micro, fontWeight: FontWeight.w800, color: p.gold, letterSpacing: XlLetterSpacing.wider)),
+                                    ))
+                                .toList(),
+                          ),
                   ],
                 ),
               ),
-              _miniSwitch(p, _requireConfirm, p.gold, () => setState(() => _requireConfirm = !_requireConfirm)),
             ],
           ),
         ),
@@ -328,6 +358,12 @@ class _SecurityPanelState extends State<SecurityPanel> {
         Text('受保护目录',
             style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text2, letterSpacing: XlLetterSpacing.wide)),
         const SizedBox(height: 10),
+        if (_protectedDirs.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('暂无受保护目录',
+                style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w600, letterSpacing: XlLetterSpacing.wide)),
+          ),
         ..._protectedDirs.map((d) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Container(
@@ -393,53 +429,7 @@ class _SecurityPanelState extends State<SecurityPanel> {
             ),
           ],
         ),
-        const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: AppTheme.neuXs(context, r: XlRadius.lg),
-          child: Row(
-            children: [
-              Icon(Icons.data_usage_rounded, size: 18, color: p.blue),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('最大文件大小',
-                        style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.wide)),
-                    const SizedBox(height: 3),
-                    Text('超过此大小的写入需审批',
-                        style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wide)),
-                  ],
-                ),
-              ),
-              _stepBtn(p, Icons.remove_rounded, () {
-                if (_maxFileMb > 5) setState(() => _maxFileMb -= 5);
-              }),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 52,
-                child: Text('${_maxFileMb.toInt()} MB',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.gold, letterSpacing: XlLetterSpacing.wide)),
-              ),
-              _stepBtn(p, Icons.add_rounded, () => setState(() => _maxFileMb += 5)),
-            ],
-          ),
-        ),
       ],
-    );
-  }
-
-  Widget _stepBtn(XlPalette p, IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 30,
-        height: 30,
-        decoration: AppTheme.neuXs(context, r: XlRadius.sm),
-        child: Icon(icon, size: 15, color: p.text2),
-      ),
     );
   }
 
@@ -451,19 +441,8 @@ class _SecurityPanelState extends State<SecurityPanel> {
             Text('最近操作',
                 style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text2, letterSpacing: XlLetterSpacing.wide)),
             const Spacer(),
-            GestureDetector(
-              onTap: () => setState(() => _audit.clear()),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: p.red.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(XlRadius.pill),
-                  border: Border.all(color: p.red.withOpacity(0.30), width: 1),
-                ),
-                child: Text('清空日志',
-                    style: TextStyle(fontSize: XlFont.label, fontWeight: FontWeight.w800, color: p.red, letterSpacing: XlLetterSpacing.wide)),
-              ),
-            ),
+            Text('${_audit.length} 条',
+                style: TextStyle(fontSize: XlFont.label, fontWeight: FontWeight.w700, color: p.decor, letterSpacing: XlLetterSpacing.wider)),
           ],
         ),
         const SizedBox(height: 10),

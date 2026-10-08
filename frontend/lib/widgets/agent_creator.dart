@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
+import '../rpc/xiaoling.pb.dart' as pb;
 
 class CustomAgent {
   String name;
@@ -64,13 +67,6 @@ class _AgentCreatorState extends State<AgentCreator> {
     'MCP工具',
     'Git',
   ];
-  static const List<String> _modelOptions = [
-    '小凌 7B',
-    '小凌 13B',
-    '小凌 72B',
-    '通用对话 4B',
-    '代码助手 7B',
-  ];
 
   final TextEditingController _nameCtrl = TextEditingController();
   final TextEditingController _descCtrl = TextEditingController();
@@ -78,7 +74,10 @@ class _AgentCreatorState extends State<AgentCreator> {
   final TextEditingController _stepsCtrl = TextEditingController(text: '12');
 
   List<CustomAgent> _agents = [];
-  String _selectedModel = '小凌 7B';
+  final List<String> _modelOptions = [];
+  String _selectedModel = '';
+  bool _modelsLoading = true;
+  bool _testRunning = false;
   Set<String> _selectedTools = {'文件读取', '终端'};
   double _temperature = 0.7;
   int? _editingIndex;
@@ -88,6 +87,7 @@ class _AgentCreatorState extends State<AgentCreator> {
   void initState() {
     super.initState();
     _load();
+    _loadModels();
   }
 
   @override
@@ -100,6 +100,25 @@ class _AgentCreatorState extends State<AgentCreator> {
   }
 
   File get _file => File(widget.dataPath);
+
+  Future<void> _loadModels() async {
+    try {
+      final res = await XlClient.stub.installedModels();
+      if (!mounted) return;
+      setState(() {
+        _modelOptions
+          ..clear()
+          ..addAll(res.models.map((m) => m.name).where((n) => n.isNotEmpty));
+        if (_selectedModel.isEmpty && _modelOptions.isNotEmpty) {
+          _selectedModel = _modelOptions.first;
+        }
+        _modelsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _modelsLoading = false);
+    }
+  }
 
   Future<void> _load() async {
     try {
@@ -133,7 +152,7 @@ class _AgentCreatorState extends State<AgentCreator> {
     _descCtrl.clear();
     _promptCtrl.clear();
     _stepsCtrl.text = '12';
-    _selectedModel = _modelOptions.first;
+    _selectedModel = _modelOptions.isNotEmpty ? _modelOptions.first : '';
     _selectedTools = {'文件读取', '终端'};
     _temperature = 0.7;
     _editingIndex = null;
@@ -177,7 +196,12 @@ class _AgentCreatorState extends State<AgentCreator> {
       _descCtrl.text = a.description;
       _promptCtrl.text = a.systemPrompt;
       _stepsCtrl.text = '${a.maxSteps}';
-      _selectedModel = a.model.isEmpty ? _modelOptions.first : a.model;
+      if (a.model.isNotEmpty && !_modelOptions.contains(a.model)) {
+        _modelOptions.add(a.model);
+      }
+      _selectedModel = a.model.isEmpty
+          ? (_modelOptions.isNotEmpty ? _modelOptions.first : '')
+          : a.model;
       _selectedTools = Set.from(a.tools);
       _temperature = a.temperature;
     });
@@ -201,11 +225,88 @@ class _AgentCreatorState extends State<AgentCreator> {
     await _persist();
   }
 
-  void _testRun() {
+  Future<void> _testRun() async {
     final name = _nameCtrl.text.trim();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(name.isEmpty ? '请先填写 Agent 名称' : '已触发测试运行: $name')),
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先填写 Agent 名称')));
+      return;
+    }
+    if (_testRunning) return;
+    setState(() => _testRunning = true);
+    final lines = <String>[];
+    void Function(void Function())? setDialog;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        final p = XlPalette.of(dialogCtx);
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogFn) {
+            setDialog = setDialogFn;
+            return AlertDialog(
+              backgroundColor: p.surface,
+              title: Text('测试运行 · $name',
+                  style: TextStyle(color: p.text1, fontWeight: FontWeight.w800)),
+              content: SizedBox(
+                width: 420,
+                height: 320,
+                child: lines.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: p.pink)),
+                            const SizedBox(height: 12),
+                            Text('正在调用 AgentStart…',
+                                style: TextStyle(color: p.text3, fontSize: XlFont.captionSm)),
+                          ],
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        child: Text(lines.join('\n'),
+                            style: TextStyle(
+                                color: p.text2,
+                                fontFamily: 'monospace',
+                                fontSize: XlFont.captionSm,
+                                height: XlLineHeight.relaxed)),
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  child: Text('关闭', style: TextStyle(color: p.pink)),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
+    try {
+      final stream = XlClient.stub.agentStart(pb.AgentRequest(
+        task: '你好，请用一句话向我介绍你自己。',
+        context: _promptCtrl.text,
+        maxSteps: 5,
+      ));
+      await for (final ev in stream) {
+        if (ev.error.isNotEmpty) {
+          lines.add('[错误] ${ev.error}');
+        } else if (ev.content.isNotEmpty) {
+          lines.add(ev.content);
+        } else if (ev.toolName.isNotEmpty) {
+          lines.add('[工具] ${ev.toolName}');
+        }
+        setDialog?.call(() {});
+      }
+      if (lines.isEmpty) lines.add('未收到任何事件，后端可能未启动 Agent 运行时');
+    } catch (e) {
+      lines.add('[失败] $e');
+    }
+    setDialog?.call(() {});
+    if (mounted) setState(() => _testRunning = false);
   }
 
   @override
@@ -370,23 +471,45 @@ class _AgentCreatorState extends State<AgentCreator> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: AppTheme.sunken(context, r: XlRadius.md),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedModel,
-              isExpanded: true,
-              dropdownColor: p.surface,
-              icon: Icon(Icons.expand_more_rounded, color: p.decor),
-              style: TextStyle(
-                fontSize: XlFont.bodySm,
-                color: p.text1,
-                fontWeight: FontWeight.w600,
-              ),
-              items: _modelOptions
-                  .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedModel = v ?? _modelOptions.first),
-            ),
-          ),
+          child: _modelsLoading
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Row(children: [
+                    SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: p.decor)),
+                    const SizedBox(width: 10),
+                    Text('加载模型中…',
+                        style: TextStyle(fontSize: XlFont.bodySm, color: p.decor)),
+                  ]),
+                )
+              : _modelOptions.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text('未连接模型，请先在模型页下载',
+                          style: TextStyle(fontSize: XlFont.bodySm, color: p.decor)),
+                    )
+                  : DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _modelOptions.contains(_selectedModel)
+                            ? _selectedModel
+                            : _modelOptions.first,
+                        isExpanded: true,
+                        dropdownColor: p.surface,
+                        icon: Icon(Icons.expand_more_rounded, color: p.decor),
+                        style: TextStyle(
+                          fontSize: XlFont.bodySm,
+                          color: p.text1,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        items: _modelOptions
+                            .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                            .toList(),
+                        onChanged: (v) =>
+                            setState(() => _selectedModel = v ?? _modelOptions.first),
+                      ),
+                    ),
         ),
       ],
     );
@@ -528,16 +651,22 @@ class _AgentCreatorState extends State<AgentCreator> {
 
   Widget _ghostBtn(XlPalette p) {
     return GestureDetector(
-      onTap: _testRun,
+      onTap: _testRunning ? null : _testRun,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: AppTheme.ghost(context, r: XlRadius.pill),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.play_arrow_rounded, size: 16, color: p.text1),
+            _testRunning
+                ? SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: p.text1),
+                  )
+                : Icon(Icons.play_arrow_rounded, size: 16, color: p.text1),
             const SizedBox(width: 8),
-            Text('测试运行',
+            Text(_testRunning ? '运行中' : '测试运行',
                 style: TextStyle(
                   fontSize: XlFont.caption,
                   fontWeight: FontWeight.w800,

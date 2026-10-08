@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
-import '../services/local_store.dart';
 
 class CommunityPlugin {
   final String name;
@@ -104,56 +103,56 @@ class PluginStore extends StatefulWidget {
 class _PluginStoreState extends State<PluginStore> {
   final _searchCtrl = TextEditingController();
   String _query = '';
-  late String _category;
-  final Set<String> _installed = {};
-  final Set<String> _installing = {};
+  String _category = '全部';
   bool _loading = true;
-  bool _backendOnline = false;
-  final List<dynamic> _remotePlugins = [];
+  bool _online = false;
+  final List<Map<String, dynamic>> _plugins = [];
+  final Set<String> _toggling = {};
 
   @override
   void initState() {
     super.initState();
-    _category = widget.initialCategory ?? '全部';
-    _bootstrap();
+    if (widget.initialCategory != null) _category = widget.initialCategory!;
+    _load();
   }
 
-  Future<void> _bootstrap() async {
-    final saved = await LocalStore.readStringList('installed_plugins.json');
-    if (!mounted) return;
-    setState(() {
-      _installed.addAll(saved);
-      _loading = false;
-    });
-    _syncWithBackend();
-  }
-
-  Future<void> _syncWithBackend() async {
+  Future<void> _load() async {
     try {
       final reply = await XlClient.stub.command('plugin:list');
       final decoded = jsonDecode(reply.output);
-      final plugins = (decoded['plugins'] as List?) ?? [];
+      final list = (decoded['plugins'] as List?) ?? [];
       if (!mounted) return;
       setState(() {
-        _backendOnline = true;
-        _remotePlugins
+        _online = true;
+        _plugins
           ..clear()
-          ..addAll(plugins);
-        for (final p in plugins) {
-          final name = (p['name'] ?? '').toString();
-          final enabled = p['enabled'] == true;
-          if (name.isNotEmpty && enabled) _installed.add(name);
-        }
+          ..addAll(list.map((e) => Map<String, dynamic>.from(e as Map)));
+        _loading = false;
       });
-      _persistInstalled();
     } catch (_) {
       if (!mounted) return;
-      setState(() => _backendOnline = false);
+      setState(() {
+        _online = false;
+        _loading = false;
+      });
     }
   }
 
-  Future<void> _persistInstalled() async {
-    await LocalStore.writeStringList('installed_plugins.json', _installed.toList());
+  Future<void> _toggle(Map<String, dynamic> plugin) async {
+    final name = (plugin['name'] ?? '').toString();
+    if (name.isEmpty || _toggling.contains(name)) return;
+    final next = plugin['enabled'] != true;
+    setState(() {
+      plugin['enabled'] = next;
+      _toggling.add(name);
+    });
+    try {
+      await XlClient.stub.safe(() => XlClient.stub
+          .command(next ? 'plugin:enable $name' : 'plugin:disable $name'));
+    } catch (_) {
+      if (mounted) setState(() => plugin['enabled'] = !next);
+    }
+    if (mounted) setState(() => _toggling.remove(name));
   }
 
   @override
@@ -162,50 +161,36 @@ class _PluginStoreState extends State<PluginStore> {
     super.dispose();
   }
 
-  List<CommunityPlugin> get _filtered {
-    final q = _query.trim().toLowerCase();
-    return kCommunityPlugins.where((p) {
-      if (_category != '全部' && p.category != _category) return false;
-      if (q.isEmpty) return true;
-      return p.title.toLowerCase().contains(q) || p.description.toLowerCase().contains(q);
-    }).toList();
+  List<String> get _categories {
+    final set = <String>{'全部'};
+    for (final p in _plugins) {
+      final c = (p['category'] ?? '').toString();
+      if (c.isNotEmpty) set.add(c);
+    }
+    return set.toList();
   }
 
-  List<CommunityPlugin> get _featuredPlugins {
-    final result = <CommunityPlugin>[];
-    for (final n in kCommunityFeatured) {
-      for (final p in kCommunityPlugins) {
-        if (p.name == n) {
-          result.add(p);
-          break;
-        }
-      }
-    }
-    return result;
+  List<Map<String, dynamic>> get _filtered {
+    final q = _query.trim().toLowerCase();
+    return _plugins.where((p) {
+      if (_category != '全部' &&
+          (p['category'] ?? '').toString() != _category) return false;
+      if (q.isEmpty) return true;
+      final name = (p['name'] ?? '').toString().toLowerCase();
+      final desc = (p['description'] ?? '').toString().toLowerCase();
+      return name.contains(q) || desc.contains(q);
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
-    final showFeatured = widget.showFeatured && _category == '全部' && _query.trim().isEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _searchBox(p),
         const SizedBox(height: 14),
         _categoryChips(p),
-        if (showFeatured) ...[
-          const SizedBox(height: 20),
-          _featuredHeader(p),
-          const SizedBox(height: 12),
-          _featuredRail(p),
-        ],
-        if (showFeatured && _backendOnline && _remotePlugins.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          _installedHeader(p),
-          const SizedBox(height: 12),
-          _installedSection(p),
-        ],
         const SizedBox(height: 20),
         _gridHeader(p),
         const SizedBox(height: 14),
@@ -251,17 +236,18 @@ class _PluginStoreState extends State<PluginStore> {
   }
 
   Widget _categoryChips(XlPalette p) {
+    final cats = _categories;
     return SizedBox(
       height: 34,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.zero,
-        itemCount: kCommunityCategories.length,
+        itemCount: cats.length,
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (_, i) {
-          final c = kCommunityCategories[i];
+          final c = cats[i];
           final sel = c == _category;
-          return _StorePressable(
+          return GestureDetector(
             onTap: () => setState(() => _category = c),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -282,200 +268,6 @@ class _PluginStoreState extends State<PluginStore> {
     );
   }
 
-  Widget _featuredHeader(XlPalette p) {
-    return Row(
-      children: [
-        Container(
-          width: 4,
-          height: 16,
-          decoration: BoxDecoration(gradient: p.gradBrand, borderRadius: BorderRadius.circular(2)),
-        ),
-        const SizedBox(width: 10),
-        Text('精选推荐',
-            style: TextStyle(
-              fontSize: XlFont.h6,
-              fontWeight: FontWeight.w800,
-              color: p.text1,
-              letterSpacing: XlLetterSpacing.normal,
-            )),
-        if (!_backendOnline) ...[
-          const SizedBox(width: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: p.gold.withOpacity(p.isDark ? 0.16 : 0.12),
-              borderRadius: BorderRadius.circular(XlRadius.pill),
-              border: Border.all(color: p.gold.withOpacity(0.32), width: 1),
-            ),
-            child: Text('离线精选',
-                style: TextStyle(
-                  fontSize: XlFont.micro,
-                  fontWeight: FontWeight.w800,
-                  color: p.gold,
-                  letterSpacing: XlLetterSpacing.wider,
-                )),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _installedHeader(XlPalette p) {
-    return Row(
-      children: [
-        Container(
-          width: 4,
-          height: 16,
-          decoration: BoxDecoration(
-            color: p.green,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text('已安装',
-            style: TextStyle(
-              fontSize: XlFont.h6,
-              fontWeight: FontWeight.w800,
-              color: p.text1,
-              letterSpacing: XlLetterSpacing.normal,
-            )),
-        const Spacer(),
-        Text('${_remotePlugins.length} 个',
-            style: TextStyle(
-              fontSize: XlFont.label,
-              fontWeight: FontWeight.w700,
-              color: p.decor,
-              letterSpacing: XlLetterSpacing.wider,
-            )),
-      ],
-    );
-  }
-
-  Widget _installedSection(XlPalette p) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: _remotePlugins.map((raw) {
-        final m = (raw as Map).cast<String, dynamic>();
-        final name = (m['name'] ?? '').toString();
-        final enabled = m['enabled'] == true;
-        final version = (m['version'] ?? '').toString();
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: AppTheme.neuXs(context, r: XlRadius.pill),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: enabled ? p.green : p.decorSoft,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(name,
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w700,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.wide,
-                  )),
-              if (version.isNotEmpty) ...[
-                const SizedBox(width: 6),
-                Text('v$version',
-                    style: TextStyle(
-                      fontSize: XlFont.micro,
-                      fontWeight: FontWeight.w600,
-                      color: p.decor,
-                      letterSpacing: XlLetterSpacing.wider,
-                    )),
-              ],
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _featuredRail(XlPalette p) {
-    final list = _featuredPlugins;
-    return SizedBox(
-      height: 150,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        itemCount: list.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 14),
-        itemBuilder: (_, i) => _featuredCard(p, list[i]),
-      ),
-    );
-  }
-
-  Widget _featuredCard(XlPalette p, CommunityPlugin plugin) {
-    return Container(
-      width: 250,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: p.gradBrand,
-        borderRadius: BorderRadius.circular(XlRadius.xl),
-        border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.30 : 0.45), width: 1),
-        boxShadow: [...p.raisedSm, BoxShadow(color: p.pink.withOpacity(0.30), blurRadius: 22, spreadRadius: -6)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.22),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
-                ),
-                child: Icon(communityIconForKey(plugin.icon), size: 18, color: p.btnInk),
-              ),
-              const Spacer(),
-              Icon(Icons.star_rounded, size: 15, color: p.btnInk.withOpacity(0.9)),
-              const SizedBox(width: 2),
-              Text(plugin.rating.toString(),
-                  style: TextStyle(
-                    fontSize: XlFont.captionSm,
-                    fontWeight: FontWeight.w800,
-                    color: p.btnInk,
-                  )),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(plugin.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: XlFont.body,
-                fontWeight: FontWeight.w800,
-                color: p.btnInk,
-                letterSpacing: XlLetterSpacing.normal,
-              )),
-          const SizedBox(height: 4),
-          Expanded(
-            child: Text(plugin.description,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: XlFont.label,
-                  color: p.btnInk.withOpacity(0.85),
-                  height: XlLineHeight.relaxed,
-                  fontWeight: FontWeight.w500,
-                )),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _gridHeader(XlPalette p) {
     final list = _filtered;
     return Row(
@@ -486,7 +278,7 @@ class _PluginStoreState extends State<PluginStore> {
           decoration: BoxDecoration(gradient: p.gradBrand, borderRadius: BorderRadius.circular(2)),
         ),
         const SizedBox(width: 10),
-        Text(_category == '全部' ? '精选插件' : _category,
+        Text(_category == '全部' ? '插件' : _category,
             style: TextStyle(
               fontSize: XlFont.h6,
               fontWeight: FontWeight.w800,
@@ -494,19 +286,32 @@ class _PluginStoreState extends State<PluginStore> {
               letterSpacing: XlLetterSpacing.normal,
             )),
         const Spacer(),
-        Text('${list.length} 个',
-            style: TextStyle(
-              fontSize: XlFont.label,
-              fontWeight: FontWeight.w700,
-              color: p.decor,
-              letterSpacing: XlLetterSpacing.wider,
-            )),
+        if (!_online)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: p.gold.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(XlRadius.pill),
+              border: Border.all(color: p.gold.withOpacity(0.32), width: 1),
+            ),
+            child: Text('未连接',
+                style: TextStyle(fontSize: XlFont.micro, fontWeight: FontWeight.w800, color: p.gold, letterSpacing: XlLetterSpacing.wider)),
+          )
+        else
+          Text('${list.length} 个',
+              style: TextStyle(
+                fontSize: XlFont.label,
+                fontWeight: FontWeight.w700,
+                color: p.decor,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
       ],
     );
   }
 
   Widget _grid(XlPalette p) {
     if (_loading) return _loadingView(p);
+    if (!_online) return _offlineView(p);
     final list = _filtered;
     if (list.isEmpty) return _emptyView(p);
     return LayoutBuilder(
@@ -520,7 +325,7 @@ class _PluginStoreState extends State<PluginStore> {
             crossAxisCount: cols,
             mainAxisSpacing: 14,
             crossAxisSpacing: 14,
-            childAspectRatio: cols == 2 ? 1.45 : 1.35,
+            childAspectRatio: cols == 2 ? 1.5 : 1.4,
           ),
           itemCount: list.length,
           itemBuilder: (_, i) => _storeCard(p, list[i]),
@@ -529,9 +334,15 @@ class _PluginStoreState extends State<PluginStore> {
     );
   }
 
-  Widget _storeCard(XlPalette p, CommunityPlugin plugin) {
-    final installed = _installed.contains(plugin.name);
-    final installing = _installing.contains(plugin.name);
+  Widget _storeCard(XlPalette p, Map<String, dynamic> plugin) {
+    final name = (plugin['name'] ?? '').toString();
+    final version = (plugin['version'] ?? '').toString();
+    final author = (plugin['author'] ?? '').toString();
+    final category = (plugin['category'] ?? '').toString();
+    final description = (plugin['description'] ?? '').toString();
+    final enabled = plugin['enabled'] == true;
+    final builtin = plugin['builtin'] == true;
+    final toggling = _toggling.contains(name);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: AppTheme.neu(context, r: XlRadius.xl),
@@ -544,25 +355,34 @@ class _PluginStoreState extends State<PluginStore> {
                 width: 40,
                 height: 40,
                 decoration: AppTheme.brandOrb(context, size: 40),
-                child: Icon(communityIconForKey(plugin.icon), size: 18, color: p.btnInk),
+                child: Icon(communityIconForKey(category), size: 18, color: p.btnInk),
               ),
-              const Spacer(),
-              if (plugin.dshCompatible) AppTheme.badge(context, 'DSH', color: p.blue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: XlFont.body,
+                          fontWeight: FontWeight.w800,
+                          color: p.text1,
+                          letterSpacing: XlLetterSpacing.normal,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(version.isNotEmpty ? 'v$version' : '未发布版本',
+                        style: TextStyle(fontSize: XlFont.micro, color: p.decor, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              if (builtin) AppTheme.badge(context, '内置', color: p.blue),
             ],
           ),
-          const SizedBox(height: 12),
-          Text(plugin.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: XlFont.body,
-                fontWeight: FontWeight.w800,
-                color: p.text1,
-                letterSpacing: XlLetterSpacing.normal,
-              )),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           Expanded(
-            child: Text(plugin.description,
+            child: Text(description.isEmpty ? '暂无描述' : description,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -577,120 +397,44 @@ class _PluginStoreState extends State<PluginStore> {
             children: [
               Icon(Icons.person_outline_rounded, size: 12, color: p.decor),
               const SizedBox(width: 3),
-              Text(plugin.author,
-                  style: TextStyle(
-                    fontSize: XlFont.micro,
-                    color: p.decor,
-                    fontWeight: FontWeight.w600,
-                  )),
-              const Spacer(),
-              Icon(Icons.star_rounded, size: 12, color: p.gold),
-              const SizedBox(width: 2),
-              Text(plugin.rating.toString(),
-                  style: TextStyle(
-                    fontSize: XlFont.micro,
-                    color: p.gold,
-                    fontWeight: FontWeight.w800,
-                  )),
-              const SizedBox(width: 6),
-              Text('${formatDownloads(plugin.downloads)}下载',
-                  style: TextStyle(
-                    fontSize: XlFont.micro,
-                    color: p.decor,
-                    fontWeight: FontWeight.w600,
-                  )),
+              Expanded(
+                child: Text(author.isEmpty ? '未知作者' : author,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: XlFont.micro, color: p.decor, fontWeight: FontWeight.w600)),
+              ),
+              _enableToggle(p, enabled, toggling, () => _toggle(plugin)),
             ],
           ),
-          const SizedBox(height: 10),
-          _installBtn(p, plugin, installed, installing),
         ],
       ),
     );
   }
 
-  Widget _installBtn(XlPalette p, CommunityPlugin plugin, bool installed, bool installing) {
-    return _StorePressable(
-      onTap: (installed || installing) ? null : () => _install(plugin),
+  Widget _enableToggle(XlPalette p, bool enabled, bool toggling, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: toggling ? null : onTap,
       child: Container(
-        height: 34,
-        alignment: Alignment.center,
-        decoration: installed
-            ? AppTheme.neuXs(context, r: XlRadius.pill)
-            : AppTheme.brand(context, r: XlRadius.pill),
-        child: installing
-            ? SizedBox(
-                width: 15,
-                height: 15,
-                child: CircularProgressIndicator(strokeWidth: 2, color: p.btnInk),
-              )
-            : Text(
-                installed ? '已安装' : '安装',
-                style: TextStyle(
-                  fontSize: XlFont.captionSm,
-                  fontWeight: FontWeight.w800,
-                  color: installed ? p.text2 : p.btnInk,
-                  letterSpacing: XlLetterSpacing.wider,
+        width: 44,
+        height: 24,
+        decoration: BoxDecoration(
+          color: enabled ? p.pink : p.surfaceLo,
+          borderRadius: BorderRadius.circular(XlRadius.pill),
+          border: Border.all(color: enabled ? p.pink : p.edgeSoft, width: 1),
+        ),
+        child: toggling
+            ? Center(child: SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: p.btnInk)))
+            : AnimatedAlign(
+                duration: XlDuration.fast,
+                alignment: enabled ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.all(2.5),
+                  width: 17,
+                  height: 17,
+                  decoration: BoxDecoration(color: enabled ? p.btnInk : p.decor, shape: BoxShape.circle),
                 ),
               ),
       ),
     );
-  }
-
-  Future<void> _install(CommunityPlugin plugin) async {
-    setState(() => _installing.add(plugin.name));
-    final pink = XlPalette.of(context).pink;
-    final green = XlPalette.of(context).green;
-    final red = XlPalette.of(context).red;
-    _showSnack('正在下载 ${plugin.title}…', pink);
-    String? error;
-    try {
-      final reply = await XlClient.stub.command('plugin:install ${plugin.name}');
-      final decoded = jsonDecode(reply.output);
-      if (decoded['ok'] != true) {
-        error = (decoded['error'] ?? '安装失败').toString();
-      }
-    } catch (e) {
-      error = e.toString();
-    }
-    if (!mounted) return;
-    if (error == null) {
-      setState(() {
-        _installed.add(plugin.name);
-        _installing.remove(plugin.name);
-      });
-      _persistInstalled();
-      _showSnack('${plugin.title} 安装成功并已启用', green);
-    } else {
-      setState(() => _installing.remove(plugin.name));
-      _showSnack('安装失败：$error', red);
-    }
-  }
-
-  void _showSnack(String message, Color color) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: XlPalette.of(context).surface,
-        elevation: 0,
-        duration: const Duration(milliseconds: 1500),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
-        content: Row(
-          children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(message,
-                  style: TextStyle(
-                    color: XlPalette.of(context).text1,
-                    fontWeight: FontWeight.w700,
-                    fontSize: XlFont.captionSm,
-                  )),
-            ),
-          ],
-        ),
-      ));
   }
 
   Widget _loadingView(XlPalette p) {
@@ -700,7 +444,7 @@ class _PluginStoreState extends State<PluginStore> {
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 14,
       crossAxisSpacing: 14,
-      childAspectRatio: 1.45,
+      childAspectRatio: 1.5,
       children: [
         for (int i = 0; i < 4; i++)
           Container(
@@ -721,6 +465,42 @@ class _PluginStoreState extends State<PluginStore> {
     );
   }
 
+  Widget _offlineView(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(40),
+      decoration: AppTheme.neu(context, r: XlRadius.xl),
+      child: Column(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: AppTheme.brandOrb(context, size: 60),
+            child: Icon(Icons.link_off_rounded, size: 26, color: p.btnInk),
+          ),
+          const SizedBox(height: 16),
+          Text('插件服务未连接',
+              style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
+          const SizedBox(height: 6),
+          Text('请确认后端已启动后重试',
+              style: TextStyle(fontSize: XlFont.captionSm, color: p.text2, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: () {
+              setState(() => _loading = true);
+              _load();
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+              decoration: AppTheme.btn(context, r: XlRadius.pill),
+              child: Text('重试',
+                  style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w800, color: p.btnInk, letterSpacing: XlLetterSpacing.wider)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _emptyView(XlPalette p) {
     return Container(
       padding: const EdgeInsets.all(40),
@@ -731,13 +511,13 @@ class _PluginStoreState extends State<PluginStore> {
             width: 60,
             height: 60,
             decoration: AppTheme.brandOrb(context, size: 60),
-            child: Icon(Icons.search_off_rounded, size: 26, color: p.btnInk),
+            child: Icon(Icons.extension_outlined, size: 26, color: p.btnInk),
           ),
           const SizedBox(height: 16),
-          Text('没有找到相关插件',
+          Text('暂无插件',
               style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
           const SizedBox(height: 6),
-          Text('换个关键词或分类试试',
+          Text(_query.isNotEmpty ? '没有找到匹配的插件' : '后端尚未提供可用插件',
               style: TextStyle(fontSize: XlFont.captionSm, color: p.text2, fontWeight: FontWeight.w500)),
         ],
       ),

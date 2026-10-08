@@ -819,6 +819,11 @@ class _RefreshBtnState extends State<_RefreshBtn> with SingleTickerProviderState
     duration: const Duration(milliseconds: 900),
   );
   @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+  @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
     return GestureDetector(
