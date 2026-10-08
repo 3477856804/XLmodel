@@ -41,6 +41,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   Map<String, dynamic> _memStats = const {};
   bool _memLoading = false;
   bool _forgettingOld = false;
+  Map<String, dynamic> _actStats = const {};
+  bool _actLoading = false;
+  bool _clearingAct = false;
 
   final Map<String, bool> _toggles = {
     'alwaysOnTop': false,
@@ -92,6 +95,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _Section('interface', '界面设置', Icons.dashboard_customize_rounded, 'green'),
     _Section('channels', '多平台通道', Icons.hub_rounded, 'gold'),
     _Section('memory', '记忆与知识', Icons.psychology_outlined, 'pink'),
+    _Section('activity', '活动日志', Icons.history_rounded, 'blue'),
     _Section('advanced', '高级设置', Icons.tune_rounded, 'blue'),
     _Section('about', '关于小凌', Icons.info_outline_rounded, 'pink'),
   ];
@@ -123,6 +127,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _loadOptions();
     _calcCache();
     _loadMemStats();
+    _loadActStats();
   }
 
   Future<void> _loadOptions() async {
@@ -983,6 +988,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       case 'interface': return _interfaceSection(p);
       case 'channels': return _channelsSection(p);
       case 'memory': return _memorySection(p);
+      case 'activity': return _activitySection(p);
       case 'advanced': return _advancedSection(p);
       case 'about': return _aboutSection(p);
       default: return _modelSection(p);
@@ -1627,6 +1633,184 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           child: const KnowledgeGraphPanel(),
         ),
       ),
+    );
+  }
+
+  Future<void> _loadActStats() async {
+    if (_actLoading) return;
+    setState(() => _actLoading = true);
+    try {
+      final raw = await XlClient.stub.safe(() =>
+          XlClient.stub.commandOutput('activity:stats'));
+      if (!mounted) return;
+      Map<String, dynamic> data = const {};
+      if (raw != null && raw.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map<String, dynamic>) data = decoded;
+        } catch (_) {}
+      }
+      setState(() {
+        _actStats = data;
+        _actLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _actLoading = false);
+    }
+  }
+
+  Future<void> _clearAct() async {
+    if (_clearingAct) return;
+    setState(() => _clearingAct = true);
+    try {
+      final raw = await XlClient.stub.safe(() =>
+          XlClient.stub.commandOutput('activity:clear'));
+      int cleared = 0;
+      if (raw != null && raw.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) cleared = (decoded['cleared'] as num?)?.toInt() ?? 0;
+        } catch (_) {}
+      }
+      _showSnack('已清空 $cleared 条活动日志');
+      await _loadActStats();
+    } finally {
+      if (mounted) setState(() => _clearingAct = false);
+    }
+  }
+
+  Future<void> _setRetention(int days) async {
+    try {
+      await XlClient.stub.safe(() =>
+          XlClient.stub.commandOutput('activity:retention $days'));
+      _showSnack('日志保留天数已设为 $days 天');
+      await _loadActStats();
+    } catch (_) {}
+  }
+
+  String _fmtTime(String iso) {
+    final t = DateTime.tryParse(iso);
+    if (t == null) return '—';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.year}-${two(t.month)}-${t.day} ${two(t.hour)}:${two(t.minute)}';
+  }
+
+  Widget _activitySection(XlPalette p) {
+    final total = (_actStats['total'] as num?)?.toInt() ?? 0;
+    final earliest = (_actStats['earliest'] ?? '').toString();
+    final latest = (_actStats['latest'] ?? '').toString();
+    final retention = (_actStats['retention_days'] as num?)?.toInt() ?? 30;
+    final byType = (_actStats['by_type'] as Map?) ?? const {};
+    String countOf(String k) => '${(byType[k] as num?)?.toInt() ?? 0}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(p, '活动日志', '系统事件的真实记录（对话 / 训练 / 模型 / 插件 / 系统）', p.blue),
+        Row(
+          children: [
+            Expanded(child: _memStatCard(p, '日志总数', '$total', Icons.recent_actors_rounded, p.blue)),
+            const SizedBox(width: 10),
+            Expanded(child: _memStatCard(p, '最早记录', earliest.isEmpty ? '—' : _fmtTime(earliest), Icons.upload_file_rounded, p.gold)),
+            const SizedBox(width: 10),
+            Expanded(child: _memStatCard(p, '最新记录', latest.isEmpty ? '—' : _fmtTime(latest), Icons.fiber_new_rounded, p.pink)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: AppTheme.neuXs(context, r: XlRadius.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('分类统计',
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wide,
+                  )),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _actChip(p, '对话', countOf('chat'), p.pink),
+                  _actChip(p, '训练', countOf('training'), p.gold),
+                  _actChip(p, '模型', countOf('model'), p.blue),
+                  _actChip(p, '插件', countOf('plugin'), p.green),
+                  _actChip(p, '系统', countOf('system'), p.violet),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: AppTheme.neuXs(context, r: XlRadius.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('日志保留天数',
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wide,
+                  )),
+              const SizedBox(height: 4),
+              Text('当前保留 $retention 天，更早的记录会自动清理',
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    color: p.text3,
+                    fontWeight: FontWeight.w500,
+                  )),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [7, 14, 30, 90].map((d) {
+                  final selected = d == retention;
+                  return ChoiceChip(
+                    label: Text('${d} 天'),
+                    selected: selected,
+                    onSelected: (_) => _setRetention(d),
+                    selectedColor: p.blue.withOpacity(0.25),
+                    backgroundColor: p.surfaceLo,
+                    labelStyle: TextStyle(
+                      fontSize: XlFont.label,
+                      color: selected ? p.text1 : p.text3,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _actionRow(p, '清空日志', _clearingAct ? '正在清空…' : '删除全部活动记录，不可恢复',
+            Icons.delete_sweep_outlined, p.red, () => _clearAct()),
+        const SizedBox(height: 10),
+        _actionRow(p, '刷新日志统计', _actLoading ? '加载中…' : '重新拉取活动日志统计',
+            Icons.refresh_rounded, p.blue, () => _loadActStats()),
+      ],
+    );
+  }
+
+  Widget _actChip(XlPalette p, String label, String count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text('$label · $count',
+          style: TextStyle(
+            color: p.text2,
+            fontSize: XlFont.label,
+            fontWeight: FontWeight.w600,
+          )),
     );
   }
 

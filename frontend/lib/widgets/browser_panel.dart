@@ -114,9 +114,12 @@ class _BrowserPanelState extends State<BrowserPanel> {
   }
 
   void _go() {
-    final url = _urlCtrl.text.trim();
+    var url = _urlCtrl.text.trim();
     if (url.isEmpty) return;
-    if (!url.startsWith('http')) _urlCtrl.text = url;
+    if (!url.startsWith('http')) {
+      url = 'https://$url';
+      _urlCtrl.text = url;
+    }
     _run(() => _send('navigate', {'url': url}));
   }
 

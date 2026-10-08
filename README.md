@@ -29,8 +29,9 @@
 - 桌面端通过内置 InAppWebView 加载本地 three.js + three-vrm 页面渲染 VRM，自带轨道相机、三点布光、呼吸/眨眼/注视。
 - three.js 与 three-vrm 全部离线内置，不依赖 CDN，断网也能出 3D（`backend/core/webpanel.py`、`resources/web/`）。
 
-### 多通道消息
-- 统一外部消息通道抽象，支持 Webhook / Telegram / Discord / 飞书 / 邮件，所有出站调用带 10 秒超时与失败降级，不阻塞主程序（`backend/core/channels.py`）。
+### 多通道消息（11 个通道）
+- 统一外部消息通道抽象，内置 11 个通道：Webhook / Telegram / Discord / 飞书 / WhatsApp / Slack / Signal / 邮件 / 企业微信 / 钉钉 / 微信公众号（`backend/core/channels.py`）。
+- 所有出站调用带 10 秒超时与失败降级，不阻塞主程序；企业微信/钉钉走 Webhook，Telegram/Discord 走 Bot API，无需额外 SDK。
 
 ### MCP 接入
 - 内置 Model Context Protocol 客户端：工具调用结果缓存、网络错误指数退避重试、连接健康检查、服务器配置持久化、统一超时（`backend/core/mcp_client.py`）。
@@ -38,13 +39,26 @@
 ### DSH 插件兼容
 - DSH 插件兼容层，可解析、安装、管理 DSH 格式插件（`backend/core/dsh_compat.py`）。
 
+### 代码符号索引与知识库检索
+- 代码符号索引：扫描 def / class / function / import 等符号，缓存到 `.symbol_index.json`，支撑代码检索（`backend/core/tools.py`、`CodeSearch` RPC）。
+- 知识库检索：jieba 中文分词（不可用时降级为正则分词）+ TF-IDF 加权词法检索；可选接入 sentence-transformers 做语义向量检索，与关键词结果加权融合、去重并带引用溯源；未安装时自动降级为纯 TF-IDF（`backend/core/knowledge_base.py`）。
+
+### 知识图谱可视化
+- 从对话与文档中抽取实体与关系，持久化到 `data/knowledge.json`，支持搜索、统计、导出 JSON / GraphML（`backend/core/memory.py` 的 `KnowledgeGraph`）。
+- 前端 `knowledge_graph_panel.dart` 提供图谱可视化面板，可被 Agent 调用查询实体关系。
+
+### 语音 ASR / TTS
+- 语音朗读（TTS）：离线 pyttsx3 与联网 edge-tts 双后端，经 `ReadAloud` / `ListVoices` / `SetVoice` RPC 暴露（`backend/core/multimodal.py` 懒加载）。
+- 语音识别（ASR）：`Transcribe` RPC 支持音频转写，麦克风输入经 sounddevice 采集。
+
+### 浏览器自动化
+- 内置浏览器工具：可选 Playwright 驱动真实浏览器，渲染 React/Vue 等 JS 动态页面、截图、点击与输入（`backend/core/browser_tool.py`）。
+- 未安装 Playwright 时自动降级为 requests + 正则抓取，不影响其余功能；前端 `browser_panel.dart` / `browser_page.dart` 提供地址栏与导航面板。
+
 ### 沙箱与安全
 - 自有数据沙箱：模型下载与工具执行隔离在用户数据目录，避免写入 Program Files、升级覆盖用户数据、以及工具越权读写全盘（`backend/core/sandbox.py`）。
+- OS 级进程隔离：Linux 优先使用 Landlock（路径级强制、deny-by-default），探测内核不支持时如实降级，绝不假装安全；辅以资源限制。
 - "永不删除"红线：任何待删文件一律移入隔离区并登记清单，不直接从磁盘删除（`backend/core/quarantine.py`）。
-
-### 代码符号索引与知识库检索
-- 代码符号索引：扫描 def / class / function / import 等符号，缓存到 `.symbol_index.json`，支撑代码检索（`backend/core/tools.py`）。
-- 知识库检索：jieba 中文分词（不可用时降级为正则分词）+ TF-IDF 加权词法检索（`backend/core/knowledge_base.py`）。说明：这是关键词加权检索，并非向量 embedding 检索。
 
 ### 本地模型与模型商店
 - 同时支持 transformers 目录模型与 GGUF 单文件权重，推理后端自动分派（`backend/core/model.py`）。
@@ -130,9 +144,14 @@ Trae、Codex、Qoder、DSH、WorkBuddy、OpenClaw 等都是以"写代码 / 命�
 | 形象与情感 | 无 | 3D VRM 数字人 + 情绪/亲密度/人格 |
 | 模型来源 | 多依赖云端 API | 本地 GGUF / transformers 模型，可断网运行 |
 | 自我成长 | 无 | 本地 LoRA 训练 → 合并晋升的成长闭环 |
-| 消息触达 | 多在 IDE 内 | 多通道（Webhook/Telegram/Discord/飞书/邮件） |
-| 代码理解 | 编辑器内 | 符号索引 + 知识库检索，可被 Agent 调用 |
-| 插件生态 | 各自封闭 | MCP 客户端 + DSH 兼容层 + 自建插件 |
+| 消息触达 | 多在 IDE 内 | 11 个通道（Webhook/Telegram/Discord/飞书/WhatsApp/Slack/Signal/邮件/企业微信/钉钉/微信公众号） |
+| 代码理解 | 编辑器内 | 符号索引 + 关键词/语义向量混合检索，可被 Agent 调用 |
+| 知识表示 | 无 | 对话/文档抽取实体关系的知识图谱，导出 JSON/GraphML |
+| 语音能力 | 多为纯文本 | 离线/联网 TTS 朗读 + 麦克风 ASR 转写 |
+| 浏览器操作 | 多依赖扩展 | 内置 Playwright 浏览器自动化（无依赖时降级为抓取） |
+| 安全隔离 | 进程级 | 用户数据沙箱 + Landlock OS 级路径强制 + 隔离区"永不删文件" |
+| 插件生态 | 各自封闭 | MCP 客户端 + DSH 兼容层 + 15 个内置插件 + 自建插件 |
+| 对外接口 | IDE 插件 | 46 个 gRPC 方法，前端可替换，后端可独立自检 |
 
 说明：晓灵并不试图取代这些编码工具，而是把"会干活的 Agent"和"有形象、能成长、陪在桌面的伴侣"结合在同一个本地进程里。
 
@@ -143,7 +162,8 @@ Trae、Codex、Qoder、DSH、WorkBuddy、OpenClaw 等都是以"写代码 / 命�
 - **AI 伴侣属性**：不只是工具，而是有 3D 形象、情绪、亲密度与长期记忆的常驻角色。
 - **本地 LoRA 成长训练**：模型随使用在本地长大，蒸馏、合并、晋升、回滚闭环完整，不依赖云端训练服务。
 - **VRM 3D 数字人**：离线 three.js + three-vrm 渲染，断网可用，五平台统一。
-- **多通道消息**：同一人格通过 Webhook / Telegram / Discord / 飞书 / 邮件对外触达。
+- **多通道消息**：同一人格通过 11 个通道对外触达。
+- **安全边界完整**：用户数据沙箱 + Landlock OS 级隔离 + 隔离区永不删文件。
 - **源码自主、本地可完全自建**：UI 与后端 gRPC 解耦，数据落在本地沙箱，无云端锁定；源码托管于 Gitee 与 GitHub 双仓。
 
 ---
@@ -164,7 +184,7 @@ Trae、Codex、Qoder、DSH、WorkBuddy、OpenClaw 等都是以"写代码 / 命�
 python3 -m pytest tests/ -v
 ```
 
-当前 26 个契约测试全部通过；后端全部核心模块可导入，`main.py` 可正常启动并响应 `GetStatus` RPC。
+当前 121 个 pytest 用例全部通过；后端全部核心模块可导入，`main.py` 可正常启动并响应 `GetStatus` RPC。仓库内置 15 个插件、11 个消息通道、46 个 gRPC 方法。
 
 ---
 

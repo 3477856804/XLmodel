@@ -1300,6 +1300,12 @@ class ModelStore:
                         'percent': 100.0, 'status': 'done', 'channel': ch,
                         'path': str(dest), 'size': info.get('size', '0 B'),
                     }
+                    try:
+                        from .activity_log import record as _log_act
+                        _log_act("model", f"模型下载完成：{model_name}",
+                                 f"通道={ch}，大小={info.get('size', '0 B')}")
+                    except Exception:
+                        pass
                     return {"ok": True, "channel": ch, "path": str(dest),
                             "size": info.get("size", "0 B")}
                 res = {"ok": False,
@@ -1309,6 +1315,12 @@ class ModelStore:
         err = "；".join(errors) or "全部通道均失败"
         TASKS[model_name] = {'percent': 0.0, 'status': 'error', 'error': err,
                              'tried': order}
+        try:
+            from .activity_log import record as _log_act
+            _log_act("model", f"模型下载失败：{model_name}", err[:200],
+                     severity="error")
+        except Exception:
+            pass
         return {"ok": False, "channel": ",".join(order),
                 "error": err,
                 "tried": order}

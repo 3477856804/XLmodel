@@ -15,11 +15,11 @@
 远端已经在本地配好（`github` / `gitee` 两个 remote），推送只需 token：
 
 ```bash
-export GITHUB_TOKEN=xxxxx   # https://github.com/settings/tokens  勾选 repo
-export GITEE_TOKEN=xxxxx    # https://gitee.com/profile/personal_access_tokens
-python tools/push_repos.py            # 仓库不存在会自动建（公开）
-python tools/push_repos.py --private  # 想建私有库加这个
-python tools/push_repos.py --dry-run  # 只看会做什么
+export GITHUB_TOKEN=xxxxx # https://github.com/settings/tokens 勾选 repo
+export GITEE_TOKEN=xxxxx # https://gitee.com/profile/personal_access_tokens
+python tools/push_repos.py # 仓库不存在会自动建（公开）
+python tools/push_repos.py --private # 想建私有库加这个
+python tools/push_repos.py --dry-run # 只看会做什么
 ```
 
 脚本会把 token 临时写进 remote URL，推完立刻改回干净地址，不会留在 `.git/config` 里。
@@ -31,14 +31,14 @@ python tools/push_repos.py --dry-run  # 只看会做什么
 ### 推送踩过的三个坑（脚本已内置处理）
 
 1. **全局代理**：本机 git 全局配了 `http.proxy/https.proxy = http://43.99.100.108:3128`，
-   直连 Gitee 会 `TLS connect error: wrong version number`。脚本默认绕过；
-   需要代理上网的机器加 `--use-proxy`。
+ 直连 Gitee 会 `TLS connect error: wrong version number`。脚本默认绕过；
+ 需要代理上网的机器加 `--use-proxy`。
 2. **Schannel**：Windows 默认 TLS 后端跟 Gitee 握手报 `SEC_E_INVALID_TOKEN`，
-   改用 `-c http.sslBackend=openssl`。
+ 改用 `-c http.sslBackend=openssl`。
 3. **令牌用户名**：Gitee 要求地址里的用户名是**令牌本人的 login**
-   （本项目令牌属 `mvpth`，仓库却在 `COSMOnb666` 名下），
-   写成仓库 owner 会 `remote: The token username invalid`（403）。
-   脚本会调 `/api/v5/user` 自动查出来。
+ （本项目令牌属 `mvpth`，仓库却在 `COSMOnb666` 名下），
+ 写成仓库 owner 会 `remote: The token username invalid`（403）。
+ 脚本会调 `/api/v5/user` 自动查出来。
 
 另外首次 `fetch` 偶发 `SSL_read: decryption failed or bad record mac`，
 多半是网络抖动，重试即可（脚本已内置 3 次重试）。
@@ -54,7 +54,7 @@ python tools/push_repos.py --dry-run  # 只看会做什么
 - 部署：`.github/workflows/deploy-pages.yml`，推送 `main` 且 `website/**` 有改动时自动部署
 - 项目名：`xiaoling`
 
-### ⚠️ 必须做：轮换 Cloudflare Token
+### 必须做：轮换 Cloudflare Token
 
 旧版 `deploy-pages.yml` 曾把 API Token **硬编码** 在工作流里。现已改为读取 Secrets，
 但那枚令牌只要出现过就该作废。请去 Cloudflare 后台把它 **Rotate（轮换）**，
@@ -88,11 +88,11 @@ Flutter 侧用 `flutter_inappwebview` 打开后端起的本地 HTTP 服务上的
 
 ```
 Flutter InAppWebView
-   └─ http://127.0.0.1:<port>/viewer.html?model=小凌.vrm
-        └─ 后端 webpanel.py 静态服务（只读白名单目录）
-             ├─ /viewer.html
-             ├─ /vendor/three.module.js、three-vrm.module.js、GLTFLoader…
-             └─ /models/*.vrm   （resources/models 与 .star_core/models）
+ └─ http://127.0.0.1:<port>/viewer.html?model=小凌.vrm
+ └─ 后端 webpanel.py 静态服务（只读白名单目录）
+ ├─ /viewer.html
+ ├─ /vendor/three.module.js、three-vrm.module.js、GLTFLoader…
+ └─ /models/*.vrm （resources/models 与 .star_core/models）
 ```
 
 选它的原因：原先的 `model_viewer_plus` 在桌面端会崩 —— 它内部走
@@ -109,12 +109,12 @@ Flutter InAppWebView
 ### 已知的两个构建坑（已修）
 
 1. **Windows 需要 NuGet**：`flutter_inappwebview_windows` 构建时会用
-   `nuget install` 拉 WebView2 / CppWinRT / WIL / nlohmann.json。
-   本机 VS Build Tools 没带，已装官方 `nuget.exe` 并加入用户 PATH。
-   CI（windows-2022）自带，不受影响。
+ `nuget install` 拉 WebView2 / CppWinRT / WIL / nlohmann.json。
+ 本机 VS Build Tools 没带，已装官方 `nuget.exe` 并加入用户 PATH。
+ CI（windows-2022）自带，不受影响。
 2. **MSVC 14.5x 的 STL1011**：插件还在用 `<experimental/coroutine>`，新版 MSVC
-   把它标成硬错误。已在 `frontend/windows/CMakeLists.txt` 加
-   `-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS`。
+ 把它标成硬错误。已在 `frontend/windows/CMakeLists.txt` 加
+ `-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS`。
 
 ### 版本约束
 

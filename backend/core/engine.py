@@ -762,6 +762,13 @@ class XiaoLing:
                 elapsed_ms=round((time.time() - t0) * 1000, 1),
                 intent=intent)
             self.bus.emit("chat:after", text, result)
+            try:
+                from .activity_log import record as _log_act
+                _log_act("chat", "对话完成",
+                         f"{(text or '')[:40]} → {(reply or '')[:40]}"
+                         f"（{source}，{result.elapsed_ms}ms）")
+            except Exception:
+                pass
             return result
 
     def _model_ready(self) -> bool:

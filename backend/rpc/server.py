@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -147,6 +148,22 @@ def _get_workflow_engine():
             from core.workflow_engine import WorkflowEngine
             _workflow_engine = WorkflowEngine()
     return _workflow_engine
+
+
+_knowledge_base = None
+_knowledge_base_lock = threading.Lock()
+
+
+def _get_knowledge_base():
+    """懒加载知识库单例（分块索引 + 混合检索 + 引用溯源）。"""
+    global _knowledge_base
+    if _knowledge_base is not None:
+        return _knowledge_base
+    with _knowledge_base_lock:
+        if _knowledge_base is None:
+            from core.knowledge_base import KnowledgeBase
+            _knowledge_base = KnowledgeBase(index_path="data/kb_index.json")
+    return _knowledge_base
 
 
 def _handle_sandbox(cmd: str) -> str:
@@ -635,6 +652,40 @@ def _handle_ext_command(cmd: str) -> str:
                 return _ok(removed=removed, days=days)
             return _err(f"未知记忆操作: {op}")
 
+        if cmd.startswith("activity:"):
+            rest = cmd[len("activity:"):].strip()
+            op, _, arg = (rest + " ").partition(" ")
+            arg = arg.strip()
+            from core.activity_log import get_activity_log
+            log = get_activity_log()
+            if op == "recent":
+                try:
+                    limit = int(arg) if arg else 20
+                except ValueError:
+                    limit = 20
+                return _ok(activities=log.list_recent(limit),
+                           stats=log.stats())
+            if op == "by_type":
+                type_ = (arg or "").strip()
+                if type_ not in ("chat", "training", "model", "plugin", "system"):
+                    return _err("未知活动类型，可选 chat/training/model/plugin/system")
+                return _ok(type=type_, activities=log.list_by_type(type_, 50))
+            if op == "stats":
+                return _ok(**log.stats())
+            if op == "clear":
+                n = log.clear()
+                return _ok(message=f"已清空 {n} 条活动日志", cleared=n)
+            if op == "retention":
+                if arg:
+                    try:
+                        days = log.set_retention_days(int(arg))
+                        return _ok(message=f"日志保留天数已设为 {days} 天",
+                                   retention_days=days)
+                    except ValueError:
+                        return _err("保留天数必须是整数")
+                return _ok(retention_days=log.get_retention_days())
+            return _err(f"未知活动日志操作: {op}")
+
         if cmd.startswith("mcp:"):
             rest = cmd[len("mcp:"):].strip()
             op, _, payload = rest.partition(" ")
@@ -667,6 +718,54 @@ def _handle_ext_command(cmd: str) -> str:
                 mgr.disconnect_server(payload)
                 return _ok(message=f"已断开 {payload}")
             return _err(f"未知 MCP 操作: {op}")
+
+        if cmd.startswith("kb:"):
+            rest = cmd[len("kb:"):].strip()
+            op, _, arg = (rest + " ").partition(" ")
+            arg = arg.strip()
+            kb = _get_knowledge_base()
+            if op == "search":
+                if not arg:
+                    return _err("缺少检索关键词")
+                top_k = 5
+                m = re.match(r"^(.*?)\s+--top\s+(\d+)$", arg)
+                if m:
+                    arg, top_k = m.group(1).strip(), max(1, min(int(m.group(2)), 20))
+                results = kb.hybrid_search(arg, top_k=top_k)
+                return _ok(results=results, stats=kb.get_stats(), query=arg)
+            if op == "list":
+                return _ok(documents=kb.list_documents(), stats=kb.get_stats())
+            if op == "add":
+                if not arg:
+                    return _err("缺少文档路径")
+                if not os.path.isfile(arg):
+                    return _err(f"文件不存在: {arg}")
+                try:
+                    with open(arg, "r", errors="ignore") as f:
+                        content = f.read()
+                except Exception as e:  # noqa: BLE001
+                    return _err(f"读取失败: {e}")
+                if not content.strip():
+                    return _err("文档内容为空")
+                name = os.path.basename(arg)
+                n = kb.add_document(name, content, path=arg)
+                return _ok(message=f"已索引 {name}（{n} 块）",
+                           documents=kb.list_documents(), stats=kb.get_stats())
+            if op == "delete":
+                if not arg:
+                    return _err("缺少文档名")
+                ok = kb.delete_document(arg)
+                return (_ok(message=f"已删除 {arg}") if ok
+                        else _err(f"未找到文档 {arg}"))
+            if op == "reindex":
+                info = kb.reindex()
+                return _ok(message="索引已重建", **info)
+            if op == "source":
+                if not arg:
+                    return _err("缺少 chunk_id")
+                src = kb.get_source(arg)
+                return (_ok(source=src) if src else _err(f"未找到块 {arg}"))
+            return _err(f"未知知识库操作: {op}")
     except Exception as e:  # noqa: BLE001
         logger.exception("ext command failed: %s", cmd)
         return _err(f"{type(e).__name__}: {e}")
@@ -925,6 +1024,11 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 except Exception as e:
                     logger.exception('Renderer switch_model failed')
                     return pb.StatusReply(ok=False, message=f'配置已写但切换失败：{e}')
+            try:
+                from core.activity_log import record as _log_act
+                _log_act("model", f"已切换模型：{os.path.basename(path)}", path)
+            except Exception:
+                pass
             return pb.StatusReply(ok=True, message=f'已切换到 {os.path.basename(path)}')
         except Exception as e:                                              # noqa: BLE001
             logger.exception('SwitchModel failed')
@@ -936,7 +1040,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         try:
             if cmd.startswith('browser:'):
                 return pb.CommandReply(output=_handle_browser(cmd[len('browser:'):]))
-            if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:', 'memory:')):
+            if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:', 'memory:',
+                               'activity:', 'kb:')):
                 return pb.CommandReply(output=_handle_ext_command(cmd))
             if cmd.startswith('settings:'):
                 # 设置页的可选项 / 写入，统一走这里（返回 JSON 字符串）。
@@ -2362,10 +2467,20 @@ def serve(port: int = 50051):
     print(f'  [gRPC] 小凌后端已启动：localhost:{port}')
     print(f'  [gRPC] 等待 Flutter 前端连接…')
     try:
+        from core.activity_log import record as _log_act
+        _log_act("system", "后端服务已启动", f"gRPC 监听 localhost:{port}")
+    except Exception:
+        pass
+    try:
         server.wait_for_termination()
     except KeyboardInterrupt:
         logger.info('gRPC server interrupted, shutting down gracefully')
     finally:
+        try:
+            from core.activity_log import record as _log_act
+            _log_act("system", "后端服务已关闭", "gRPC server stopped")
+        except Exception:
+            pass
         stopped = server.stop(grace=5)
         stopped.wait(timeout=10)
         logger.info('gRPC server stopped')

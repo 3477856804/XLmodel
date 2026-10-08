@@ -18,7 +18,7 @@
 | **新增** | **54** | 只存在于当前仓库 |
 | ├ 本轮真正新建 | 17 | 这几轮开发新增的文件 |
 | └ 项目自带、zip 未收录 | 37 | 原始项目本来就有，只是没被打包进压缩包 |
-| **删除** | **0** | ✅ **没有任何文件被删除** |
+| **删除** | **0** | **没有任何文件被删除** |
 | **内容完全一致** | 165 | 未被触碰 |
 
 原始包 191 个文件 → 当前仓库 245 个文件。
@@ -29,13 +29,13 @@
 
 ---
 
-## 二、⚠️ 先说一个会影响判断的发现：原始 zip 是"部分导出"
+## 二、 先说一个会影响判断的发现：原始 zip 是"部分导出"
 
 这份 zip 只有 1.4 MB，**并非完整项目快照**。它只包含：
 
 ```
-backend/ (30)   docs/ (13)   frontend/ (132)   resources/ (9)
-scripts/ (1)    .github/ (4)   根目录 (4)
+backend/ (30) docs/ (13) frontend/ (132) resources/ (9)
+scripts/ (1) .github/ (4) 根目录 (4)
 ```
 
 **完全缺失**这些目录：`packaging/`、`tests/`、`shared/`、`plugins/`、`skills/`、`tools/`、`website/`，
@@ -97,24 +97,24 @@ scripts/ (1)    .github/ (4)   根目录 (4)
 这是"本地模型加载不了"那一串问题的集中修复：
 
 1. **新增 GGUF 推理后端整段（+379 行）**
-   原来只有 transformers 一条路，而 `AutoModelForCausalLM.from_pretrained` **读不了 GGUF**
-   （GGUF 是 llama.cpp 的自包含量化格式，与 safetensors/HF 目录结构完全不同）。
-   新加 `is_gguf_path()`、`find_gguf_in()`，并把 llama.cpp 封装成与 transformers 接近的调用接口，
-   上层 `LocalModel` 无需关心底层差异。→ 你磁盘上的 `.gguf` 现在能被真正加载。
+ 原来只有 transformers 一条路，而 `AutoModelForCausalLM.from_pretrained` **读不了 GGUF**
+ （GGUF 是 llama.cpp 的自包含量化格式，与 safetensors/HF 目录结构完全不同）。
+ 新加 `is_gguf_path()`、`find_gguf_in()`，并把 llama.cpp 封装成与 transformers 接近的调用接口，
+ 上层 `LocalModel` 无需关心底层差异。→ 你磁盘上的 `.gguf` 现在能被真正加载。
 2. **模型扫描支持单文件权重** `iter_model_entries()` / `entry_name()` / `match_model_entry()`
-   旧实现只认**目录**，导致直接丢在 `models/` 根目录下的 `.gguf` 永远扫不出来。
-   现在目录与单文件权重一视同仁。
+ 旧实现只认**目录**，导致直接丢在 `models/` 根目录下的 `.gguf` 永远扫不出来。
+ 现在目录与单文件权重一视同仁。
 3. **推理后端自动分派**：有 `config.json` 走 transformers；没有但有 gguf 走 llama.cpp；
-   transformers 不可用时目录里若有 gguf 仍可"救活"。
+ transformers 不可用时目录里若有 gguf 仍可"救活"。
 4. **身份断言过滤** `looks_like_identity_claim()` + `identity_hint()`
-   解决"换了模型却还自称旧模型名"：模型有很强复读倾向，历史上说过一次"我基于 Qwen3.5"，
-   之后每次换模型都照着念。现在把这类断言从上下文里剔除，断了复读源头。
+ 解决"换了模型却还自称旧模型名"：模型有很强复读倾向，历史上说过一次"我基于 Qwen3.5"，
+ 之后每次换模型都照着念。现在把这类断言从上下文里剔除，断了复读源头。
 5. **模型切换落盘** `_persist_active()` + `config.model.active` 字段
-   以前 `model:use` 只改内存，重启退回默认小模型 → 表现为"本地模型没加载成功"。
+ 以前 `model:use` 只改内存，重启退回默认小模型 → 表现为"本地模型没加载成功"。
 6. **严格解析模型名**：不再在名字对不上时"静默返回任意一个可用模型"，
-   选中的模型不存在时明确回退并提示。
+ 选中的模型不存在时明确回退并提示。
 7. **下载通道**：新增 HuggingFace 镜像 + 魔搭（ModelScope）多通道自动回退，
-   `_channel_order()` / `_download_modelscope()`，解决国内直连 HF 超时。
+ `_channel_order()` / `_download_modelscope()`，解决国内直连 HF 超时。
 
 #### `backend/core/config.py`（+6 / -0）
 
@@ -126,12 +126,12 @@ scripts/ (1)    .github/ (4)   根目录 (4)
 - 启动时优先恢复 `model.active`（上次选中的模型），而不是永远回到 `base_model`。
 - 新增 `_model_ready()`。
 - 路由分层：**确定性动作**（页面跳转、清空记忆、定时提醒、训练、帮助等）与模型无关，
-  任何时候都由路由直接答；**闲聊类意图**（自我介绍、心情）有模型就交给模型，没模型才兜底。
+ 任何时候都由路由直接答；**闲聊类意图**（自我介绍、心情）有模型就交给模型，没模型才兜底。
 
 #### `backend/core/plugin_system.py`（+283 / -26）
 
 - **开关状态持久化**：`_state_path/_load_state/_save_state/_apply_state`。
-  以前每次重启都回退到 `BUILTIN_PLUGINS` 默认值，打开的插件又关了。
+ 以前每次重启都回退到 `BUILTIN_PLUGINS` 默认值，打开的插件又关了。
 - **安装能力**：`install_from_url()`（真实下载安装 zip）、`install_from_zip()`。
 - **自建插件**：`create_plugin()` + `_plugin_template()`（生成模板代码）。
 - 红线体现在注释里：*"已存在同名插件时，先把旧版移入隔离区再写入新版"* —— 不删除旧文件。
@@ -139,12 +139,12 @@ scripts/ (1)    .github/ (4)   根目录 (4)
 #### `backend/rpc/server.py`（+124 / -29）
 
 - **新增 `settings:` 指令族**：`settings:options`（拉取可选项，返回 JSON）、
-  `settings:set <点分路径> <值>`（写入）。
-  设计考量写在注释里：*"这样不必为了加性别、可用性等字段去改 proto 并重新生成
-  Dart/Python 桩代码"*。这是设置页去硬编码的基础。
+ `settings:set <点分路径> <值>`（写入）。
+ 设计考量写在注释里：*"这样不必为了加性别、可用性等字段去改 proto 并重新生成
+ Dart/Python 桩代码"*。这是设置页去硬编码的基础。
 - 修复状态里模型名不更新：以前取 `cfg['model']['base_model']`（静态配置值），
-  换成本地 GGUF 后它不会变 → 模型商店里已切到 gpt-oss-20b，状态里还写着 Qwen2.5-0.5B。
-  改为优先取实时模型。
+ 换成本地 GGUF 后它不会变 → 模型商店里已切到 gpt-oss-20b，状态里还写着 Qwen2.5-0.5B。
+ 改为优先取实时模型。
 - 单文件权重（`.gguf`）的真实路径解析修正（原来按 `store_dir/name` 拼，对单文件不成立）。
 
 ### 3.2 入口
@@ -162,26 +162,26 @@ Flutter 是用 `--no-web` 拉起后端的，但桌面端真 3D 要靠后端把
 针对"设置里多处硬编码、滑��拖不动、推理后端复用渲染后端列表"的集中治理：
 
 1. **6 个写死的选项列表改为后端下发**
-   原先 `_Opt` 列表硬编码（人格/推理后端/线程/渲染模式/主题/语言/音色）。问题被逐条写在注释里：
-   - 推理后端复用了渲染后端的列表（还带 macOS 专有的 Metal）
-   - 线程数固定 2/4/6/8（本机是 28 线程）
-   - 界面语言列了根本没翻译的语言
-   - 音色表写的名字跟后端音色 ID 对不上
-   现在全部由 `settings:options` 按本机真实情况生成，并带 fallback 兜底。
+ 原先 `_Opt` 列表硬编码（人格/推理后端/线程/渲染模式/主题/语言/音色）。问题被逐条写在注释里：
+ - 推理后端复用了渲染后端的列表（还带 macOS 专有的 Metal）
+ - 线程数固定 2/4/6/8（本机是 28 线程）
+ - 界面语言列了根本没翻译的语言
+ - 音色表写的名字跟后端音色 ID 对不上
+ 现在全部由 `settings:options` 按本机真实情况生成，并带 fallback 兜底。
 2. **推理后端与渲染后端彻底分离**
-   新增 `_inferBackend`，与 `_render` 不再共用同一个 state（原来改一个另一个跟着动）。
+ 新增 `_inferBackend`，与 `_render` 不再共用同一个 state（原来改一个另一个跟着动）。
 3. **`file_picker` 之外**：滑块值由 `_sliders` 托管并持久化，防抖落盘。
-   原来那些滑块传的是写死的常量 → 拖不动。
+ 原来那些滑块传的是写死的常量 → 拖不动。
 4. **音色写 ID 不写中文名**
-   原来选中"晓晓"后 `UpdateSettings(voice: '晓晓')`，写进 `config.voice.id` 的是**中文显示名**，
-   后端拿"晓晓"去合成必然失败。现在 value 是真实音色 ID（`zh-CN-XiaoxiaoNeural`）。
+ 原来选中"晓晓"后 `UpdateSettings(voice: '晓晓')`，写进 `config.voice.id` 的是**中文显示名**，
+ 后端拿"晓晓"去合成必然失败。现在 value 是真实音色 ID（`zh-CN-XiaoxiaoNeural`）。
 5. **主题模式真落盘**：原先选中只 `setState`，既不入库也不换肤。现在写进
-   `XlThemeController` 统一持久化（避免两处各存一份互相打架）。
+ `XlThemeController` 统一持久化（避免两处各存一份互相打架）。
 6. **性别不再靠名字猜**：原来用"名字里有没有 xiao/yun"判断性别，
-   会把 Aria、ナナミ、曉佳全判成"中性"。现在取后端真实字段。
+ 会把 Aria、ナナミ、曉佳全判成"中性"。现在取后端真实字段。
 7. **未翻译的语言直接拦下并说明**，不让选完发现界面纹丝不动。
 8. **Column 替代 ListView**（通用修复）：本区块外层已有滚动容器，再套一层可滚动组件
-   会拿到无界高度约束 → 整页渲染空白。**"多平台通道点进去什么都没有"就是这个原因。**
+ 会拿到无界高度约束 → 整页渲染空白。**"多平台通道点进去什么都没有"就是这个原因。**
 9. 多平台通道卡片从"纯装饰（active 写死 true）"改为真实开关。
 
 #### `frontend/lib/pages/model_store_page.dart`（+636 / -0）
@@ -190,22 +190,22 @@ Flutter 是用 `--no-web` 拉起后端的，但桌面端真 3D 要靠后端把
 
 1. **加装 `file_picker`**（原来只有手填路径的文本框）→ 真正的目录选择弹窗。
 2. **新增"已安装模型"汇总区** `_installedRows()` / `_installedSection()`
-   注释点明痛点：*"之前只列商店里的模型，导致用户「添加」了本地模型却在这里看不到，
-   以为添加失败 —— 这是最主要的使用困惑来源。"* 现在商店模型 + 本地登记模型统一列出，可直接切换。
+ 注释点明痛点：*"之前只列商店里的模型，导致用户「添加」了本地模型却在这里看不到，
+ 以为添加失败 —— 这是最主要的使用困惑来源。"* 现在商店模型 + 本地登记模型统一列出，可直接切换。
 3. **扫描 → 添加**两段式对话框 `_showLocalModelDialog()`：
-   `model:scan <目录>` 先扫出所有可识别模型（目录形式 + 散落的单文件），
-   再 `model:addlocal <路径>` 逐条添加。含 `group` / `gguf` / `local` / `format` / `complete` 标记。
+ `model:scan <目录>` 先扫出所有可识别模型（目录形式 + 散落的单文件），
+ 再 `model:addlocal <路径>` 逐条添加。含 `group` / `gguf` / `local` / `format` / `complete` 标记。
 4. **OpenAI 兼容接口** `_showApiEndpointDialog()` → `model:addapi`
-   默认填 `http://127.0.0.1:1234`（LM Studio 端口）。
+ 默认填 `http://127.0.0.1:1234`（LM Studio 端口）。
 5. **`model:use` / `model:current`** 支持查询当前在���哪个模型并切换。
 
 #### `frontend/lib/widgets/model_showcase.dart`（+231 / -35）—— 真 3D
 
 - **移除 `model_viewer_plus`（`-`）**。它在桌面端必崩：内部走 `webview_flutter`，
-  后者没有桌面实现，直接触发 `'WebViewPlatform.instance != null'` 断言。
+ 后者没有桌面实现，直接触发 `'WebViewPlatform.instance != null'` 断言。
 - **改用 `InAppWebView`**（`+`）加载本地 `three.js` / `three-vrm` 页面，桌面端与移动端统一。
 - 新增 `supports3DViewer` 五平台全 true、`_armWatchdog()` 12 秒超时兜底、
-  `addJavaScriptHandler('xlViewer')` 接收 ready/error。
+ `addJavaScriptHandler('xlViewer')` 接收 ready/error。
 
 #### `frontend/pubspec.yaml`（+14 / -1）
 
@@ -218,7 +218,7 @@ Flutter 是用 `--no-web` 拉起后端的，但桌面端真 3D 要靠后端把
 - 新增 `_SoftErrorBox`：单个 widget 构建失败时**只显示局部占位**，不让整屏变红。
 - `_startBackend()` 改为先 `ViewerPort.pick()` 挑空闲端口，再经 `--web-port` 传给后端。
 - **`_appStarted` 闸门**：`runZonedGuarded` 的 onError 里 `runApp()` 会替换整个应用，
-  必须只有"还没进主界面"时才降级到错误页 —— 之前点「工作台」整页变错误页就是缺这个。
+ 必须只有"还没进主界面"时才降级到错误页 —— 之前点「工作台」整页变错误页就是缺这个。
 
 #### 其余前端文件
 
@@ -293,7 +293,7 @@ Flutter 是用 `--no-web` 拉起后端的，但桌面端真 3D 要靠后端把
 | 文件 | 原本可能有 / 本轮改了什么 |
 |---|---|
 | `packaging/runtime_hook.py` | 新增数据目录隔离：frozen 时把 `XIAOLING_HOME` 指向 exe 同级 `runtime/`，解决后端 `data/` 与 Flutter Release 自带 `data/` 撞名。 |
-| `packaging/README.md` | 顶部加"⚠️ 本文件大部分内容已过期"提示，指向新流程 `docs/PACKAGING.md`。**未删除原文**（红线）。 |
+| `packaging/README.md` | 顶部加" 本文件大部分内容已过期"提示，指向新流程 `docs/PACKAGING.md`。**未删除原文**（红线）。 |
 | `packaging/linux/install_deps.sh` | 补 WPE WebKit 依赖（`libwebkit2gtk-4.1-0`、`libwpewebkit-1.1-3`、`wpebackend-fdo`），因为 Linux 端 WebView 走 WPE。 |
 
 ---
@@ -360,7 +360,7 @@ python tools/classify_added.py
 
 **仍待办**（需你决策或操作）：
 1. **Cloudflare Token 轮换（Rotate）** —— 历史提交 `5d0c464` 里曾含明文且已推到远端，
-   实测该令牌**当前仍有效**，必须去后台轮换，并把新串配进 GitHub Secrets。
+ 实测该令牌**当前仍有效**，必须去后台轮换，并把新串配进 GitHub Secrets。
 2. **GitHub 推送** —— 脚本与 remote 已就绪（`3477856804/XLmodel`），缺一枚 GitHub PAT。
 3. Release 资产里 `xiaoling-windows-x64.zip` 与 `xiaoling-linux-x64.tar.gz`
-   是早期重复副本，是否清理待你拍板。
+ 是早期重复副本，是否清理待你拍板。

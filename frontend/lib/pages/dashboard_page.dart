@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
@@ -46,9 +47,11 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   late AnimationController _spinCtrl;
   late Animation<double> _actAnim;
   final List<_Activity> _activities = [];
+  bool _activitiesLoading = true;
   Timer? _refreshTimer;
   Timer? _resTimer;
   Timer? _sampleTimer;
+  Timer? _actTimer;
   double _cpuPct = 0.0;
   double _memPct = 0.0;
   double _diskPct = 0.0;
@@ -79,6 +82,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _resTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _tickResource());
     _sampleTimer = Timer.periodic(const Duration(seconds: 3), (_) => _sampleResources());
     _refreshTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickRefresh());
+    _actTimer = Timer.periodic(const Duration(seconds: 60), (_) => _loadActivities());
     _sampleResources();
     _bootstrap();
   }
@@ -240,6 +244,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     _refreshTimer?.cancel();
     _resTimer?.cancel();
     _sampleTimer?.cancel();
+    _actTimer?.cancel();
     _enterCtrl.dispose();
     _pulseCtrl.dispose();
     _ringCtrl.dispose();
@@ -306,6 +311,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
       });
       unawaited(_fetchPersona());
       unawaited(_fetchSettings());
+      unawaited(_loadActivities());
       if (mounted) {
         _ringCtrl.forward(from: 0);
         _actCtrl.forward(from: 0);
@@ -333,6 +339,80 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     final s = await stub.safe(() => stub.settings());
     if (!mounted) return;
     setState(() => _settings = s);
+  }
+
+  IconData _iconForType(String type) {
+    switch (type) {
+      case 'chat':
+        return Icons.chat_bubble_outline_rounded;
+      case 'training':
+        return Icons.fitness_center_rounded;
+      case 'model':
+        return Icons.memory_rounded;
+      case 'plugin':
+        return Icons.extension_rounded;
+      case 'system':
+        return Icons.dns_rounded;
+      default:
+        return Icons.circle_notifications_rounded;
+    }
+  }
+
+  String _colorForType(String type) {
+    switch (type) {
+      case 'chat':
+        return 'pink';
+      case 'training':
+        return 'gold';
+      case 'model':
+        return 'blue';
+      case 'plugin':
+        return 'green';
+      case 'system':
+        return 'violet';
+      default:
+        return 'pink';
+    }
+  }
+
+  Future<void> _loadActivities() async {
+    if (!mounted) return;
+    try {
+      final out = await XlClient.stub.commandOutput(
+        'activity:recent 20',
+        opt: const XlCallOptions(
+            timeout: Duration(seconds: 8), silent: true),
+      );
+      if (!mounted) return;
+      final j = jsonDecode(out);
+      final list = (j is Map ? j['activities'] : null) as List?;
+      final parsed = <_Activity>[];
+      if (list != null) {
+        for (final item in list) {
+          if (item is! Map) continue;
+          final type = (item['type'] ?? 'system').toString();
+          final ts = DateTime.tryParse((item['timestamp'] ?? '').toString()) ??
+              DateTime.now();
+          parsed.add(_Activity(
+            (item['title'] ?? '').toString(),
+            (item['detail'] ?? '').toString(),
+            _iconForType(type),
+            _colorForType(type),
+            ts,
+          ));
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _activities
+          ..clear()
+          ..addAll(parsed);
+        _activitiesLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _activitiesLoading = false);
+    }
   }
 
   Color _colorOf(XlPalette p, String key) {
@@ -1054,8 +1134,10 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             ],
           ),
           const SizedBox(height: 16),
-          if (_activities.isEmpty)
-            _emptyState(p, '暂无活动记录', '后端暂未提供活动日志')
+          if (_activitiesLoading)
+            _activitySkeleton(p)
+          else if (_activities.isEmpty)
+            _emptyState(p, '暂无活动记录', '系统事件将自动记录在这里')
           else
             AnimatedBuilder(
               animation: _actAnim,
@@ -1101,6 +1183,54 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               )),
         ],
       ),
+    );
+  }
+
+  Widget _activitySkeleton(XlPalette p) {
+    return Column(
+      children: List.generate(4, (i) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: i == 3 ? 0 : 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: p.surfaceLo,
+                  borderRadius: BorderRadius.circular(XlRadius.sm),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 11,
+                      width: 140,
+                      decoration: BoxDecoration(
+                        color: p.surfaceLo,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 9,
+                      width: 220,
+                      decoration: BoxDecoration(
+                        color: p.surfaceLo,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 

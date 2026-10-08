@@ -1686,6 +1686,14 @@ class GrowthEngine:
                      adapter_before=before, adapter_after=after,
                      seconds=round(time.time() - t0, 1),
                      result=result.get("summary", ""))
+        try:
+            from .activity_log import record as _log_act
+            _log_act("training", f"训练完成 · 第 {round_no} 轮",
+                     f"epochs={epochs}，样本={items}，"
+                     f"loss={result.get('avg_loss')}，"
+                     f"耗时={round(time.time() - t0, 1)}s")
+        except Exception:
+            pass
         return {"ok": True, "round": round_no, "adapter_before": before,
                 "adapter_after": after,
                 "progress_percent": self.progress_percent(), "epochs": epochs,

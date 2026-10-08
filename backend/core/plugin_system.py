@@ -752,6 +752,12 @@ class Plugin(PluginBase):
             p.loaded_at = time.time()
         self._save_state()          # 落盘，避免重启后"自动变回去"
         self.emit("on_load", p)
+        try:
+            from .activity_log import record as _log_act
+            _log_act("plugin", f"插件已启用：{p.name}",
+                     getattr(p, "description", "") or p.name)
+        except Exception:
+            pass
         return True
 
     def disable(self, name: str) -> bool:
@@ -762,6 +768,11 @@ class Plugin(PluginBase):
             p.enabled = False
         self._save_state()          # 落盘
         self.emit("on_unload", p)
+        try:
+            from .activity_log import record as _log_act
+            _log_act("plugin", f"插件已禁用：{p.name}", "")
+        except Exception:
+            pass
         return True
 
     def set_enabled(self, name: str, enabled: bool) -> bool:
