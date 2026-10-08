@@ -389,6 +389,27 @@ def _list_vrm() -> dict:
     return {"ok": True, "models": out}
 
 
+def _lipsync(audio_path: str) -> dict:
+    """分析音频文件，返回 viseme 时间轴。不可用时如实报错。"""
+    if not audio_path:
+        return {"ok": False, "error": "缺少音频路径", "visemes": []}
+    p = Path(audio_path)
+    if not p.is_file():
+        return {"ok": False, "error": f"音频文件不存在：{audio_path}", "visemes": []}
+    try:
+        from .lip_sync import LipSync
+    except Exception:
+        try:
+            from lip_sync import LipSync
+        except Exception as e:
+            return {"ok": False, "error": f"口型模块不可用：{e}", "visemes": []}
+    try:
+        return LipSync().analyze_viseme(str(p))
+    except Exception as e:
+        return {"ok": False, "error": f"口型分析失败：{type(e).__name__}: {e}",
+                "visemes": []}
+
+
 def _serve_file(handler, path: Path, cache: bool = False):
     try:
         data = path.read_bytes()
@@ -499,6 +520,8 @@ class _Handler(BaseHTTPRequestHandler):
                                       b.get("enabled")))
         elif path == "/api/model/dl":
             self._json(_download_async(str(b.get("name") or "")))
+        elif path == "/api/lipsync":
+            self._json(_lipsync(str(b.get("path") or "")))
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 

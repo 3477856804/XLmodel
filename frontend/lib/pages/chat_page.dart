@@ -10,6 +10,7 @@ import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../services/local_store.dart';
+import '../widgets/model_showcase.dart';
 import 'agent_page.dart';
 
 class ChatPage extends StatefulWidget {
@@ -93,6 +94,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       if (mounted) setState(() => _playDur = d);
     });
     _completeSub = _player.onPlayerComplete.listen((_) {
+      AvatarBridge.instance.stopSpeak();
       if (mounted) {
         setState(() {
           _playing = false;
@@ -380,6 +382,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
           _playingId = msgId;
         });
       }
+      final estDur = (text.length / 4.5).clamp(1.2, 12.0);
+      AvatarBridge.instance.speakEnvelope(estDur);
+      AvatarBridge.instance.playAnimation('wave');
     } catch (_) {
     } finally {
       if (mounted) setState(() => _speaking.remove(msgId));
@@ -389,12 +394,15 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   Future<void> _togglePlay(String text, String msgId) async {
     if (_playing && _playingId == msgId) {
       await _player.pause();
+      AvatarBridge.instance.stopSpeak();
       if (mounted) setState(() => _playing = false);
       return;
     }
     if (_playingId == msgId && _playPos > Duration.zero) {
       await _player.resume();
       if (mounted) setState(() => _playing = true);
+      final estDur = (text.length / 4.5).clamp(1.2, 12.0);
+      AvatarBridge.instance.speakEnvelope(estDur);
       return;
     }
     await _speak(text, msgId);
@@ -1809,6 +1817,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             scale: 0.9,
             onTap: () async {
               await _player.stop();
+              AvatarBridge.instance.stopSpeak();
               if (mounted) {
                 setState(() {
                   _playing = false;

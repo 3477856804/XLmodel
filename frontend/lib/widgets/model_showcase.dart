@@ -18,6 +18,7 @@ class ModelShowcase extends StatefulWidget {
   final bool autoRotateDefault;
   final bool circularFrame;
   final VoidCallback? onRefresh;
+  final bool interactiveFace;
   const ModelShowcase({
     super.key,
     this.modelPath,
@@ -29,10 +30,26 @@ class ModelShowcase extends StatefulWidget {
     this.autoRotateDefault = true,
     this.circularFrame = true,
     this.onRefresh,
+    this.interactiveFace = true,
   });
 
   @override
   State<ModelShowcase> createState() => _ModelShowcaseState();
+}
+
+class AvatarBridge {
+  static final AvatarBridge instance = AvatarBridge._();
+  AvatarBridge._();
+  _ModelShowcaseState? _active;
+  void attach(_ModelShowcaseState s) => _active = s;
+  void detach(_ModelShowcaseState s) { if (_active == s) _active = null; }
+  bool get isReady => _active?._viewerReady ?? false;
+  void setMouthOpen(double level) => _active?._driveMouth(level);
+  void triggerBlink() => _active?._driveBlink();
+  void playAnimation(String name) => _active?._driveAnimation(name);
+  void setEyeTarget(double x, double y) => _active?._driveEye(x, y);
+  void speakEnvelope(double duration) => _active?._speakEnvelope(duration);
+  void stopSpeak() => _active?._stopSpeak();
 }
 
 class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateMixin {
@@ -61,6 +78,10 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   late AnimationController _fadeCtrl;
   late Animation<double> _fadeAnim;
   Timer? _loadTimer;
+  Timer? _autoBlinkTimer;
+  Timer? _speakTimer;
+  String _currentAnim = 'idle';
+  double _lastMouth = 0.0;
 
   static const _cameraPresets = <String>['正面', '左侧', '右侧', '背面', '俯视'];
 
@@ -95,6 +116,18 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
     _fadeCtrl.forward();
     _startLoading();
     _resolveViewerPort();
+    AvatarBridge.instance.attach(this);
+    _scheduleAutoBlink();
+  }
+
+  void _scheduleAutoBlink() {
+    _autoBlinkTimer?.cancel();
+    final wait = 2500 + math.Random().nextInt(3000);
+    _autoBlinkTimer = Timer(Duration(milliseconds: wait), () {
+      if (!mounted) return;
+      _driveBlink();
+      _scheduleAutoBlink();
+    });
   }
 
   /// 后端可能是手动起的（开发态旁边没有 backend.exe），也可能是我们拉起的，
@@ -127,7 +160,69 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
     _fadeCtrl.dispose();
     _loadTimer?.cancel();
     _viewerWatchdog?.cancel();
+    _autoBlinkTimer?.cancel();
+    _speakTimer?.cancel();
+    AvatarBridge.instance.detach(this);
     super.dispose();
+  }
+
+  Future<void> _driveMouth(double level) async {
+    _lastMouth = level;
+    final c = _webCtrl;
+    if (c == null || !_viewerReady) return;
+    try {
+      await c.evaluateJavascript(source: 'window.__xl.setMouthOpen(${level.toStringAsFixed(3)});');
+    } catch (_) {}
+  }
+
+  Future<void> _driveBlink() async {
+    final c = _webCtrl;
+    if (c == null || !_viewerReady) return;
+    try {
+      await c.evaluateJavascript(source: 'window.__xl.blink();');
+    } catch (_) {}
+  }
+
+  Future<void> _driveEye(double x, double y) async {
+    final c = _webCtrl;
+    if (c == null || !_viewerReady) return;
+    try {
+      await c.evaluateJavascript(source: 'window.__xl.setEyeTarget(${x.toStringAsFixed(3)}, ${y.toStringAsFixed(3)});');
+    } catch (_) {}
+  }
+
+  Future<void> _driveAnimation(String name) async {
+    if (!mounted) return;
+    setState(() => _currentAnim = name);
+    final c = _webCtrl;
+    if (c == null || !_viewerReady) return;
+    try {
+      await c.evaluateJavascript(source: 'window.__xl.playAnimation(${jsonEncode(name)});');
+    } catch (_) {}
+  }
+
+  void _speakEnvelope(double duration) {
+    _speakTimer?.cancel();
+    final start = DateTime.now();
+    final totalMs = (duration * 1000).clamp(800, 15000).toInt();
+    _speakTimer = Timer.periodic(const Duration(milliseconds: 60), (t) {
+      if (!mounted) { t.cancel(); return; }
+      final elapsed = DateTime.now().difference(start).inMilliseconds;
+      if (elapsed >= totalMs) {
+        t.cancel();
+        _driveMouth(0.0);
+        return;
+      }
+      final phase = elapsed / totalMs;
+      final envelope = math.sin(phase * math.pi * 6) * 0.5 + 0.5;
+      final level = (0.25 + envelope * 0.65).clamp(0.0, 1.0);
+      _driveMouth(level);
+    });
+  }
+
+  void _stopSpeak() {
+    _speakTimer?.cancel();
+    _driveMouth(0.0);
   }
 
   void _startLoading() {
@@ -194,6 +289,8 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
               _modelInfoBar(p),
               const SizedBox(height: 8),
               _autoRotateToggle(p),
+              const SizedBox(height: 10),
+              _animationStrip(p),
               const SizedBox(height: 10),
               _controlBar(p),
               if (_showSettings) ...[
@@ -319,7 +416,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
 
   Widget _content(XlPalette p) {
     final innerSize = widget.width - 24;
-    return ClipOval(
+    final content = ClipOval(
       child: Container(
         width: innerSize,
         height: innerSize,
@@ -336,6 +433,18 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
           ],
         ),
       ),
+    );
+    if (!widget.interactiveFace) return content;
+    return Listener(
+      onPointerMove: (e) {
+        final box = context.findRenderObject() as RenderBox?;
+        if (box == null) return;
+        final local = e.localPosition;
+        final nx = (local.dx / widget.width - 0.5) * 2.0;
+        final ny = (local.dy / widget.height - 0.5) * 2.0;
+        _driveEye(nx.clamp(-1.0, 1.0), ny.clamp(-1.0, 1.0));
+      },
+      child: content,
     );
   }
 
@@ -496,7 +605,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
       if (!mounted || _viewerReady) return;
       setState(() {
         _hasError = true;
-        _viewerError = '3D 服务未响应，请确认后端已启动';
+        _viewerError = '3D渲染未就绪';
         _loading = false;
       });
     });
@@ -762,7 +871,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 12),
-                Text('模型加载失败',
+                Text('3D渲染未就绪',
                     style: TextStyle(
                       fontSize: XlFont.captionSm,
                       fontWeight: FontWeight.w800,
@@ -770,7 +879,7 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
                       letterSpacing: XlLetterSpacing.wider,
                     )),
                 const SizedBox(height: 4),
-                Text('检查模型路径是否正确',
+                Text('请确认后端已启动',
                     style: TextStyle(
                       fontSize: XlFont.label,
                       fontWeight: FontWeight.w500,
@@ -954,6 +1063,32 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _animationStrip(XlPalette p) {
+    final items = [
+      ('idle', '待机', Icons.person_outline_rounded),
+      ('wave', '挥手', Icons.waving_hand_rounded),
+      ('nod', '点头', Icons.rotate_right_rounded),
+    ];
+    return Container(
+      width: widget.width,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: AppTheme.neuXs(context, r: XlRadius.md),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (final it in items)
+            _AnimChip(
+              label: it.$2,
+              icon: it.$3,
+              active: _currentAnim == it.$1,
+              color: _currentAnim == it.$1 ? p.pink : p.text3,
+              onTap: () => _driveAnimation(it.$1),
+            ),
+        ],
       ),
     );
   }
@@ -1245,6 +1380,55 @@ class _LoadRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LoadRingPainter old) =>
       old.progress != progress || old.color != color || old.track != track;
+}
+
+class _AnimChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+  const _AnimChip({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.color,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        onTap();
+        HapticFeedback.selectionClick();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? color.withOpacity(0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(XlRadius.pill),
+          border: Border.all(
+            color: active ? color.withOpacity(0.5) : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 5),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  color: color,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _CtrlBtn extends StatefulWidget {

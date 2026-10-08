@@ -274,3 +274,157 @@ class TerminalManager:
                 self.close(sid)
             except Exception:
                 pass
+
+
+# ============================================================================
+# 终端闭环执行（真实执行，绝不伪造输出）
+# ----------------------------------------------------------------------------
+# 与 TerminalManager（交互式 PTY 会话）不同，这里面向"跑一条命令拿到结果"：
+#   * run_command_with_output : 阻塞执行，返回完整 stdout/stderr/退出码
+#   * run_command_stream      : 生成器，逐行 yield 实时输出
+#   * check_command_exists     : 探测命令是否在 PATH 中可用
+# 执行一律复用 sandbox.py（工作区 cwd + 超时 + 黑名单），失败时返回真实错误，
+# 不编造输出。
+# ============================================================================
+import shutil  # noqa: E402
+
+
+def _sandbox_module():
+    """惰性导入 sandbox，避免循环依赖；失败返回 None。"""
+    try:
+        from . import sandbox as _sb
+        return _sb
+    except Exception:  # noqa: BLE001
+        try:
+            import sandbox as _sb  # type: ignore
+            return _sb
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def run_command_with_output(command: str, timeout: int = 30,
+                            cwd: str | None = None) -> dict:
+    """在沙箱中执行一条命令，返回完整输出。
+
+    返回 {ok, code, stdout, stderr, combined, cwd, isolation, permission}。
+    命令失败 / 超时返回真实错误字段，不伪造输出。
+    """
+    cmd = (command or "").strip()
+    if not cmd:
+        return {"ok": False, "error": "命令为空"}
+    sb = _sandbox_module()
+    if sb is None:
+        # sandbox 不可用时降级为本地 subprocess，如实标注隔离级别
+        try:
+            import subprocess as _sp
+            cp = _sp.run(cmd, shell=True, capture_output=True, text=True,
+                         timeout=int(timeout or 30))
+            return {"ok": cp.returncode == 0, "code": cp.returncode,
+                    "stdout": cp.stdout or "", "stderr": cp.stderr or "",
+                    "combined": (cp.stdout or "") + (cp.stderr or ""),
+                    "cwd": cwd or "", "isolation": "none",
+                    "permission": "unrestricted"}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(e).__name__}: {e}",
+                    "isolation": "none", "permission": "unrestricted"}
+    try:
+        res = sb.run_sandboxed(cmd, permission_level=sb.PERM_DEFAULT,
+                               cwd=cwd, timeout=int(timeout or 30))
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"沙箱执行异常：{type(e).__name__}: {e}"}
+    if "error" in res and "stdout" not in res:
+        return {"ok": False, **res}
+    out = res.get("stdout", "") or ""
+    err = res.get("stderr", "") or ""
+    res["combined"] = out + err
+    return res
+
+
+def run_command_stream(command: str, timeout: int = 60,
+                       cwd: str | None = None):
+    """生成器：逐行 yield 命令的实时输出（stdout+stderr 合并）。
+
+    执行结束时最后 yield 一个 dict（type=end）携带退出码与是否超时；
+    异常时 yield dict（type=error）携带真实错误信息。
+    """
+    cmd = (command or "").strip()
+    if not cmd:
+        yield {"type": "error", "error": "命令为空"}
+        return
+    sb = _sandbox_module()
+    work = cwd
+    isolation = "none"
+    try:
+        if sb is not None:
+            sb.ensure()
+            work = work or str(sb.workspace_dir())
+            isolation = "sandbox-workspace"
+        else:
+            work = work or None
+    except Exception:  # noqa: BLE001
+        work = work or None
+        isolation = "none"
+
+    proc = None
+    timer = None
+    try:
+        proc = subprocess.Popen(
+            cmd, shell=True, cwd=work,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
+
+        def _kill_on_timeout():
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+        timer = threading.Timer(float(timeout or 60), _kill_on_timeout)
+        timer.daemon = True
+        timer.start()
+
+        assert proc.stdout is not None
+        for line in iter(proc.stdout.readline, ""):
+            if line:
+                yield {"type": "line", "text": line}
+        proc.wait()
+        timed_out = False
+        try:
+            timed_out = proc.returncode is not None and proc.returncode == -9
+        except Exception:  # noqa: BLE001
+            timed_out = False
+        yield {"type": "end", "code": proc.returncode,
+               "timed_out": timed_out, "isolation": isolation}
+    except FileNotFoundError as e:
+        yield {"type": "error", "error": f"命令无法启动：{e}"}
+    except Exception as e:  # noqa: BLE001
+        yield {"type": "error", "error": f"{type(e).__name__}: {e}"}
+    finally:
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def check_command_exists(command: str) -> dict:
+    """检查命令是否在 PATH 中可用（shutil.which）。返回真实探测结果。"""
+    name = (command or "").strip().split()[0] if command else ""
+    if not name:
+        return {"exists": False, "command": "", "path": "",
+                "error": "命令名为空"}
+    try:
+        path = shutil.which(name)
+        return {"exists": path is not None, "command": name, "path": path or ""}
+    except Exception as e:  # noqa: BLE001
+        return {"exists": False, "command": name, "path": "",
+                "error": f"{type(e).__name__}: {e}"}

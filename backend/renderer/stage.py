@@ -61,6 +61,10 @@ class Stage:
         self._model_path: str = ""
         self._action_path: str = ""
         self._cache: dict = {}
+        self._mouth_open: float = 0.0
+        self._blink_request_at: float = 0.0
+        self._eye_x: float = 0.0
+        self._eye_y: float = 0.0
         self._load_state()
 
     # ---------------- 状态持久化 ----------------
@@ -187,6 +191,58 @@ class Stage:
     def action_path(self) -> str:
         return self._action_path
 
+    # ---------------- 面部驱动（口型 / 眨眼 / 视线） ----------------
+    def set_mouth_open(self, level: float) -> dict:
+        """控制 VRM 模型嘴部开合（0.0-1.0）。"""
+        try:
+            if not self._model_path:
+                return {"ok": False, "error": "模型未加载，无法控制嘴部"}
+            lv = max(0.0, min(1.0, float(level)))
+            self._mouth_open = lv
+            return {"ok": True, "mouth_open": lv}
+        except Exception as e:
+            return {"ok": False, "error": f"set_mouth_open: {type(e).__name__}: {e}"}
+
+    def blink(self) -> dict:
+        """触发一次眨眼动画。"""
+        try:
+            if not self._model_path:
+                return {"ok": False, "error": "模型未加载，无法触发眨眼"}
+            self._blink_request_at = time.time()
+            return {"ok": True, "at": self._blink_request_at}
+        except Exception as e:
+            return {"ok": False, "error": f"blink: {type(e).__name__}: {e}"}
+
+    def set_eye_target(self, x: float, y: float) -> dict:
+        """设置视线目标位置（x, y 归一化到 -1.0~1.0）。"""
+        try:
+            if not self._model_path:
+                return {"ok": False, "error": "模型未加载，无法设置视线目标"}
+            self._eye_x = max(-1.0, min(1.0, float(x)))
+            self._eye_y = max(-1.0, min(1.0, float(y)))
+            return {"ok": True, "x": self._eye_x, "y": self._eye_y}
+        except Exception as e:
+            return {"ok": False, "error": f"set_eye_target: {type(e).__name__}: {e}"}
+
+    def get_animation_list(self) -> dict:
+        """返回可用动画列表。"""
+        try:
+            if not self._model_path:
+                return {"ok": False, "error": "模型未加载", "animations": []}
+            actions = self.list_actions()
+            builtin = [
+                {"name": "idle", "label": "站立待机", "built_in": True},
+                {"name": "wave", "label": "挥手", "built_in": True},
+                {"name": "nod", "label": "点头", "built_in": True},
+            ]
+            return {"ok": True, "animations": builtin + [
+                {"name": a["name"], "label": a["name"], "built_in": False,
+                 "path": a["path"]} for a in actions
+            ]}
+        except Exception as e:
+            return {"ok": False, "error": f"get_animation_list: {type(e).__name__}: {e}",
+                    "animations": []}
+
     # ---------------- 汇总 ----------------
     def state(self) -> dict:
         return {
@@ -198,6 +254,9 @@ class Stage:
             "action": self._action_path,
             "model_count": len(self.list_models()),
             "action_count": len(self.list_actions()),
+            "mouth_open": self._mouth_open,
+            "eye_target": [self._eye_x, self._eye_y],
+            "blink_request_at": self._blink_request_at,
         }
 
 

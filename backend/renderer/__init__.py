@@ -43,6 +43,18 @@ class Renderer:
     def state(self) -> dict:
         return self.stage.state()
 
+    def set_mouth_open(self, level: float) -> dict:
+        return self.stage.set_mouth_open(level)
+
+    def blink(self) -> dict:
+        return self.stage.blink()
+
+    def set_eye_target(self, x: float, y: float) -> dict:
+        return self.stage.set_eye_target(x, y)
+
+    def get_animation_list(self) -> dict:
+        return self.stage.get_animation_list()
+
     @property
     def model_path(self) -> str:
         return self.stage.model_path

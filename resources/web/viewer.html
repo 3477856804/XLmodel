@@ -143,6 +143,15 @@ canvas.addEventListener('touchmove', e => {
 canvas.addEventListener('touchend', () => { pinch = 0; });
 
 /* 供 Flutter 侧 evaluateJavascript 调用的遥控器（保留原有 UI 控件手感）。 */
+let mouthLevel = 0;
+let manualBlinkPhase = -1;
+let eyeOffsetX = 0, eyeOffsetY = 0;
+let eyeFollowEnabled = false;
+let animState = 'idle';
+let animTime = 0;
+const lookDummy = new THREE.Object3D();
+scene.add(lookDummy);
+
 window.__xl = {
   autoRotate(on) { orbit.autoRotate = !!on; },
   zoomFactor(z) {
@@ -159,7 +168,26 @@ window.__xl = {
     applyCamera();
   },
   exposure(v) { renderer.toneMappingExposure = Math.max(0.2, Math.min(3, +v || 1)); },
-  reset() { orbit.az = 0; orbit.pol = Math.PI / 2 - 0.05; orbit.dist = orbit.base || orbit.dist; applyCamera(); }
+  reset() { orbit.az = 0; orbit.pol = Math.PI / 2 - 0.05; orbit.dist = orbit.base || orbit.dist; applyCamera(); },
+  setMouthOpen(level) { mouthLevel = Math.max(0, Math.min(1, +level || 0)); },
+  blink() { manualBlinkPhase = 0; },
+  setEyeTarget(x, y) {
+    eyeOffsetX = Math.max(-1, Math.min(1, +x || 0));
+    eyeOffsetY = Math.max(-1, Math.min(1, +y || 0));
+    eyeFollowEnabled = (eyeOffsetX !== 0 || eyeOffsetY !== 0);
+  },
+  playAnimation(name) {
+    const n = (name || 'idle').toLowerCase();
+    if (n === 'wave' || n === 'nod' || n === 'idle') {
+      animState = n;
+      animTime = 0;
+    } else {
+      animState = 'idle';
+    }
+  },
+  getAnimationList() {
+    return ['idle', 'wave', 'nod'];
+  }
 };
 
 function resize() {
@@ -222,7 +250,7 @@ loader.load(
   }
 );
 
-/* ------------------------------------------------------------------ 主循环：呼吸 / 眨眼 / 注视 */
+/* ------------------------------------------------------------------ 主循环：呼吸 / 眨眼 / 注视 / 口型 / 动作 */
 let blinkAt = 2 + Math.random() * 3, blinkPhase = -1;
 function animate() {
   requestAnimationFrame(animate);
@@ -243,7 +271,7 @@ function animate() {
     }
     if (vrm.scene) vrm.scene.position.y = Math.sin(t * 1.15) * 0.006;
 
-    // 眨眼：随机间隔，闭-合走一条快曲线
+    // 自动眨眼：随机间隔，闭-合走一条快曲线
     blinkAt -= dt;
     if (blinkAt <= 0 && blinkPhase < 0) { blinkPhase = 0; blinkAt = 2.4 + Math.random() * 3.6; }
     let blink = 0;
@@ -252,11 +280,53 @@ function animate() {
       if (blinkPhase >= 1) { blinkPhase = -1; blink = 0; }
       else blink = Math.sin(blinkPhase * Math.PI);
     }
+    // 手动眨眼（外部触发）：与自动眨眼取较大值
+    if (manualBlinkPhase >= 0) {
+      manualBlinkPhase += dt / 0.22;
+      let mb = 0;
+      if (manualBlinkPhase >= 1) { manualBlinkPhase = -1; mb = 0; }
+      else mb = Math.sin(manualBlinkPhase * Math.PI);
+      blink = Math.max(blink, mb);
+    }
     const em = vrm.expressionManager;
-    if (em) { try { em.setValue('blink', blink); } catch (_) {} }
+    if (em) {
+      try { em.setValue('blink', blink); } catch (_) {}
+      try { em.setValue('aa', mouthLevel); } catch (_) {}
+    }
 
-    // 注视：让目光跟着相机，始终"看着你"
-    if (vrm.lookAt) { vrm.lookAt.target = camera; }
+    // 注视：默认盯着相机；外部 setEyeTarget 设置了偏移则用 lookDummy 目标
+    if (vrm.lookAt) {
+      if (eyeFollowEnabled) {
+        lookDummy.position.set(eyeOffsetX * 0.8, orbit.targetY + eyeOffsetY * 0.5, 1.8);
+        vrm.lookAt.target = lookDummy;
+      } else {
+        vrm.lookAt.target = camera;
+      }
+    }
+
+    // 程序化动作：wave / nod / idle
+    animTime += dt;
+    if (h) {
+      const head = h.getNormalizedBoneNode('head');
+      const rightUpperArm = h.getNormalizedBoneNode('rightUpperArm');
+      if (animState === 'nod') {
+        const nod = Math.sin(animTime * 4.0) * 0.18;
+        if (head) head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, nod, 0.2);
+      } else if (animState === 'wave') {
+        if (rightUpperArm) {
+          const wave = Math.sin(animTime * 5.0) * 0.5;
+          rightUpperArm.rotation.z = THREE.MathUtils.lerp(rightUpperArm.rotation.z, -2.4, 0.15);
+          rightUpperArm.rotation.x = THREE.MathUtils.lerp(rightUpperArm.rotation.x, wave * 0.3, 0.15);
+        }
+      } else {
+        if (head) head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, 0, 0.08);
+        if (rightUpperArm) {
+          rightUpperArm.rotation.z = THREE.MathUtils.lerp(rightUpperArm.rotation.z, 0, 0.06);
+          rightUpperArm.rotation.x = THREE.MathUtils.lerp(rightUpperArm.rotation.x, 0, 0.06);
+        }
+      }
+    }
+
     vrm.update(dt);
   }
   renderer.render(scene, camera);

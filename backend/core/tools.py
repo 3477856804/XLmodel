@@ -642,12 +642,26 @@ class SymbolIndexer:
         r"([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{"
     )
 
+    # 调用关系分析：匹配 foo( 或 .foo(
+    _CALL_RE = re.compile(r"(?:\b|\.)([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+    # 语言关键字 / 内建名（即使误命中也不会进入符号表，这里再兜底过滤一次）
+    _NOISE = frozenset({
+        "if", "for", "while", "return", "print", "len", "str", "int",
+        "range", "self", "super", "open", "isinstance", "except", "with",
+        "yield", "await", "async", "def", "class", "and", "or", "not",
+        "in", "is", "None", "True", "False", "try", "catch", "function",
+        "new", "typeof", "map", "set", "list", "dict", "type", "get",
+        "append", "items", "keys", "values", "update", "startswith",
+        "endswith", "startswith", "toString", "print",
+    })
+
     def __init__(self, root_dir: str):
         self.root = Path(root_dir).resolve()
         self.index_path = self.root / self.CACHE_NAME
         self.symbols: dict[str, list[dict]] = {}
         self.file_symbols: dict[str, list[dict]] = {}
         self.file_mtimes: dict[str, float] = {}
+        self._call_graph: dict | None = None
         self._lock = threading.RLock()
         self._ts_available = self._detect_tree_sitter()
 
@@ -1032,6 +1046,423 @@ class SymbolIndexer:
         return result
 
     # ------------------------------------------------------------------
+    # 调用关系分析（反向引用 / 调用层级 / 调用链）
+    # ------------------------------------------------------------------
+    def _known_names(self) -> set:
+        """索引中所有已定义符号名（排除 import 占位）。"""
+        with self._lock:
+            return {n for n in self.symbols.keys() if n != "_import"}
+
+    def _to_rel(self, path: str) -> str:
+        """把绝对/相对路径归一化为项目相对路径。失败返回原串。"""
+        try:
+            p = Path(path)
+            if not p.is_absolute():
+                return os.path.normpath(path)
+            return os.path.relpath(str(p), str(self.root))
+        except Exception:
+            return path
+
+    def _read_file_lines(self, rel: str) -> list[str]:
+        try:
+            text = (self.root / rel).read_text(encoding="utf-8", errors="ignore")
+            return text.splitlines()
+        except OSError:
+            return []
+
+    def _iter_spans(self, rel: str) -> list[dict]:
+        """提取文件中函数/方法/类的定义区间（1-based 闭区间）。永不抛异常。"""
+        out: list[dict] = []
+        ext = os.path.splitext(rel)[1].lower()
+        lines = self._read_file_lines(rel)
+        if not lines:
+            return out
+        try:
+            if ext == ".py":
+                i = 0
+                while i < len(lines):
+                    line = lines[i]
+                    sm = self._PY_CLASS_RE.match(line)
+                    if sm:
+                        # 只记录类位置，不吞掉内部方法；继续逐行扫描
+                        out.append({"name": sm.group(1), "start": i + 1,
+                                    "end": i + 1, "type": "class"})
+                        i += 1
+                        continue
+                    fm = self._PY_FUNC_RE.match(line)
+                    if fm:
+                        indent = len(fm.group(1).expandtabs())
+                        name = fm.group(2)
+                        start = i + 1
+                        j = i + 1
+                        end = start
+                        while j < len(lines):
+                            l = lines[j]
+                            if l.strip() == "" or l.strip().startswith("#"):
+                                j += 1
+                                continue
+                            cur = len(l.expandtabs()) - len(l.lstrip())
+                            if cur <= indent:
+                                break
+                            end = j + 1
+                            j += 1
+                        stype = "method" if indent >= 4 else "function"
+                        out.append({"name": name, "start": start,
+                                    "end": end, "type": stype})
+                        i = j
+                        continue
+                    i += 1
+            else:
+                with self._lock:
+                    syms = list(self.file_symbols.get(rel, []))
+                for s in syms:
+                    if s.get("type") in ("function", "method"):
+                        out.append({"name": s["name"],
+                                    "start": s["line"],
+                                    "end": s["line"] + 60,
+                                    "type": s["type"]})
+        except Exception:
+            pass
+        return out
+
+    def _read_body(self, rel: str, span: dict) -> str:
+        lines = self._read_file_lines(rel)
+        if not lines:
+            return ""
+        s = max(0, span.get("start", 1) - 1)
+        e = min(len(lines), span.get("end", s + 1))
+        try:
+            return "\n".join(lines[s:e])
+        except Exception:
+            return ""
+
+    def _callees_in_body(self, body: str, known: set) -> list:
+        """从函数体中提取调用的、且确为项目内已定义符号的名字。"""
+        found = set()
+        try:
+            for m in self._CALL_RE.finditer(body):
+                name = m.group(1)
+                if name in known and name not in self._NOISE:
+                    found.add(name)
+        except Exception:
+            pass
+        return sorted(found)
+
+    def find_callers(self, symbol_name: str) -> dict:
+        """找出哪些函数/方法调用了指定符号（反向引用）。"""
+        if not symbol_name:
+            return {"error": "symbol_name 为空", "callers": []}
+        try:
+            known = self._known_names()
+            if symbol_name not in known:
+                return {"symbol": symbol_name, "exists": False,
+                        "callers": [],
+                        "error": f"符号「{symbol_name}」未在索引中定义"}
+            callers: list[dict] = []
+            seen: set = set()
+            word = re.compile(r"(?:\b|\.)" + re.escape(symbol_name) + r"\s*\(")
+            for rel in list(self.file_symbols.keys()):
+                for span in self._iter_spans(rel):
+                    if span["type"] not in ("function", "method"):
+                        continue
+                    if span["name"] == symbol_name:
+                        continue
+                    body = self._read_body(rel, span)
+                    if not word.search(body):
+                        continue
+                    key = (rel, span["start"])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    callers.append({"caller": span["name"], "file": rel,
+                                    "line": span["start"], "type": span["type"]})
+            callers.sort(key=lambda c: (c["file"], c["line"]))
+            return {"symbol": symbol_name, "exists": True, "callers": callers}
+        except Exception as e:  # noqa: BLE001
+            return {"symbol": symbol_name,
+                    "error": f"{type(e).__name__}: {e}", "callers": []}
+
+    def find_callees(self, symbol_name: str) -> dict:
+        """找出指定函数/方法调用了哪些其他已定义符号。"""
+        if not symbol_name:
+            return {"error": "symbol_name 为空", "callees": []}
+        try:
+            known = self._known_names()
+            if symbol_name not in known:
+                return {"symbol": symbol_name, "exists": False, "callees": [],
+                        "error": f"符号「{symbol_name}」未在索引中定义"}
+            agg: dict[str, list] = {}
+            for rel in list(self.file_symbols.keys()):
+                for span in self._iter_spans(rel):
+                    if span["type"] not in ("function", "method"):
+                        continue
+                    if span["name"] != symbol_name:
+                        continue
+                    body = self._read_body(rel, span)
+                    for c in self._callees_in_body(body, known):
+                        agg.setdefault(c, []).append({"file": rel,
+                                                      "line": span["start"]})
+            callees = [{"callee": c, "defined_at": locs[:5]}
+                       for c, locs in sorted(agg.items())]
+            return {"symbol": symbol_name, "exists": True, "callees": callees}
+        except Exception as e:  # noqa: BLE001
+            return {"symbol": symbol_name,
+                    "error": f"{type(e).__name__}: {e}", "callees": []}
+
+    def get_call_chain(self, symbol_name: str, max_depth: int = 3) -> dict:
+        """向上追溯调用链：谁调用了我，谁又调用了它。返回树形结构。"""
+        if not symbol_name:
+            return {"error": "symbol_name 为空", "chain": {}}
+        try:
+            max_depth = max(1, min(int(max_depth), 10))
+            root = {"name": symbol_name, "children": []}
+            frontier: list = [(symbol_name, root, 1)]
+            visited = {symbol_name}
+            while frontier:
+                name, parent, depth = frontier.pop(0)
+                if depth > max_depth:
+                    continue
+                r = self.find_callers(name)
+                for c in r.get("callers", []):
+                    cn = c["caller"]
+                    child = {"name": cn, "file": c["file"], "line": c["line"],
+                             "depth": depth, "children": []}
+                    parent["children"].append(child)
+                    if cn not in visited:
+                        visited.add(cn)
+                        frontier.append((cn, child, depth + 1))
+            return {"symbol": symbol_name, "chain": root, "max_depth": max_depth}
+        except Exception as e:  # noqa: BLE001
+            return {"symbol": symbol_name,
+                    "error": f"{type(e).__name__}: {e}", "chain": {}}
+
+    # ------------------------------------------------------------------
+    # 调用层级图
+    # ------------------------------------------------------------------
+    def build_call_graph(self, force: bool = False) -> dict:
+        """构建整个项目的调用关系图。节点=符号，边=调用关系。"""
+        try:
+            if self._call_graph is not None and not force:
+                return self._call_graph
+            known = self._known_names()
+            nodes: set = set()
+            edges: set = set()
+            for rel in list(self.file_symbols.keys()):
+                for span in self._iter_spans(rel):
+                    if span["type"] not in ("function", "method"):
+                        continue
+                    caller = span["name"]
+                    nodes.add(caller)
+                    body = self._read_body(rel, span)
+                    for callee in self._callees_in_body(body, known):
+                        nodes.add(callee)
+                        edges.add((caller, callee))
+            graph = {
+                "nodes": sorted(nodes),
+                "edges": [{"caller": a, "callee": b} for a, b in sorted(edges)],
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+            }
+            self._call_graph = graph
+            return graph
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}",
+                    "nodes": [], "edges": [], "node_count": 0, "edge_count": 0}
+
+    def get_subgraph(self, symbol_name: str, depth: int = 2) -> dict:
+        """以指定符号为中心，向上下各 depth 层的子图。"""
+        try:
+            if not symbol_name:
+                return {"error": "symbol_name 为空", "nodes": [], "edges": []}
+            if symbol_name not in self._known_names():
+                return {"error": f"符号「{symbol_name}」未在索引中定义",
+                        "nodes": [], "edges": []}
+            depth = max(1, min(int(depth), 6))
+            graph = self.build_call_graph()
+            adj_down: dict = {}
+            adj_up: dict = {}
+            for e in graph.get("edges", []):
+                adj_down.setdefault(e["caller"], set()).add(e["callee"])
+                adj_up.setdefault(e["callee"], set()).add(e["caller"])
+            nodes = {symbol_name}
+            used: set = set()
+            frontier = [symbol_name]
+            for _ in range(depth):
+                nxt = []
+                for n in frontier:
+                    for c in adj_down.get(n, ()):
+                        used.add((n, c))
+                        nodes.add(c)
+                        nxt.append(c)
+                frontier = nxt
+            frontier = [symbol_name]
+            for _ in range(depth):
+                nxt = []
+                for n in frontier:
+                    for p in adj_up.get(n, ()):
+                        used.add((p, n))
+                        nodes.add(p)
+                        nxt.append(p)
+                frontier = nxt
+            return {"center": symbol_name, "depth": depth,
+                    "nodes": sorted(nodes),
+                    "edges": [{"caller": a, "callee": b} for a, b in sorted(used)]}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}", "nodes": [], "edges": []}
+
+    def export_dot(self, graph: dict | None = None) -> str:
+        """把调用图导出为 Graphviz DOT 文本。"""
+        try:
+            g = graph or self.build_call_graph()
+            lines = ["digraph calls {",
+                     '  node [shape=box, style="rounded", fontname="sans"];']
+            for n in g.get("nodes", [])[:800]:
+                lines.append(f'  "{n}";')
+            for e in g.get("edges", [])[:3000]:
+                lines.append(f'  "{e["caller"]}" -> "{e["callee"]}";')
+            lines.append("}")
+            return "\n".join(lines)
+        except Exception:
+            return "digraph calls {}"
+
+    # ------------------------------------------------------------------
+    # 定义跳转 / 继承
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _identifier_at(line: str, col: int) -> str:
+        """取 line 第 col 列附近的标识符。col 为 1-based。"""
+        if not line:
+            return ""
+        col = max(1, min(int(col), len(line)))
+        i = col - 1
+        if i >= len(line):
+            i = len(line) - 1
+        if not (line[i].isalnum() or line[i] == "_"):
+            return ""
+        l = i
+        while l - 1 >= 0 and (line[l - 1].isalnum() or line[l - 1] in "_$"):
+            l -= 1
+        r = i
+        while r + 1 < len(line) and (line[r + 1].isalnum() or line[r + 1] in "_$"):
+            r += 1
+        return line[l:r + 1]
+
+    def goto_definition(self, file_path: str, line: int, col: int) -> dict:
+        """根据光标位置（文件/行/列）跳转到符号定义。"""
+        try:
+            if not file_path:
+                return {"error": "file_path 为空"}
+            rel = self._to_rel(file_path)
+            lines = self._read_file_lines(rel)
+            if not lines or line < 1 or line > len(lines):
+                return {"error": f"行号 {line} 超出文件范围"}
+            ident = self._identifier_at(lines[line - 1], col)
+            if not ident:
+                return {"error": "光标处无标识符"}
+            defs = self.find_symbol(ident, fuzzy=False)
+            if not defs:
+                return {"identifier": ident, "found": False,
+                        "error": f"未找到「{ident}」的定义"}
+            defs = sorted(defs, key=lambda d: (d["file"] != rel,
+                                               d.get("line", 0)))
+            d = defs[0]
+            return {"identifier": ident, "found": True, "file": d["file"],
+                    "line": d["line"], "type": d.get("type", ""),
+                    "signature": d.get("signature", ""),
+                    "candidates": len(defs)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}"}
+
+    def _bases_of(self, sym: dict) -> set:
+        """从符号签名行解析基类/接口名集合。"""
+        bases: set = set()
+        try:
+            sig = sym.get("signature", "") or ""
+            ext = os.path.splitext(sym.get("file", ""))[1].lower()
+            if ext == ".dart":
+                m = re.search(r"\bextends\s+([A-Za-z_][A-Za-z0-9_]*)", sig)
+                if m:
+                    bases.add(m.group(1))
+                m = re.search(r"\bimplements\s+([A-Za-z0-9_,<>. ]+)", sig)
+                if m:
+                    for part in m.group(1).split(","):
+                        b = part.strip().split("<")[0].split(".")[-1].strip()
+                        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", b):
+                            bases.add(b)
+            else:
+                m = re.search(r"^class\s+\w+\s*\(([^)]*)\)", sig)
+                if m:
+                    for part in m.group(1).split(","):
+                        part = part.strip()
+                        if "=" in part:
+                            part = part.split("=")[0].strip()
+                        part = part.split(".")[-1].strip()
+                        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", part):
+                            bases.add(part)
+        except Exception:
+            pass
+        return bases
+
+    def find_implementation(self, interface_name: str) -> dict:
+        """找到接口/抽象类的所有具体实现类。"""
+        if not interface_name:
+            return {"error": "interface_name 为空", "implementations": []}
+        try:
+            impls: list[dict] = []
+            with self._lock:
+                items = list(self.symbols.items())
+            for cname, entries in items:
+                if cname == "_import":
+                    continue
+                for s in entries:
+                    if s.get("type") != "class":
+                        continue
+                    if interface_name in self._bases_of(s):
+                        impls.append({"class": cname, "file": s["file"],
+                                      "line": s["line"]})
+            impls.sort(key=lambda c: (c["file"], c["line"]))
+            if not impls:
+                return {"interface": interface_name, "found": False,
+                        "implementations": [],
+                        "error": f"未找到「{interface_name}」的实现"}
+            return {"interface": interface_name, "found": True,
+                    "implementations": impls}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}", "implementations": []}
+
+    def get_inheritance_chain(self, class_name: str) -> dict:
+        """向上获取类的继承链（class_name -> 父类 -> 祖父类...）。"""
+        if not class_name:
+            return {"error": "class_name 为空", "chain": []}
+        try:
+            with self._lock:
+                cur = [s for s in self.symbols.get(class_name, [])
+                       if s.get("type") == "class"]
+            if not cur:
+                return {"class": class_name, "found": False,
+                        "chain": [],
+                        "error": f"类「{class_name}」未在索引中定义"}
+            chain = [class_name]
+            seen = {class_name}
+            current = cur[0]
+            for _ in range(20):
+                bases = [b for b in self._bases_of(current) if b not in seen]
+                if not bases:
+                    break
+                nxt = bases[0]
+                chain.append(nxt)
+                seen.add(nxt)
+                with self._lock:
+                    nxt_entries = [s for s in self.symbols.get(nxt, [])
+                                   if s.get("type") == "class"]
+                if not nxt_entries:
+                    break
+                current = nxt_entries[0]
+            return {"class": class_name, "found": True, "chain": chain}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"{type(e).__name__}: {e}", "chain": []}
+
+    # ------------------------------------------------------------------
     # 缓存读写
     # ------------------------------------------------------------------
     def _load_cache(self):
@@ -1067,6 +1498,273 @@ class SymbolIndexer:
                 encoding="utf-8")
         except Exception:
             pass
+
+
+class MultiFileEditor:
+    """多文件批量精确编辑工具。
+
+    核心原则（绝不假装执行 / 绝不伪造结果）：
+      - 首次触碰某文件时对其原始内容做内存快照，apply 失败或批量中途失败可
+        精确回滚到本编辑器开始前的内容；
+      - old_string 必须在目标文件中**唯一命中**（恰好 1 处），否则拒绝替换，
+        避免误伤；文件不存在、片段未找到、片段不唯一都返回明确错误字典；
+      - plan_edits 只做预览（读文件 + 计算 unified diff），不落盘；
+      - apply_edits_batch 是事务：先全部校验，再逐个落盘，任一步 IO 失败则把
+        已落盘的文件恢复到本批次开始前的内容；
+      - 所有方法 try-except，返回 dict（ok/error），不向调用方抛异常。
+    """
+
+    MAX_BYTES = 2 * 1024 * 1024
+
+    def __init__(self, base_dir: str | None = None):
+        self.base_dir = Path(base_dir) if base_dir else Path.cwd()
+        self._lock = threading.RLock()
+        # 快照：resolved_path -> 首次被本编辑器触碰前的原始内容
+        self._snapshots: dict[str, str] = {}
+
+    # ------------------------------------------------------------------ io
+    def _resolve(self, file_path: str):
+        if not file_path:
+            return None
+        try:
+            p = Path(file_path).expanduser()
+            if not p.is_absolute():
+                p = self.base_dir / p
+            return p.resolve()
+        except (OSError, RuntimeError):
+            return None
+
+    @staticmethod
+    def _read(p: Path) -> dict:
+        try:
+            if not p.exists() or not p.is_file():
+                return {"ok": False, "error": f"文件不存在：{p}"}
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            if len(text.encode("utf-8", "ignore")) > MultiFileEditor.MAX_BYTES:
+                return {"ok": False, "error": f"文件过大（>{MultiFileEditor.MAX_BYTES} 字节）：{p}"}
+            return {"ok": True, "text": text}
+        except OSError as e:
+            return {"ok": False, "error": f"读取失败：{type(e).__name__}: {e}"}
+
+    def _snapshot(self, p: Path, text: str):
+        key = str(p)
+        if key not in self._snapshots:
+            self._snapshots[key] = text
+
+    @staticmethod
+    def _diff_text(original: str, modified: str, file_path: str) -> str:
+        import difflib
+        ol = original.splitlines(keepends=True)
+        nl = modified.splitlines(keepends=True)
+        gen = difflib.unified_diff(
+            ol, nl, fromfile=f"a/{file_path}", tofile=f"b/{file_path}", n=3)
+        return "".join(gen)
+
+    # ------------------------------------------------------------------ plan
+    def plan_edits(self, files, instructions) -> dict:
+        """生成编辑计划（diff 预览），不落盘。
+
+        files: 可选的文件列表（仅用于去重提示，真实目标以 instructions 为准）；
+        instructions: list[dict]，每项 {file_path, old_string, new_string}。
+        返回 {ok, plan:[...], summary}。
+        """
+        try:
+            edits = [i for i in (instructions or []) if isinstance(i, dict)]
+            plan = []
+            for spec in edits:
+                fp = spec.get("file_path") or spec.get("file") or ""
+                old = spec.get("old_string", "") or ""
+                new = spec.get("new_string", "") or ""
+                entry = {"file_path": fp, "hits": 0, "status": "pending",
+                         "reason": "", "diff": ""}
+                p = self._resolve(fp)
+                if p is None:
+                    entry.update(status="error", reason="路径不合法")
+                    plan.append(entry)
+                    continue
+                rd = self._read(p)
+                if not rd["ok"]:
+                    entry.update(status="error", reason=rd["error"])
+                    plan.append(entry)
+                    continue
+                text = rd["text"]
+                if not old:
+                    entry.update(hits=1, status="rewrite",
+                                 diff=self._diff_text(text, new, fp))
+                    plan.append(entry)
+                    continue
+                hits = text.count(old)
+                entry["hits"] = hits
+                if hits == 0:
+                    entry.update(status="error", reason="未找到待替换片段")
+                elif hits > 1:
+                    entry.update(status="error",
+                                 reason=f"片段不唯一（命中 {hits} 处），请补充更长上下文")
+                else:
+                    entry.update(status="ready",
+                                 diff=self._diff_text(text, text.replace(old, new, 1), fp))
+                plan.append(entry)
+            ready = sum(1 for e in plan if e["status"] in ("ready", "rewrite"))
+            errors = [e for e in plan if e["status"] == "error"]
+            return {"ok": len(errors) == 0, "plan": plan,
+                    "summary": f"计划 {len(plan)} 项，可执行 {ready} 项，错误 {len(errors)} 项"}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"plan_edits 异常：{type(e).__name__}: {e}"}
+
+    # ------------------------------------------------------------------ apply
+    def apply_edit(self, file_path: str = "", old_string: str = "",
+                   new_string: str = "") -> dict:
+        """精确替换单个文件中的唯一命中片段。返回 dict，不抛异常。"""
+        try:
+            p = self._resolve(file_path)
+            if p is None:
+                return {"ok": False, "error": "路径不合法"}
+            rd = self._read(p)
+            if not rd["ok"]:
+                return rd
+            text = rd["text"]
+            if not old_string:
+                # 空 old_string：整文件重写
+                self._snapshot(p, text)
+                p.write_text(new_string, encoding="utf-8")
+                return {"ok": True, "file_path": str(p), "mode": "rewrite",
+                        "diff": self._diff_text(text, new_string, str(p))}
+            hits = text.count(old_string)
+            if hits == 0:
+                return {"ok": False, "file_path": str(p), "error": "未找到待替换片段"}
+            if hits > 1:
+                return {"ok": False, "file_path": str(p),
+                        "error": f"片段不唯一（命中 {hits} 处），请补充更长上下文"}
+            self._snapshot(p, text)
+            modified = text.replace(old_string, new_string, 1)
+            p.write_text(modified, encoding="utf-8")
+            return {"ok": True, "file_path": str(p), "mode": "replace",
+                    "bytes_before": len(text.encode("utf-8")),
+                    "bytes_after": len(modified.encode("utf-8")),
+                    "diff": self._diff_text(text, modified, str(p))}
+        except OSError as e:
+            return {"ok": False, "error": f"写入失败：{type(e).__name__}: {e}"}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"apply_edit 异常：{type(e).__name__}: {e}"}
+
+    def apply_edits_batch(self, edits) -> dict:
+        """批量应用编辑（事务）。任一项校验失败则全部不执行；中途 IO 失败则回滚。
+
+        edits: list[dict]，每项 {file_path, old_string, new_string}。
+        返回 {ok, applied:[...], rolled_back:[...], message}。
+        """
+        try:
+            spec_list = [e for e in (edits or []) if isinstance(e, dict)]
+            if not spec_list:
+                return {"ok": False, "error": "编辑列表为空"}
+
+            # 1) 全量校验：解析 + 读文件 + 唯一性检查，全部通过才落盘
+            validated = []
+            for spec in spec_list:
+                fp = spec.get("file_path") or spec.get("file") or ""
+                old = spec.get("old_string", "") or ""
+                new = spec.get("new_string", "") or ""
+                p = self._resolve(fp)
+                if p is None:
+                    return {"ok": False, "error": f"路径不合法：{fp}"}
+                rd = self._read(p)
+                if not rd["ok"]:
+                    return {"ok": False, "error": f"{fp}：{rd['error']}"}
+                text = rd["text"]
+                if old:
+                    hits = text.count(old)
+                    if hits == 0:
+                        return {"ok": False, "error": f"{fp}：未找到待替换片段"}
+                    if hits > 1:
+                        return {"ok": False,
+                                "error": f"{fp}：片段不唯一（{hits} 处）"}
+                    modified = text.replace(old, new, 1)
+                else:
+                    modified = new
+                validated.append({"path": p, "original": text, "modified": modified})
+
+            # 2) 逐个落盘，记录已应用项用于回滚
+            applied = []
+            rolled_back = []
+            try:
+                for item in validated:
+                    self._snapshot(item["path"], item["original"])
+                    item["path"].write_text(item["modified"], encoding="utf-8")
+                    applied.append(str(item["path"]))
+            except OSError as e:
+                # 回滚已落盘项到本批次开始前的内容
+                for item in validated:
+                    if str(item["path"]) in applied:
+                        try:
+                            item["path"].write_text(item["original"], encoding="utf-8")
+                            rolled_back.append(str(item["path"]))
+                        except OSError:
+                            pass
+                return {"ok": False, "applied": applied, "rolled_back": rolled_back,
+                        "error": f"批量写入失败（已回滚 {len(rolled_back)} 个文件）：{e}"}
+
+            diffs = [self._diff_text(i["original"], i["modified"], str(i["path"]))
+                     for i in validated]
+            return {"ok": True, "applied": applied, "rolled_back": rolled_back,
+                    "count": len(applied),
+                    "message": f"已批量应用 {len(applied)} 项编辑",
+                    "diffs": [d for d in diffs if d.strip()]}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"apply_edits_batch 异常：{type(e).__name__}: {e}"}
+
+    # ------------------------------------------------------------------ diff
+    def get_diff(self, file_path: str = "") -> dict:
+        """显示当前文件内容与本编辑器首次快照（原始）的差异。无快照返回空 diff。"""
+        try:
+            p = self._resolve(file_path)
+            if p is None:
+                return {"ok": False, "error": "路径不合法"}
+            key = str(p)
+            original = self._snapshots.get(key)
+            rd = self._read(p)
+            if not rd["ok"]:
+                return rd
+            current = rd["text"]
+            if original is None:
+                return {"ok": True, "file_path": key, "diff": "",
+                        "message": "该文件尚未被编辑，无差异"}
+            diff = self._diff_text(original, current, key)
+            added, removed = 0, 0
+            for line in diff.splitlines():
+                if line.startswith("+") and not line.startswith("+++"):
+                    added += 1
+                elif line.startswith("-") and not line.startswith("---"):
+                    removed += 1
+            return {"ok": True, "file_path": key, "diff": diff,
+                    "lines_added": added, "lines_removed": removed}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"get_diff 异常：{type(e).__name__}: {e}"}
+
+    def rollback(self, file_path: str = "") -> dict:
+        """把指定文件恢复到首次快照（原始）内容。空路径回滚所有有快照的文件。"""
+        try:
+            restored = []
+            if file_path:
+                p = self._resolve(file_path)
+                if p is None:
+                    return {"ok": False, "error": "路径不合法"}
+                key = str(p)
+                orig = self._snapshots.get(key)
+                if orig is None:
+                    return {"ok": False, "error": "该文件没有可回滚的快照"}
+                p.write_text(orig, encoding="utf-8")
+                restored.append(key)
+            else:
+                for key, orig in list(self._snapshots.items()):
+                    try:
+                        Path(key).write_text(orig, encoding="utf-8")
+                        restored.append(key)
+                    except OSError:
+                        pass
+            return {"ok": True, "restored": restored,
+                    "message": f"已回滚 {len(restored)} 个文件"}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"rollback 异常：{type(e).__name__}: {e}"}
 
 
 class ToolKit:

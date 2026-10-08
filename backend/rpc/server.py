@@ -166,6 +166,155 @@ def _get_knowledge_base():
     return _knowledge_base
 
 
+_multifile_editor = None
+_multifile_editor_lock = threading.Lock()
+_bg_tasks = None
+_bg_tasks_lock = threading.Lock()
+
+
+def _get_multifile_editor():
+    """懒加载 MultiFileEditor 单例（以项目根为基准目录）。"""
+    global _multifile_editor
+    if _multifile_editor is not None:
+        return _multifile_editor
+    with _multifile_editor_lock:
+        if _multifile_editor is None:
+            from core.tools import MultiFileEditor
+            _multifile_editor = MultiFileEditor(base_dir=_PROJECT_ROOT)
+    return _multifile_editor
+
+
+def _get_bg_tasks():
+    """懒加载后台任务管理器单例（JSON 持久化到 data/）。"""
+    global _bg_tasks
+    if _bg_tasks is not None:
+        return _bg_tasks
+    with _bg_tasks_lock:
+        if _bg_tasks is None:
+            from core.background_tasks import BackgroundTaskManager
+            _bg_tasks = BackgroundTaskManager()
+    return _bg_tasks
+
+
+def _handle_agent(cmd: str) -> str:
+    """Agent 工具链扩展命令族：agent:edit / agent:terminal / agent:task。
+
+    所有子命令返回 JSON 字符串；底层工具真实执行，失败返回真实错误。
+    """
+    import json as _json
+
+    def _ok(**kw):
+        d = {"ok": True}
+        d.update(kw)
+        return _json.dumps(d, ensure_ascii=False)
+
+    def _err(msg):
+        return _json.dumps({"ok": False, "error": str(msg)}, ensure_ascii=False)
+
+    try:
+        # ---- agent:edit ----
+        if cmd.startswith("agent:edit"):
+            rest = cmd[len("agent:edit"):].strip()
+            op, _, payload = rest.partition(" ")
+            payload = payload.strip()
+            editor = _get_multifile_editor()
+            if op == "plan":
+                spec = _json.loads(payload) if payload else {}
+                edits = spec.get("edits") if isinstance(spec, dict) else spec
+                if not isinstance(edits, list):
+                    return _err("plan 需要 {\"edits\":[...]}")
+                return _json.dumps(editor.plan_edits([], edits), ensure_ascii=False)
+            if op == "apply":
+                spec = _json.loads(payload) if payload else {}
+                if not isinstance(spec, dict):
+                    return _err("apply 需要 {\"file_path\":..., \"old_string\":..., \"new_string\":...}")
+                return _json.dumps(editor.apply_edit(
+                    file_path=spec.get("file_path", ""),
+                    old_string=spec.get("old_string", ""),
+                    new_string=spec.get("new_string", "")), ensure_ascii=False)
+            if op == "batch":
+                spec = _json.loads(payload) if payload else {}
+                edits = spec.get("edits") if isinstance(spec, dict) else spec
+                if not isinstance(edits, list):
+                    return _err("batch 需要 {\"edits\":[...]}")
+                return _json.dumps(editor.apply_edits_batch(edits), ensure_ascii=False)
+            if op == "diff":
+                return _json.dumps(editor.get_diff(file_path=payload), ensure_ascii=False)
+            if op == "rollback":
+                return _json.dumps(editor.rollback(file_path=payload), ensure_ascii=False)
+            return _err(f"未知 edit 操作: {op}（plan/apply/batch/diff/rollback）")
+
+        # ---- agent:terminal ----
+        if cmd.startswith("agent:terminal"):
+            rest = cmd[len("agent:terminal"):].strip()
+            op, _, arg = rest.partition(" ")
+            arg = arg.strip()
+            from core import terminal as _term
+            if op == "run":
+                if not arg:
+                    return _err("缺少要执行的命令")
+                out = _term.run_command_with_output(arg, timeout=30)
+                return _json.dumps(out, ensure_ascii=False)
+            if op in ("which", "exists", "check"):
+                return _json.dumps(_term.check_command_exists(arg), ensure_ascii=False)
+            return _err(f"未知 terminal 操作: {op}（run/which）")
+
+        # ---- agent:task ----
+        if cmd.startswith("agent:task"):
+            rest = cmd[len("agent:task"):].strip()
+            op, _, payload = rest.partition(" ")
+            payload = payload.strip()
+            mgr = _get_bg_tasks()
+            if op == "list":
+                return _json.dumps(mgr.list_tasks(), ensure_ascii=False)
+            if op == "status":
+                return _json.dumps(mgr.get_task_status(payload), ensure_ascii=False)
+            if op == "result":
+                spec = _json.loads(payload) if payload else {}
+                if not isinstance(spec, dict):
+                    return _err("result 需要 {\"task_id\":..., \"tail\":...}")
+                return _json.dumps(mgr.get_task_result(
+                    task_id=spec.get("task_id", ""),
+                    tail=int(spec.get("tail", 200))), ensure_ascii=False)
+            if op == "cancel":
+                return _json.dumps(mgr.cancel_task(payload), ensure_ascii=False)
+            if op == "start":
+                spec = _json.loads(payload) if payload else {}
+                if not isinstance(spec, dict):
+                    return _err("start 需要 {\"name\":..., \"command\":...}")
+                name = spec.get("name") or "shell_task"
+                command = spec.get("command") or ""
+                timeout = int(spec.get("timeout", 120))
+                if not command:
+                    return _err("start 缺少 command")
+
+                def _shell_job(cancel_event, output, _cmd=command, _to=timeout):
+                    from core.terminal import run_command_stream
+                    final = {"ok": True}
+                    for chunk in run_command_stream(_cmd, timeout=_to):
+                        if cancel_event.is_set():
+                            output("[取消中] 终止命令流")
+                            return {"ok": False, "cancelled": True}
+                        ctype = chunk.get("type")
+                        if ctype == "line":
+                            output(chunk.get("text", ""))
+                        elif ctype == "error":
+                            output(f"[error] {chunk.get('error')}")
+                        elif ctype == "end":
+                            final = {"ok": chunk.get("code") == 0,
+                                     "code": chunk.get("code"),
+                                     "timed_out": chunk.get("timed_out")}
+                    return final
+
+                return _json.dumps(mgr.start_task(name, _shell_job), ensure_ascii=False)
+            return _err(f"未知 task 操作: {op}（list/status/result/cancel/start）")
+
+        return _err("未知 agent 命令族")
+    except Exception as e:  # noqa: BLE001
+        logger.exception('agent command failed: %s', cmd)
+        return _err(f"agent 命令异常：{type(e).__name__}: {e}")
+
+
 def _handle_sandbox(cmd: str) -> str:
     """沙箱指令路由。返回 JSON 字符串。
 
@@ -1043,6 +1192,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:', 'memory:',
                                'activity:', 'kb:')):
                 return pb.CommandReply(output=_handle_ext_command(cmd))
+            if cmd.startswith('agent:'):
+                return pb.CommandReply(output=_handle_agent(cmd))
             if cmd.startswith('settings:'):
                 # 设置页的可选项 / 写入，统一走这里（返回 JSON 字符串）。
                 # 这样不必为了加性别、可用性等字段去改 proto 并重新生成
