@@ -64,7 +64,13 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
 
   static const _cameraPresets = <String>['正面', '左侧', '右侧', '背面', '俯视'];
 
-  String get _renderBackend => '硬件加速';
+  String get _renderBackend {
+    if (_hasError || _currentPath == null) return '未渲染';
+    if (_viewerReady) return 'WebGL 3D';
+    if (_loading) return '连接中';
+    if (!supports3DViewer || _viewerUrl == null) return '2D';
+    return 'WebGL 3D';
+  }
 
   String get _modelFamily {
     final path = _currentPath;

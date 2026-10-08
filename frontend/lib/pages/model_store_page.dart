@@ -171,7 +171,7 @@ class _ModelStorePageState extends State<ModelStorePage> with TickerProviderStat
 
   Future<void> _uninstallModel(String name) async {
     try {
-      final r = await XlClient.stub.deleteModel(name);
+      final r = await XlClient.stub.deleteModel(pb.ModelNameRequest(name: name));
       final ok = r.ok;
       if (!mounted) return;
       _toast(ok, ok ? '已删除模型：$name' : (r.message.isEmpty ? '删除失败' : r.message));

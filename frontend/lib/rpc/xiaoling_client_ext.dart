@@ -712,7 +712,7 @@ extension XlApiBootstrap on XiaoLingClient {
     final hasActions = await probe(() => actions(opt: opt));
     final hasCommand = await probe(() => command('ping', opt: opt));
     final hasShutdown = true;
-    final hasUpdater = true;
+    final hasUpdater = false;
     final hasChat = hasStatus;
 
     return XlServerCapabilities(
@@ -760,7 +760,7 @@ extension XlApiBootstrap on XiaoLingClient {
       hasVoice: false,
       hasSettings: false,
       hasActions: false,
-      hasUpdater: true,
+      hasUpdater: false,
       hasShutdown: true,
       hasCommand: false,
       reachableCount: reachable,

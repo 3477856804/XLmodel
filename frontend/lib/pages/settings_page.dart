@@ -1046,13 +1046,12 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           await _setOption('model.threads', v);
         }),
         const SizedBox(height: 12),
-        _switchRow(p, '硬件加速', '使用 GPU / NPU 加速推理（仅本地）', Icons.bolt_rounded, 'hardwareAccel', p.green),
         if (hw != null) ...[
           const SizedBox(height: 18),
           _hwInfoPanel(p, hw),
         ],
         const SizedBox(height: 18),
-        _infoPanel(p, '当前模型占用约 $_cacheSize，切换模型会自动重新加载。'),
+        _infoPanel(p, '推理后端与线程数由上方选项控制；切换模型后会自动重新加载。'),
       ],
     );
   }
