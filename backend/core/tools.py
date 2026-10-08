@@ -1213,7 +1213,8 @@ class MultiAgentSystem:
                     out = self.app.chat(sub)
                     reply = out[0] if isinstance(out, (tuple, list)) else out
                 else:
-                    reply = f"任务完成：{sub[:50]}"
+                    # 未接入引擎：明确标注降级，绝不假装已“完成”子任务
+                    reply = f"（未接入对话引擎，降级回执）已接收：{sub[:50]}"
                 with self._lock:
                     if aid in self.agents:
                         self.agents[aid]["status"] = "完成"

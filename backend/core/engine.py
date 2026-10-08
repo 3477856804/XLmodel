@@ -893,12 +893,7 @@ class XiaoLing:
 
     def _route_dance_reply(self) -> str:
         """舞蹈意图的文字回复（仅文字回复，不触发 VRM 跳舞动作）。"""
-        try:
-            if self.voice is not None:
-                pass
-            return "好呀，给你跳一个。"
-        except Exception:
-            return "现在跳不了呢，稍后再试试。"
+        return "好呀，给你跳一个。"
 
     def _route_vision(self, text: str) -> str:
         if self.vision is None:

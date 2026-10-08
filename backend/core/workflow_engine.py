@@ -2,6 +2,8 @@ import json, os, time, logging, threading
 import ast, operator, re
 from typing import List, Dict, Any, Callable
 
+logger = logging.getLogger(__name__)
+
 class WorkflowNode:
     """工作流节点"""
     def __init__(self, node_id, node_type, config=None):
@@ -164,7 +166,9 @@ class WorkflowEngine:
                         node.next_nodes = ndata.get("next", [])
                         wf.add_node(node)
                     self.workflows[name] = wf
-            except: pass
+            except Exception as e:
+                # 加载失败不静默吞掉：记录日志，已成功解析的工作流保留
+                logger.warning("[workflow_engine] 加载工作流索引失败 %s: %s", self.storage_path, e)
 
 
 # ===== 安全的条件表达式求值（禁止 eval() 任意代码执行）=====
