@@ -182,18 +182,16 @@ def main() -> int:
 
     # ---- 体检 ----
     print('\n体检：')
-    # 注意路径：后端是 PyInstaller 的 onedir 产物，它的只读资源全部在
-    # _internal/ 下（sys._MEIPASS 就指向这里），而不是顶层 resources/。
-    # 体检写在顶层就会误报"缺失"，实际后端启动时正是从 _internal 读的。
+    # 注意路径：backend.spec 用 contents_directory='.' 把依赖与资源平铺在包根
+    # （sys._MEIPASS 即包根），所以只读资源就在 resources/ 下，而不是 _internal/。
     must = [
         (EXE_NEW_NAME, '前端主程序'),
         ('backend.exe', '后端主程序'),
         ('flutter_windows.dll', 'Flutter 运行时'),
         ('data/icudtl.dat', 'ICU 数据（Flutter 资源目录）'),
-        ('_internal/resources/web/viewer.html', '3D 查看器页面'),
-        ('_internal/resources/web/vendor/three.module.js', 'three.js'),
-        ('_internal/resources/web/vendor/three-vrm.module.js', 'three-vrm'),
-        ('_internal/resources/web/vendor/addons/loaders/GLTFLoader.js', 'GLTFLoader'),
+        ('resources/web/viewer.html', '3D 查看器页面'),
+        ('resources/web/vendor/three.module.js', 'three.js'),
+        ('resources/web/vendor/three-vrm.module.js', 'three-vrm'),
     ]
     ok = True
     for rel, desc in must:
@@ -203,7 +201,7 @@ def main() -> int:
             ok = False
         print(f'  [{flag}] {desc}：{rel}')
 
-    mdir = OUT / '_internal' / 'resources' / 'models'
+    mdir = OUT / 'resources' / 'models'
     vrms = sorted(mdir.glob('*.vrm')) if mdir.is_dir() else []
     if vrms:
         print(f'  [OK  ] VRM 模型：{len(vrms)} 个 —— ' + '、'.join(v.name for v in vrms))

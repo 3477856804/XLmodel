@@ -1,24 +1,25 @@
 # Windows 打包
 
-## 一键（推荐）
+## 构建后端
 ```bat
 pip install -r requirements.txt
 pip install pyinstaller
-python 打包\build.py --zip
+python -m PyInstaller packaging\backend.spec --noconfirm --distpath packaging\dist1 --workpath packaging\build1
 ```
-产物：`dist\xiaoling\xiaoling.exe`（目录版，推荐）+ `dist\xiaoling-windows-x64.zip`（便携包）
-> 目录版比单文件版启动快得多，且 `.star_core`（记忆/适配器/成长日志）就在旁边，迁移只需搬文件夹。
+
+## 合并前端（推荐）
+```bat
+python packaging\assemble_windows.py --zip
+```
+产物目录：`dist\小凌-Windows-x64\`（主程序 `小凌.exe` + `backend.exe`），并附带同名 zip。
 
 ## 做成安装包（可选）
 1. 安装 [Inno Setup](https://jrsoftware.org/isdl.php)
-2. 先跑上面的打包命令，再执行：
+2. 先完成上面的合并步骤，再执行：
 ```bat
-iscc 打包\windows\xiaoling.iss
+iscc packaging\windows\xiaoling.iss
 ```
-产物：`xiaoling-setup-0.0.2.exe`（带开始菜单/桌面快捷方式、保留用户成长数据）
+产物：`xiaoling-setup-0.0.1.exe`（带开始菜单/桌面快捷方式）。
 
 ## 图标
-仓库自带 `assets\icon.ico`，直接用它（也可换成自己的图标）：
-```bat
-python 打包\build.py --icon assets\icon.ico
-```
+仓库自带 `frontend\assets\icon.ico`。

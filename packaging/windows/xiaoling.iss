@@ -1,10 +1,10 @@
 ; 小凌 XIAOLING · Inno Setup 安装脚本（Windows）
-; 用法：先 python 打包\build.py 产出 dist\xiaoling\，再
-;       iscc 打包\windows\xiaoling.iss
+; 用法：先 python packaging/assemble_windows.py 产出 dist/小凌-Windows-x64/，再
+;       iscc packaging/windows/xiaoling.iss
 #define MyAppName "小凌 XIAOLING"
-#define MyAppVersion "0.0.2"
+#define MyAppVersion "0.0.1"
 #define MyAppPublisher "XIAOLING"
-#define MyAppExeName "xiaoling.exe"
+#define MyAppExeName "小凌.exe"
 
 [Setup]
 AppId={{8E4C1B52-9F31-4E3B-9C5A-XIAOLING0001}
@@ -21,7 +21,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
-SetupIconFile=..\..\assets\icon.ico
+SetupIconFile=..\..\frontend\assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
@@ -31,7 +31,7 @@ Name: "chinese"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"
 
 [Files]
-Source: "..\..\dist\xiaoling\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "..\..\dist\小凌-Windows-x64\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

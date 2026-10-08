@@ -28,7 +28,10 @@ import time
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
-SPEC = PROJECT / '打包' / 'xiaoling.spec'
+# 统一后端打包配置：入口 main.py，产出 onedir（dist/backend/backend[.exe]）。
+# 历史上这里指向一个早已废弃的中文目录「打包/xiaoling.spec」，该目录与旧布局
+# （xl.py + 顶层 core/ + 技能/数据/脚本/）都已不存在，会让打包直接找不到 spec。
+SPEC = PROJECT / 'packaging' / 'backend.spec'
 DIST = PROJECT / 'dist'
 WORK = PROJECT / 'build' / 'pyinstaller'
 
@@ -118,18 +121,19 @@ def run_pyinstaller(lite: bool, onefile: bool, clean: bool, icon: str | None) ->
     if proc.returncode != 0:
         raise SystemExit(f'PyInstaller 失败（退出码 {proc.returncode}）')
     log(f'PyInstaller 完成，用时 {time.time() - t0:.0f}s')
-    if platform.system() == 'Darwin' and (DIST / '小凌.app').exists():
-        return DIST / '小凌.app'
-    exe_name = 'xiaoling.exe' if platform.system() == 'Windows' else 'xiaoling'
-    for cand in (DIST / 'xiaoling' / exe_name, DIST / exe_name):
+    # backend.spec 产出 onedir：dist/backend/backend[.exe]
+    if platform.system() == 'Darwin' and (DIST / 'backend.app').exists():
+        return DIST / 'backend.app'
+    exe_name = 'backend.exe' if platform.system() == 'Windows' else 'backend'
+    for cand in (DIST / 'backend' / exe_name, DIST / exe_name):
         if cand.exists():
             return cand
-    return DIST / 'xiaoling'
+    return DIST / 'backend'
 
 
 def bundle_root(app: Path) -> Path:
-    """返回"整个程序包"的根：目录版是 dist/xiaoling/，单文件版是那个可执行文件本身。"""
-    if app.is_file() and app.parent.name == 'xiaoling' and any(app.parent.iterdir()):
+    """返回"整个程序包"的根：目录版是 dist/backend/，单文件版是那个可执行文件本身。"""
+    if app.is_file() and app.parent.name in ('xiaoling', 'backend') and any(app.parent.iterdir()):
         return app.parent
     return app
 
@@ -200,7 +204,7 @@ def make_deb(app: Path) -> Path | None:
         shutil.copy(desktop, root / 'usr/share/applications/xiaoling.desktop')
     (root / 'usr/bin').mkdir(parents=True, exist_ok=True)
     launcher = root / 'usr/bin/xiaoling'
-    launcher.write_text(f'#!/bin/sh\nexec /opt/{app.name}/xiaoling "$@"\n', encoding='utf-8')
+    launcher.write_text(f'#!/bin/sh\nexec /opt/{app.name}/{app.name} "$@"\n', encoding='utf-8')
     launcher.chmod(0o755)
     out = DIST / f'xiaoling_0.0.1_{arch}.deb'
     subprocess.run(['dpkg-deb', '--build', str(root), str(out)], check=True)

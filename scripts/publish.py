@@ -8,11 +8,10 @@ Token 只从环境变量读，绝不写进仓库：
     export CF_ACCOUNT_ID=xxx        # Cloudflare Account ID
 
 用法：
-    python3 工具/publish.py all                    # 全流程
-    python3 工具/publish.py gitee [-m "提交说明"]   # 只同步源码到 Gitee
-    python3 工具/publish.py release [--tag v0.0.1] # 只建 Release 并上传 APK
-    python3 工具/publish.py site                   # 只生成官网
-    python3 工具/publish.py pages [--project xiaoling]  # 只部署官网
+    python3 scripts/publish.py all                    # 全流程
+    python3 scripts/publish.py gitee [-m "提交说明"]   # 只同步源码到 Gitee
+    python3 scripts/publish.py release [--tag v0.0.1] # 只建 Release 并上传 APK
+    python3 scripts/publish.py pages [--project xiaoling]  # 只部署官网
 """
 from __future__ import annotations
 
@@ -189,6 +188,12 @@ def gitee_release(tag: str, apk: Path, title: str, body: str) -> dict:
 
 # --------------------------------------------------------------------------- 官网
 def build_site(downloads: dict | None = None) -> Path:
+    # 当前官网是手写的 website/index.html，没有构建步骤；保留该命令入口，
+    # 待日后接入模板化构建（website/build.py）后再启用。
+    build_py = ROOT / 'website' / 'build.py'
+    if not build_py.exists():
+        raise SystemExit('官网为手写 website/index.html，无需构建；'
+                         '如需部署直接用 pages 命令上传 website/ 目录。')
     sys.path.insert(0, str(ROOT / 'website'))
     import importlib
     mod = importlib.import_module('build')

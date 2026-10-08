@@ -1,68 +1,53 @@
 #!/usr/bin/env bash
-# 小凌 Linux AppImage 打包脚本
-set -e
+# 小凌 Linux AppImage 本地构建脚本
+#
+# 说明：官方发布的 XiaoLing-x86_64.AppImage 由 .github/workflows/build-all.yml
+# 在 Ubuntu 上矩阵产出。本脚本是**本地复现**用的等价流程，逻辑与 CI 对齐：
+#   Flutter Linux 前端 + PyInstaller(onefile, main.py) 后端 → 合并 → linuxdeploy 打包。
+# 在仓库根目录运行： bash packaging/linux/build_appimage.sh
+set -euo pipefail
 
-VERSION="0.0.4"
+VERSION="0.0.1"
 APP_NAME="XiaoLing"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+cd "$ROOT"
 
 echo "=== 打包小凌 Linux AppImage v${VERSION} ==="
 
-# 1. 构建 Flutter
-echo "[1/5] 构建 Flutter Linux 应用..."
-cd ../frontend
-flutter build linux --release
-cd ../../packaging/linux
+# 1. 构建 Flutter Linux 前端
+echo "[1/4] 构建 Flutter Linux 应用..."
+(cd frontend && flutter pub get && flutter build linux --release)
+BUNDLE="$ROOT/frontend/build/linux/x64/release/bundle"
 
-# 2. 构建 Python 后端
-echo "[2/5] 构建 Python 后端..."
-cd ../../
-pyinstaller --onefile --name xiaoling_backend \
-    --add-data "resources:resources" \
-    backend/rpc/server.py
+# 2. 构建 Python 后端（onefile，入口 main.py；与 CI 一致）
+echo "[2/4] 构建 Python 后端..."
+pyinstaller --onefile --name backend --clean main.py
 
-# 3. 创建 AppDir 结构
-echo "[3/5] 创建 AppDir..."
-APPDIR="AppDir"
+# 3. 组装 AppDir（AppRun 约定主程序在 usr/bin/xiaoling/xiaoling）
+echo "[3/4] 组装 AppDir..."
+APPDIR="$ROOT/build/AppDir"
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/bin"
-mkdir -p "$APPDIR/usr/share/applications"
-mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+APPDIR_BIN="$APPDIR/usr/bin/xiaoling"
+mkdir -p "$APPDIR_BIN"
+cp -r "$BUNDLE/"* "$APPDIR_BIN/"
+cp "$ROOT/dist/backend" "$APPDIR_BIN/backend"
+chmod +x "$APPDIR_BIN/backend"
 
-# 复制文件
-cp dist/xiaoling_backend "$APPDIR/usr/bin/"
-cp -r resources "$APPDIR/usr/bin/"
-
-# 桌面文件
-cat > "$APPDIR/usr/share/applications/xiaoling.desktop" << EOF
-[Desktop Entry]
-Name=XiaoLing
-Comment=你的专属AI伙伴
-Exec=xiaoling
-Icon=xiaoling
-Type=Application
-Categories=Utility;AI;
-EOF
-
-# AppRun
-cat > "$APPDIR/AppRun" << EOF
-#!/bin/bash
-SELF=\$(readlink -f "\$0")
-HERE=\${SELF%/*}
-export PATH="\$HERE/usr/bin:\$PATH"
-exec "\$HERE/usr/bin/xiaoling" "\$@"
-EOF
-chmod +x "$APPDIR/AppRun"
-
-# 4. 打包 AppImage
-echo "[4/5] 打包 AppImage..."
-if [ -f linuxdeploy-x86_64.AppImage ]; then
-    ./linuxdeploy-x86_64.AppImage --appdir "$APPDIR" --output appimage
-else
-    echo "请先下载 linuxdeploy: https://github.com/linuxdeploy/linuxdeploy/releases"
+cp "$HERE/xiaoling.desktop" "$APPDIR/xiaoling.desktop" 2>/dev/null || true
+if [ -f "$HERE/AppRun" ]; then
+  cp "$HERE/AppRun" "$APPDIR/AppRun" && chmod +x "$APPDIR/AppRun"
 fi
 
-# 5. 重命名
-echo "[5/5] 重命名..."
-mv XiaoLing-"$VERSION"-x86_64.AppImage "XiaoLing-${VERSION}.AppImage" 2>/dev/null || true
-
-echo "=== 打包完成: XiaoLing-${VERSION}.AppImage ==="
+# 4. 用 linuxdeploy 打包（未装则提示下载）
+echo "[4/4] 打包 AppImage..."
+if [ -f "$ROOT/linuxdeploy-x86_64.AppImage" ]; then
+  (cd "$ROOT" && ./linuxdeploy-x86_64.AppImage --appdir "$APPDIR" --output appimage)
+  OUT="$ROOT/$APP_NAME-x86_64.AppImage"
+  [ -f "$ROOT/${APP_NAME}-x86_64.AppImage" ] && mv "$ROOT/${APP_NAME}-x86_64.AppImage" "$OUT" 2>/dev/null || true
+  echo "完成：$OUT"
+else
+  echo "未找到 linuxdeploy-x86_64.AppImage，跳过打包。"
+  echo "下载：https://github.com/linuxdeploy/linuxdeploy/releases 放到仓库根目录后重跑。"
+  echo "已就绪的 AppDir：$APPDIR"
+fi
