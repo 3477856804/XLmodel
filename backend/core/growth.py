@@ -1321,7 +1321,8 @@ class LoRATrainer:
                 f.write(b"\0" * add)
         except OSError as e:
             return {"ok": False, "reason": f"模拟权重写入失败：{e}",
-                    "simulated": True, "avg_loss": 1.18, "loss_simulated": True}
+                    "simulated": True, "mode": "simulated",
+                    "avg_loss": 1.18, "loss_simulated": True}
         cfg = sim_dir / "adapter_config.json"
         try:
             cfg.write_text(json.dumps(
@@ -1330,9 +1331,10 @@ class LoRATrainer:
                 ensure_ascii=False), encoding="utf-8")
         except OSError as e:
             return {"ok": False, "reason": f"模拟配置写入失败：{e}",
-                    "simulated": True, "avg_loss": 1.18, "loss_simulated": True}
-        return {"ok": True, "simulated": True, "avg_loss": 1.18,
-                "loss_simulated": True, "adapter_dir": str(sim_dir),
+                    "simulated": True, "mode": "simulated",
+                    "avg_loss": 1.18, "loss_simulated": True}
+        return {"ok": True, "simulated": True, "mode": "simulated",
+                "avg_loss": 1.18, "loss_simulated": True, "adapter_dir": str(sim_dir),
                 "summary": f"演练（模拟值，不可用于推理）：+{human_bytes(add)}"}
 
 

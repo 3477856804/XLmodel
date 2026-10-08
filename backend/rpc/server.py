@@ -216,6 +216,93 @@ def _handle_sandbox(cmd: str) -> str:
         return _err(f'{type(e).__name__}: {e}')
 
 
+def _scan_plugin_market(pmgr) -> list:
+    """扫描磁盘上真实存在的插件目录（含 builtin/ 与用户安装）。
+
+    扫描运行时插件目录（用户安装 + builtin/ 子目录）以及仓库内随包发布的
+    plugins/builtin/ 示例。只读取 plugin.json/manifest.json，不伪造下载量、
+    评分等任何不存在的字段。目录为空或不存在时返回空列表。
+    """
+    import json as _json
+    from pathlib import Path
+
+    roots = []
+    try:
+        roots.append(Path(pmgr.plugins_dir))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from core.config import APP_DIR
+        shipped = Path(APP_DIR) / 'plugins'
+        if shipped.is_dir() and shipped.resolve() not in {r.resolve() for r in roots}:
+            roots.append(shipped)
+    except Exception:  # noqa: BLE001
+        pass
+
+    def _read_state(root: Path) -> dict:
+        try:
+            sf = root / 'state.json'
+            if sf.is_file():
+                data = _json.loads(sf.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and isinstance(data.get('enabled'), dict):
+                    return data['enabled']
+        except Exception as e:  # noqa: BLE001
+            logger.warning('插件市场读取状态失败 %s: %s', sf, e)
+        return {}
+
+    def _scan_root(root: Path, seen: set, out: list):
+        if not root.is_dir():
+            return
+        state = _read_state(root)
+        candidates = []
+        try:
+            for d in sorted(root.iterdir()):
+                if d.is_dir() and not d.name.startswith('.') and d.name != 'builtin':
+                    candidates.append((d, False))
+        except OSError as e:
+            logger.warning('插件市场遍历目录失败 %s: %s', root, e)
+        builtin_root = root / 'builtin'
+        if builtin_root.is_dir():
+            try:
+                for d in sorted(builtin_root.iterdir()):
+                    if d.is_dir() and not d.name.startswith('.'):
+                        candidates.append((d, True))
+            except OSError as e:
+                logger.warning('插件市场遍历内置目录失败 %s: %s', builtin_root, e)
+        for d, is_builtin in candidates:
+            manifest = None
+            for fname in ('plugin.json', 'manifest.json'):
+                f = d / fname
+                if f.is_file():
+                    try:
+                        manifest = _json.loads(f.read_text(encoding='utf-8'))
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning('插件市场清单解析失败 %s: %s', f, e)
+                    break
+            if not isinstance(manifest, dict):
+                continue
+            name = str(manifest.get('name') or d.name).strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            out.append({
+                'name': name,
+                'version': str(manifest.get('version') or ''),
+                'description': str(manifest.get('description') or ''),
+                'author': str(manifest.get('author') or ''),
+                'category': str(manifest.get('category') or ''),
+                'enabled': bool(state.get(name, manifest.get('enabled', False))),
+                'builtin': bool(is_builtin),
+                'path': str(d),
+            })
+
+    out = []
+    seen = set()
+    for root in roots:
+        _scan_root(root, seen, out)
+    return out
+
+
 def _handle_ext_command(cmd: str) -> str:
     """轻量扩展命令路由：插件 / 工作流 / 安全 / MCP。返回 JSON 字符串。"""
     import json as _json
@@ -237,6 +324,8 @@ def _handle_ext_command(cmd: str) -> str:
             pmgr = PluginManager()
             if op == "list":
                 return _ok(plugins=pmgr.list_plugins())
+            if op == "market":
+                return _ok(plugins=_scan_plugin_market(pmgr))
             if op == "enable":
                 return _ok(message=f"已启用 {arg}") if pmgr.enable(arg) else _err(f"未找到插件 {arg}")
             if op == "disable":
@@ -929,45 +1018,45 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                                 status='准备训练...', started_at=time.time())
             eng = _get_engine()
             if eng is None:
-                # 引擎不可用时仍跑通模拟训练（数据集 + loss 曲线 + 历史）
-                import math
-                _XL.ensure_training_dataset()
-                samples = _XL.load_training_dataset(ds_name)
-                yield pb.TrainingProgress(step=0, total_steps=steps,
-                    status=f'准备训练... 数据集 {len(samples)} 条 · lr={lr:.1e} · rank={rank}')
-                curve = []
-                for step in range(1, steps + 1):
-                    base = 0.3 + (2.0 - 0.3) * math.exp(-3.0 * step / steps)
-                    loss = round(max(0.15, base + __import__('random').gauss(0, 0.05)), 4)
-                    curve.append(loss)
-                    _train_state_update(active=True, step=step, total_steps=steps,
-                                        loss=loss, status=f'训练中 {step}/{steps} loss={loss:.3f}')
-                    yield pb.TrainingProgress(step=step, total_steps=steps, loss=loss,
-                        status=f'训练中 {step}/{steps} loss={loss:.3f}')
-                    time.sleep(0.05)
-                _XL.append_training_history({
-                    "timestamp": int(time.time()), "steps": steps,
-                    "final_loss": curve[-1], "loss_curve": curve,
-                    "learning_rate": lr, "batch_size": bs, "lora_rank": rank,
-                    "dataset": ds_name or "training_data.jsonl", "real": False})
-                _train_state_update(active=False, step=steps, total_steps=steps,
-                                    loss=curve[-1], final_loss=curve[-1], real=False,
-                                    status=f'done: 训练完成 {steps} 步，最终 loss={curve[-1]:.3f}')
-                yield pb.TrainingProgress(step=steps, total_steps=steps, loss=curve[-1],
-                    status=f'done: 训练完成 {steps} 步，最终 loss={curve[-1]:.3f}')
+                # 引擎不可用：绝不伪造 loss 曲线，直接返回错误事件并结束流
+                err_msg = '成长引擎未加载，请先在模型商店下载并加载模型后再训练'
+                _train_state_update(active=False, step=0, total_steps=steps,
+                                    loss=0.0, final_loss=0.0, real=False,
+                                    status=f'error: {err_msg}')
+                yield pb.TrainingProgress(step=0, total_steps=0, loss=0.0,
+                    status=f'error: {err_msg}')
                 return
 
+            is_simulated = False
             for info in eng.train_stream(steps=steps, learning_rate=lr,
                                          batch_size=bs, lora_rank=rank,
                                          dataset_name=ds_name):
+                # 处理引擎层返回的 error 事件（无模型 / torch 不可用）
+                if info.get("type") == "error":
+                    err_msg = str(info.get("message", "训练失败"))
+                    _train_state_update(active=False, step=0, total_steps=steps,
+                                        loss=0.0, final_loss=0.0, real=False,
+                                        status=f'error: {err_msg}')
+                    yield pb.TrainingProgress(step=0, total_steps=0, loss=0.0,
+                        status=f'error: {err_msg}')
+                    return
+
                 s = int(info.get("step", 0))
                 t = int(info.get("total_steps", steps))
                 l = float(info.get("loss", 0.0))
+                raw_status = str(info.get("status", ""))
+
+                # 检测演练模式：train_stream 返回 mode=simulated 时标注
+                mode = str(info.get("mode", ""))
+                if mode == "simulated":
+                    is_simulated = True
+                    raw_status = f'[演练] {raw_status}'
+
                 _train_state_update(active=(s < t), step=s, total_steps=t, loss=l,
-                                    real=True, status=str(info.get("status", "")))
+                                    real=not is_simulated, status=raw_status)
                 yield pb.TrainingProgress(
                     step=s, total_steps=t, loss=l,
-                    status=str(info.get("status", "")))
+                    status=raw_status)
         except Exception as e:
             logger.exception('StartTraining failed')
             _train_state_update(active=False, status=f'failed: {e}')

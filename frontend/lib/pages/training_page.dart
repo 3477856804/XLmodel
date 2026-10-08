@@ -34,9 +34,11 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
   final _stepsCtrl = TextEditingController(text: '100');
   bool _trainingActive = false;
   bool _stopRequested = false;
+  bool _isSimulated = false;
   int _rtStep = 0;
   int _rtTotalSteps = 0;
   double _rtLoss = 0.0;
+  String? _trainError;
   List<pb.TrainingHistoryEntry> _history = [];
   final List<_SavedPreset> _savedPresets = [];
   final TextEditingController _presetNameCtrl = TextEditingController();
@@ -471,8 +473,16 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
           ),
           if (_trainingActive) ...[
             const SizedBox(height: 16),
-            _rtProgress(p),
-            _liveLossPanel(p),
+            if (_trainError != null)
+              _trainErrorCard(p)
+            else ...[
+              if (_isSimulated) ...[
+                _simBadge(p),
+                const SizedBox(height: 10),
+              ],
+              _rtProgress(p),
+              _liveLossPanel(p),
+            ],
           ],
         ],
       ),
@@ -545,6 +555,63 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
                   letterSpacing: XlLetterSpacing.wider,
                 )),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _simBadge(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: p.gold.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(XlRadius.sm),
+        border: Border.all(color: p.gold.withOpacity(0.5), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.science_rounded, size: 14, color: p.gold),
+          const SizedBox(width: 6),
+          Text('演练模式（不产生真实权重）',
+              style: TextStyle(
+                fontSize: XlFont.captionSm,
+                color: p.gold,
+                fontWeight: FontWeight.w800,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _trainErrorCard(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.screen(context, r: XlRadius.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.error_outline_rounded, size: 18, color: p.pink),
+              const SizedBox(width: 8),
+              Text('训练无法启动',
+                  style: TextStyle(
+                    fontSize: XlFont.h6,
+                    color: p.pink,
+                    fontWeight: FontWeight.w800,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(_trainError ?? '',
+              style: TextStyle(
+                fontSize: XlFont.label,
+                color: p.text2,
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              )),
         ],
       ),
     );
@@ -672,6 +739,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       _rtStep = 0;
       _rtTotalSteps = steps;
       _rtLoss = 0.0;
+      _isSimulated = false;
+      _trainError = null;
       _logs.add(_LogLine('[start] 初始化 LoRA 适配器 · lr=$lr bs=$bs r=$rank steps=$steps', _LogLevel.warn));
       _logs.add(_LogLine('[preset] ${_presets[_selectedPreset].desc}', _LogLevel.dim));
     });
@@ -687,6 +756,19 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       final stream = XlClient.stub.startTraining(req);
       await for (final p in stream) {
         if (!mounted || _stopRequested) break;
+        final status = p.status;
+        if (status.startsWith('error:')) {
+          final msg = status.substring(6).trim();
+          setState(() {
+            _trainError = msg;
+            _logs.add(_LogLine('[error] $msg', _LogLevel.error));
+          });
+          _scrollLogBottom();
+          break;
+        }
+        if (status.startsWith('[演练]')) {
+          setState(() => _isSimulated = true);
+        }
         setState(() {
           _rtStep = p.step;
           _rtTotalSteps = p.totalSteps <= 0 ? steps : p.totalSteps;
@@ -706,7 +788,9 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
       if (mounted) {
         setState(() {
           _trainingActive = false;
-          _logs.add(_LogLine('[done] 训练流程结束', _LogLevel.ok));
+          if (_trainError == null) {
+            _logs.add(_LogLine('[done] 训练流程结束', _LogLevel.ok));
+          }
         });
         _scrollLogBottom();
         _load();
@@ -1918,6 +2002,8 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
     final ms = ts > 1000000000000 ? ts : ts * 1000;
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
     final curve = e.lossCurve.toList();
+    final isSim = curve.length >= 2 &&
+        curve.every((v) => (v - curve.first).abs() < 0.01);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: AppTheme.sunkenSm(context, r: XlRadius.md),
@@ -1929,13 +2015,33 @@ class _TrainingPageState extends State<TrainingPage> with TickerProviderStateMix
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
-                    style: TextStyle(
-                      fontSize: XlFont.captionSm,
-                      color: p.text1,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: XlLetterSpacing.wider,
-                    )),
+                Row(
+                  children: [
+                    Text('${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
+                        style: TextStyle(
+                          fontSize: XlFont.captionSm,
+                          color: p.text1,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: XlLetterSpacing.wider,
+                        )),
+                    if (isSim) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: p.gold.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text('演练',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: p.gold,
+                              fontWeight: FontWeight.w800,
+                            )),
+                      ),
+                    ],
+                  ],
+                ),
                 const SizedBox(height: 4),
                 Text('步数 ${e.steps} · 最终 Loss ${e.finalLoss.toStringAsFixed(3)}',
                     style: TextStyle(
