@@ -1,5 +1,23 @@
 # 打包说明（三平台）
 
+> ## ⚠️ 本文件大部分内容已过期，请先读这一节
+>
+> 下面正文描述的是**旧架构**：Python 单语言 + PySide6 窗口，入口 `xl.py`，
+> 目录是 `打包/`、`core/`、`models/`、`animations/` 平铺在根。这些都**已经不存在**了。
+>
+> **当前架构（以此为准）**：Flutter 桌面前端 + Python gRPC 后端，入口在根目录 `main.py`，
+> 后端代码在 `backend/`。因此：
+> - `packaging/build.py`、`packaging/xiaoling.spec` 均已失效（它们仍指向 `xl.py` 等旧路径，
+>   直接运行会报找不到文件）。**保留仅为历史参考，请勿使用。**
+> - Windows 打包请走新脚本，见 **`docs/PACKAGING.md`**：
+>   1. `flutter build windows --release`
+>   2. `python -m PyInstaller packaging/backend.spec ...`
+>   3. `python packaging/assemble_windows.py --zip`
+>
+> 正文以下内容（旧三平台矩阵、精简版、目录结构）仅作历史留档。
+
+---
+
 > 小凌的唯一语言是 Python，所以打包只需要 PyInstaller，**不需要 Node/Electron**。
 
 ## 一、先看环境体检

@@ -46,6 +46,15 @@ frontend/android/native/.gradle/
 frontend/android/native/app/build/
 .flutter-plugins-dependencies
 
+# ---- 打包中间产物（PyInstaller）----
+# 注意：本工作区对批量删除有安全拦截，PyInstaller 重建时清不掉旧的 dist 目录，
+# 所以实际会按 dist、dist2、dist3… 递增出多个输出目录。这里用通配一并排除，
+# 同时 packaging/assemble_windows.py 会自动挑其中 backend.exe 最新的那个来合并。
+packaging/dist*/
+packaging/build*/
+packaging/dist/
+packaging/build/
+
 # ---- 发布产物（Release 由 CI 构建，源码仓库不放二进制）----
 *.apk
 *.aab

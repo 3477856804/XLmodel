@@ -11,6 +11,36 @@ import os
 import sys
 
 os.environ.setdefault('XIAOLING_FROZEN', '1')
+
+# ---- 把可写数据隔离到 runtime/ 子目录（仅打包态生效）----
+#
+# 冲突背景：backend/core/config.py 里
+#     app_dir()      = sys.executable 所在目录（未设 XIAOLING_HOME 时）
+#     DATA_DIR       = app_dir() / "data"
+#     STAR_DIR       = app_dir() / ".star_core"
+# 而 Flutter Windows 的 Release 产物里**也有一个 data/ 目录**
+# （放着 app.so、icudtl.dat、flutter_assets）。打包时两个产物要合并到同一目录，
+# 于是后端的聊天记录/记忆就会直接写进 Flutter 的资源目录里 —— 两者混在一起，
+# 既脏，又让"清理数据"这类操作随时可能误伤前端资源，导致应用打不开。
+#
+# 解法：打包态下把 XIAOLING_HOME 指到 exe 同级的 runtime/，
+# 于是 data/ 与 .star_core/ 全部落进 runtime/，与 Flutter 的 data/ 彻底分开。
+# 顺带把打包进去的插件从只读资源区搬到这个可写目录，插件开箱即用。
+if getattr(sys, 'frozen', False) and not os.environ.get('XIAOLING_HOME'):
+    try:
+        import shutil
+        _exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        _home = os.path.join(_exe_dir, 'runtime')
+        os.makedirs(_home, exist_ok=True)
+        os.environ['XIAOLING_HOME'] = _home
+        _mei = getattr(sys, '_MEIPASS', '') or ''
+        _src = os.path.join(_mei, '.star_core', 'plugins')
+        _dst = os.path.join(_home, '.star_core', 'plugins')
+        if _src and os.path.isdir(_src) and not os.path.isdir(_dst):
+            os.makedirs(os.path.dirname(_dst), exist_ok=True)
+            shutil.copytree(_src, _dst)
+    except Exception:
+        pass        # 兜底：隔离失败也无非是退回旧行为，不能挡住启动
 if os.environ.get('XIAOLING_LITE') == '1':        # 精简版没有 PyOpenGL → 直接用软件光栅
     os.environ.setdefault('XIAOLING_RENDER_BACKEND', 'soft')
 # 软件渲染（无 GPU）时自动缩小画布与面数，保证还有可用帧率；用户可自行覆盖
