@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../theme/theme.dart';
 import '../theme/theme_controller.dart';
+import '../theme/locale_controller.dart';
+import '../l10n/app_localizations.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
@@ -66,7 +69,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   String _inferBackend = 'auto';
   String _threads = 'auto';
   String _theme = 'dark';
-  String _language = 'zh-CN';
+  String _language = 'system';
   String _cacheSize = '计算中…';
 
   final Map<String, bool> _channels = {
@@ -122,6 +125,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _pulseCtrl = AnimationController(duration: const Duration(seconds: 4), vsync: this)..repeat();
     _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
     _enterCtrl.forward();
+    _language = XlLocaleController.instance.mode;
     _restoreLocal();
     _loadSettings();
     _loadOptions();
@@ -179,8 +183,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _Opt('system', '跟随系统'), _Opt('dark', '始终深色'), _Opt('light', '始终浅色'),
   ];
   static const _fallbackLangs = <_Opt>[
-    _Opt('zh-CN', '简体中文'), _Opt('zh-TW', '繁體中文', enabled: false),
-    _Opt('en-US', 'English', enabled: false), _Opt('ja-JP', '日本語', enabled: false),
+    _Opt('system', '跟随系统'), _Opt('zh', '简体中文'), _Opt('en', 'English'),
   ];
   static const _fallbackPersonas = <_Opt>[
     _Opt('活泼', '活泼'), _Opt('温柔', '温柔'), _Opt('高冷', '高冷'),
@@ -1392,29 +1395,26 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _interfaceSection(XlPalette p) {
+    final l = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(p, '界面设置', '主题、语言与启动行为', p.green),
-        _selectRow(p, '主题模式', '深色为默认，浅色更明亮', Icons.brightness_6_rounded,
+        _sectionHeader(p, l.interfaceSettings, l.interfaceSettingsSub, p.green),
+        _selectRow(p, l.themeMode, l.themeModeSub, Icons.brightness_6_rounded,
             _optThemes, _theme, p.green, (v) async {
           setState(() => _theme = v);
           await XlThemeController.instance.set(v,
               pushToBackend: (val) async => await _setOption('ui.theme', val, quiet: true));
           if (!mounted) return;
-          _showSnack('主题已切换');
+          _showSnack(l.themeSaved);
         }),
         const SizedBox(height: 12),
-        _selectRow(p, '界面语言', '目前仅简体中文为完整支持', Icons.language_rounded,
+        _selectRow(p, l.language, l.languageSub, Icons.language_rounded,
             _optLangs, _language, p.gold, (v) async {
-          final opt = _optLangs.firstWhere((o) => o.value == v,
-              orElse: () => _Opt(v, v));
-          if (!opt.enabled) {
-            _showSnack('「${opt.label}」尚未完成翻译，当前仍是简体中文');
-            return;
-          }
           setState(() => _language = v);
-          await _setOption('ui.language', v);
+          await XlLocaleController.instance.set(v);
+          if (!mounted) return;
+          _showSnack(l.langSaved);
         }),
         const SizedBox(height: 12),
         _switchRow(p, '启动动画', '启动时显示小凌的欢迎画面（仅本地）', Icons.movie_filter_rounded, 'splash', p.violet),
@@ -2427,6 +2427,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
 
   void _onToggleChanged(String key, bool oldValue) {
     final newValue = !oldValue;
+    HapticFeedback.lightImpact();
     setState(() => _toggles[key] = newValue);
     _history.add(_SettingChange(key, oldValue));
     _logChange(key, newValue);

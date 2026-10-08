@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -117,6 +118,10 @@ void main() {
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarIconBrightness: Brightness.light,
     ));
     try {
       await _startBackend();
@@ -434,13 +439,18 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   ];
   static const _iconColors = ['pink', 'gold', 'violet', 'green', 'pink'];
 
+  static bool get _isMobileOs =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
   @override
   void initState() {
     super.initState();
     _glowCtrl = AnimationController(
       duration: const Duration(seconds: 20),
       vsync: this,
-    )..repeat(reverse: true);
+    );
+    if (!_isMobileOs) _glowCtrl.repeat(reverse: true);
     _sidebarCtrl = AnimationController(
       duration: XlDuration.slow,
       vsync: this,

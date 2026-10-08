@@ -1370,6 +1370,56 @@ class XiaoLing:
         base["detail"] = extra
         return base
 
+    def memory_report(self) -> dict:
+        """内存使用监控：进程 RSS、各缓存规模。任何异常都降级为安全值。"""
+        try:
+            import psutil
+            proc = psutil.Process()
+            rss_mb = round(proc.memory_info().rss / 1024 / 1024, 1)
+        except Exception:
+            rss_mb = -1.0
+        try:
+            cache = self._reply_cache.stats()
+        except Exception:
+            cache = {}
+        try:
+            conv_len = len(self.conversation)
+        except Exception:
+            conv_len = 0
+        return {
+            "process_rss_mb": rss_mb,
+            "conversation_turns": conv_len,
+            "reply_cache": cache,
+            "model_call_ms_last": self._last_model_ms,
+        }
+
+    def auto_trim(self) -> dict:
+        """自动清理：淘汰过期回复缓存、裁剪超长对话上下文。
+
+        只读不改业务数据：缓存过期条目本就该清，对话裁剪保留最近窗口，
+        与 _post_chat 里既有的 200->120 裁剪同一语义。返回本次清理量。
+        """
+        out = {"cache_before": 0, "cache_after": 0, "conv_trimmed": 0}
+        try:
+            # 回复缓存按 TTL 惰性淘汰：遍历一遍触发过期清理
+            with self._reply_cache._lock:
+                out["cache_before"] = len(self._reply_cache._store)
+                now = time.time()
+                stale = [k for k, (_, ts) in self._reply_cache._store.items()
+                         if now - ts > self._reply_cache._ttl]
+                for k in stale:
+                    self._reply_cache._store.pop(k, None)
+                out["cache_after"] = len(self._reply_cache._store)
+        except Exception:
+            pass
+        try:
+            if len(self.conversation) > 200:
+                self.conversation = self.conversation[-120:]
+                out["conv_trimmed"] = 1
+        except Exception:
+            pass
+        return out
+
     def clear_context(self) -> str:
         """清空当前对话上下文与压缩摘要。"""
         self.conversation.clear()
@@ -1497,6 +1547,11 @@ class XiaoLing:
                 self.plugins.tick()
             except Exception:
                 pass
+        # 周期性自动清理过期缓存/超长上下文（轻量，失败静默）。
+        try:
+            self.auto_trim()
+        except Exception:
+            pass
         due = self.drain_reminders()
         if due:
             self.bus.emit("reminders:due", due)
@@ -1648,6 +1703,18 @@ class XiaoLing:
         if self._closed:
             return
         self._closed = True
+        # 关闭前把去抖未落盘的数据强制写出（活动日志 + 长期记忆），
+        # 避免优雅关闭丢失最近 2s 的记录。
+        try:
+            if self.memory_hub is not None:
+                self.memory_hub.flush()
+        except Exception:
+            pass
+        try:
+            from .activity_log import get_activity_log
+            get_activity_log().flush()
+        except Exception:
+            pass
         for comp in (self.growth, self.memory_hub, self.plugins,
                      self.scheduler, self.voice, self.vision):
             if comp is not None and hasattr(comp, "close"):

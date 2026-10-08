@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -517,6 +518,23 @@ class _ModelShowcaseState extends State<ModelShowcase> with TickerProviderStateM
   Widget _modelViewer() {
     final url = _viewerUrl;
     if (url == null) return const SizedBox.shrink();
+    if (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      return SizedBox(
+        width: widget.width,
+        height: widget.width,
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFF6FA5), Color(0xFFE8C46A)],
+            ),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: const Icon(Icons.face_retouching_natural_rounded,
+              size: 64, color: Colors.white),
+        ),
+      );
+    }
     return SizedBox(
       width: widget.width,
       height: widget.width,

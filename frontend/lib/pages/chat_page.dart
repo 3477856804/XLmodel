@@ -10,6 +10,7 @@ import '../rpc/client.dart';
 import '../rpc/xiaoling_client_ext.dart';
 import '../rpc/xiaoling_ext.dart';
 import '../services/local_store.dart';
+import '../l10n/app_localizations.dart';
 import '../widgets/model_showcase.dart';
 import 'agent_page.dart';
 
@@ -162,6 +163,9 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
 
   void _onFocusChange() {
     if (mounted) setState(() => _inputFocused = _inputFocus.hasFocus);
+    if (_inputFocus.hasFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollBottom());
+    }
   }
 
   @override
@@ -858,7 +862,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
             _header(p),
             if (_searchOpen) _searchBar(p),
             _statsRow(p),
-            Expanded(child: _list(p)),
+            Expanded(child: RepaintBoundary(child: _refreshableList(p))),
             _inputBar(p),
           ],
         ),
@@ -1159,6 +1163,28 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _refreshableList(XlPalette p) {
+    return RefreshIndicator(
+      color: p.pink,
+      backgroundColor: p.surfaceHi,
+      onRefresh: _pullRefresh,
+      child: _list(p),
+    );
+  }
+
+  Future<void> _pullRefresh() async {
+    HapticFeedback.mediumImpact();
+    try {
+      await _loadHistory();
+    } catch (_) {}
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(milliseconds: 900),
+      content: Text(AppLocalizations.of(context).refreshHistory),
+    ));
+  }
+
   Widget _list(XlPalette p) {
     final isMobile = MediaQuery.of(context).size.width < 600;
     final hPad = isMobile ? 12.0 : 26.0;
@@ -1167,6 +1193,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       controller: _scroll,
       padding: EdgeInsets.fromLTRB(hPad, 8, hPad, 8),
       itemCount: _msgs.length,
+      physics: const AlwaysScrollableScrollPhysics(),
+      cacheExtent: 300,
       itemBuilder: (_, i) {
         final m = _msgs[i];
         final prev = i > 0 ? _msgs[i - 1] : null;
@@ -1298,7 +1326,20 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                 ],
                 Flexible(
                   child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onLongPress: m.text.isEmpty ? null : () => _showMsgContextMenu(p, m),
+                    onHorizontalDragEnd: m.text.isEmpty
+                        ? null
+                        : (d) {
+                            final v = d.primaryVelocity ?? 0;
+                            if (v < -250) {
+                              HapticFeedback.lightImpact();
+                              _showMsgContextMenu(p, m);
+                            } else if (v > 250) {
+                              HapticFeedback.lightImpact();
+                              _requestQuote(m.text);
+                            }
+                          },
                     child: Container(
                     constraints: BoxConstraints(
                       maxWidth: maxBubbleWidth,
