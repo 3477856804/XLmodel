@@ -1,6 +1,7 @@
 """小凌 · 工具系统（工具 + 技能 + 目标）"""
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -589,6 +590,485 @@ class GoalManager:
         return None
 
 
+# ============================================================================
+# 符号级代码索引（tree-sitter 可选，自动降级正则）
+# 核心原则：有符号索引就用，没有就降级关键词搜索，绝不假装能理解代码结构。
+# ============================================================================
+class SymbolIndexer:
+    """符号级代码索引器。
+
+    优先尝试 tree-sitter 解析 AST；不可用时自动降级到正则表达式提取
+    def/class/function/import 等关键字。索引缓存到 .symbol_index.json，
+    按文件 mtime 增量更新。
+
+    存储结构：
+      symbols: {symbol_name: [{file, line, type, signature}, ...]}
+      file_symbols: {rel_path: [symbol, ...]}
+      file_mtimes: {rel_path: mtime_float}
+    """
+
+    CODE_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx", ".dart"}
+    SKIP_DIRS = {".git", "build", "__pycache__", ".dart_tool", "node_modules",
+                 ".idea", "venv", ".venv", "dist", ".next", "resources"}
+    CACHE_NAME = ".symbol_index.json"
+    MAX_FILE_BYTES = 1024 * 1024
+
+    # ---- 正则降级模式 ----
+    _PY_FUNC_RE = re.compile(
+        r"^([ \t]*)(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*(\([^)]*\))"
+    )
+    _PY_CLASS_RE = re.compile(r"^class\s+([A-Za-z_][A-Za-z0-9_]*)")
+    _PY_IMPORT_RE = re.compile(r"^\s*(?:from\s+[\w.]+\s+)?import\s+")
+
+    _JS_FUNC_RE = re.compile(
+        r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+"
+        r"([A-Za-z_$][A-Za-z0-9_$]*)\s*(\([^)]*\))"
+    )
+    _JS_CLASS_RE = re.compile(
+        r"^\s*(?:export\s+)?(?:default\s+)?class\s+"
+        r"([A-Za-z_$][A-Za-z0-9_$]*)"
+    )
+    _JS_VAR_RE = re.compile(
+        r"^\s*(?:export\s+)?(?:const|let|var)\s+"
+        r"([A-Za-z_$][A-Za-z0-9_$]*)\s*="
+    )
+    _JS_IMPORT_RE = re.compile(r"^\s*import\s+")
+
+    _DART_CLASS_RE = re.compile(
+        r"^\s*(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)"
+    )
+    _DART_FUNC_RE = re.compile(
+        r"^\s*(?:[A-Za-z_<>,\[\]\s?.]+\s+)?"
+        r"([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{"
+    )
+
+    def __init__(self, root_dir: str):
+        self.root = Path(root_dir).resolve()
+        self.index_path = self.root / self.CACHE_NAME
+        self.symbols: dict[str, list[dict]] = {}
+        self.file_symbols: dict[str, list[dict]] = {}
+        self.file_mtimes: dict[str, float] = {}
+        self._lock = threading.RLock()
+        self._ts_available = self._detect_tree_sitter()
+
+    @staticmethod
+    def _detect_tree_sitter() -> bool:
+        """探测 tree-sitter 是否可用。永不抛异常。"""
+        try:
+            import tree_sitter  # noqa: F401
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------
+    # 索引构建
+    # ------------------------------------------------------------------
+    def build(self, force: bool = False) -> dict:
+        """构建或增量更新符号索引。返回统计信息。永不抛异常。"""
+        with self._lock:
+            try:
+                if not force:
+                    self._load_cache()
+
+                stats = {"indexed": 0, "skipped": 0, "removed": 0,
+                         "tree_sitter": self._ts_available}
+
+                # 收集当前所有代码文件
+                current: dict[str, float] = {}
+                try:
+                    for dirpath, dirnames, filenames in os.walk(str(self.root)):
+                        dirnames[:] = [d for d in dirnames if d not in self.SKIP_DIRS]
+                        for fn in filenames:
+                            ext = os.path.splitext(fn)[1].lower()
+                            if ext not in self.CODE_EXTS:
+                                continue
+                            full = os.path.join(dirpath, fn)
+                            rel = os.path.relpath(full, str(self.root))
+                            try:
+                                current[rel] = os.path.getmtime(full)
+                            except OSError:
+                                continue
+                except Exception:
+                    pass
+
+                # 清理已删除文件
+                stale = set(self.file_mtimes.keys()) - set(current.keys())
+                for sf in stale:
+                    self._remove_file_symbols(sf)
+                    stats["removed"] += 1
+
+                # 增量解析变更文件
+                for rel, mtime in current.items():
+                    old = self.file_mtimes.get(rel)
+                    if old is not None and abs(mtime - old) < 1.0:
+                        stats["skipped"] += 1
+                        continue
+                    self._remove_file_symbols(rel)
+                    syms = self._parse_file(rel)
+                    self.file_symbols[rel] = syms
+                    self.file_mtimes[rel] = mtime
+                    for s in syms:
+                        self.symbols.setdefault(s["name"], []).append(s)
+                    stats["indexed"] += 1
+
+                self._save_cache()
+                stats["total_symbols"] = sum(len(v) for v in self.symbols.values())
+                stats["total_files"] = len(self.file_mtimes)
+                return stats
+            except Exception as e:
+                return {"error": f"{type(e).__name__}: {e}",
+                        "indexed": 0, "skipped": 0, "removed": 0,
+                        "total_symbols": 0, "total_files": 0,
+                        "tree_sitter": self._ts_available}
+
+    def _remove_file_symbols(self, rel: str):
+        """移除某个文件的所有符号记录。"""
+        old = self.file_symbols.pop(rel, [])
+        for s in old:
+            name = s.get("name", "")
+            if name in self.symbols:
+                self.symbols[name] = [x for x in self.symbols[name]
+                                      if x.get("file") != rel]
+                if not self.symbols[name]:
+                    del self.symbols[name]
+        self.file_mtimes.pop(rel, None)
+
+    def _parse_file(self, rel: str) -> list:
+        """解析单个文件提取符号。永不抛异常。"""
+        syms: list[dict] = []
+        try:
+            full = self.root / rel
+            if full.stat().st_size > self.MAX_FILE_BYTES:
+                return syms
+            text = full.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return syms
+
+        ext = os.path.splitext(rel)[1].lower()
+
+        # 优先 tree-sitter
+        if self._ts_available:
+            try:
+                ts = self._parse_with_ts(rel, text, ext)
+                if ts:
+                    return ts
+            except Exception:
+                pass  # 降级到正则
+
+        # 正则降级
+        try:
+            if ext == ".py":
+                syms = self._parse_python(text, rel)
+            elif ext in (".js", ".jsx", ".ts", ".tsx"):
+                syms = self._parse_js(text, rel)
+            elif ext == ".dart":
+                syms = self._parse_dart(text, rel)
+        except Exception:
+            syms = []
+        return syms
+
+    # ------------------------------------------------------------------
+    # tree-sitter 解析（可选）
+    # ------------------------------------------------------------------
+    def _parse_with_ts(self, rel: str, text: str, ext: str) -> list:
+        """用 tree-sitter 解析 AST。语言包缺失时返回空列表触发降级。"""
+        lang_map = {
+            ".py": ("tree_sitter_python", "python"),
+            ".js": ("tree_sitter_javascript", "javascript"),
+            ".jsx": ("tree_sitter_javascript", "javascript"),
+            ".ts": ("tree_sitter_typescript", "typescript"),
+            ".tsx": ("tree_sitter_typescript", "typescript"),
+        }
+        entry = lang_map.get(ext)
+        if not entry:
+            return []
+        mod_name, _ = entry
+        try:
+            lang_mod = __import__(mod_name)
+        except ImportError:
+            return []
+
+        # 兼容不同 tree-sitter 语言包 API
+        language = None
+        for attr in ("language", "LANGUAGE"):
+            try:
+                language = getattr(lang_mod, attr)
+                if callable(language):
+                    language = language()
+                break
+            except Exception:
+                language = None
+        if language is None:
+            return []
+
+        from tree_sitter import Parser as _TsParser
+        parser = _TsParser()
+        try:
+            parser.set_language(language)
+        except Exception:
+            return []
+        tree = parser.parse(bytes(text, "utf-8"))
+        root_node = tree.root_node
+
+        syms: list[dict] = []
+        def _walk(node):
+            try:
+                nt = node.type
+                if nt in ("function_definition", "function_declaration",
+                          "method_definition"):
+                    name_node = node.child_by_field_name("name")
+                    if name_node is not None:
+                        line = node.start_point[0] + 1
+                        sig = text[node.start_byte:node.end_byte].split("\n")[0][:120]
+                        syms.append({
+                            "name": name_node.text.decode("utf-8", "ignore"),
+                            "file": rel, "line": line,
+                            "type": "function", "signature": sig,
+                        })
+                elif nt == "class_definition":
+                    name_node = node.child_by_field_name("name")
+                    if name_node is not None:
+                        line = node.start_point[0] + 1
+                        sig = text[node.start_byte:node.end_byte].split("\n")[0][:120]
+                        syms.append({
+                            "name": name_node.text.decode("utf-8", "ignore"),
+                            "file": rel, "line": line,
+                            "type": "class", "signature": sig,
+                        })
+            except Exception:
+                pass
+            for child in node.children:
+                _walk(child)
+        try:
+            _walk(root_node)
+        except Exception:
+            pass
+        return syms
+
+    # ------------------------------------------------------------------
+    # 正则降级解析
+    # ------------------------------------------------------------------
+    def _parse_python(self, text: str, rel: str) -> list:
+        syms: list[dict] = []
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+
+            m = self._PY_CLASS_RE.match(line)
+            if m:
+                syms.append({
+                    "name": m.group(1), "file": rel, "line": lineno,
+                    "type": "class", "signature": stripped[:120],
+                })
+                continue
+
+            m = self._PY_FUNC_RE.match(line)
+            if m:
+                indent = m.group(1)
+                func_name = m.group(2)
+                sym_type = "method" if len(indent.expandtabs()) >= 4 else "function"
+                syms.append({
+                    "name": func_name, "file": rel, "line": lineno,
+                    "type": sym_type, "signature": stripped[:120],
+                })
+                continue
+
+            if self._PY_IMPORT_RE.match(line):
+                syms.append({
+                    "name": "_import", "file": rel, "line": lineno,
+                    "type": "import", "signature": stripped[:120],
+                })
+        return syms
+
+    def _parse_js(self, text: str, rel: str) -> list:
+        syms: list[dict] = []
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+
+            m = self._JS_CLASS_RE.match(line)
+            if m:
+                syms.append({
+                    "name": m.group(1), "file": rel, "line": lineno,
+                    "type": "class", "signature": stripped[:120],
+                })
+                continue
+
+            m = self._JS_FUNC_RE.match(line)
+            if m:
+                syms.append({
+                    "name": m.group(1), "file": rel, "line": lineno,
+                    "type": "function", "signature": stripped[:120],
+                })
+                continue
+
+            m = self._JS_VAR_RE.match(line)
+            if m:
+                syms.append({
+                    "name": m.group(1), "file": rel, "line": lineno,
+                    "type": "variable", "signature": stripped[:120],
+                })
+                continue
+
+            if self._JS_IMPORT_RE.match(line):
+                syms.append({
+                    "name": "_import", "file": rel, "line": lineno,
+                    "type": "import", "signature": stripped[:120],
+                })
+        return syms
+
+    def _parse_dart(self, text: str, rel: str) -> list:
+        syms: list[dict] = []
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            m = self._DART_CLASS_RE.match(line)
+            if m:
+                syms.append({
+                    "name": m.group(1), "file": rel, "line": lineno,
+                    "type": "class", "signature": stripped[:120],
+                })
+                continue
+            m = self._DART_FUNC_RE.match(line)
+            if m:
+                syms.append({
+                    "name": m.group(1), "file": rel, "line": lineno,
+                    "type": "function", "signature": stripped[:120],
+                })
+        return syms
+
+    # ------------------------------------------------------------------
+    # 符号查询
+    # ------------------------------------------------------------------
+    def find_symbol(self, name: str, fuzzy: bool = True) -> list:
+        """按名称精确/模糊查找符号定义。"""
+        if not name:
+            return []
+        results: list[dict] = []
+        with self._lock:
+            exact = self.symbols.get(name, [])
+            for s in exact:
+                results.append({**s, "match": "exact"})
+            if fuzzy and not exact:
+                q = name.lower()
+                for sym_name, entries in self.symbols.items():
+                    if sym_name == "_import":
+                        continue
+                    if q in sym_name.lower() and sym_name != name:
+                        for s in entries:
+                            results.append({**s, "match": "fuzzy"})
+        return results
+
+    def find_references(self, name: str) -> list:
+        """查找符号的所有引用位置（简单版：grep 单词匹配，排除定义行）。"""
+        if not name:
+            return []
+        refs: list[dict] = []
+        try:
+            defs = self.find_symbol(name, fuzzy=False)
+            def_loc = {(d["file"], d["line"]) for d in defs}
+            word = re.compile(r"\b" + re.escape(name) + r"\b")
+            for rel in list(self.file_symbols.keys()):
+                try:
+                    text = (self.root / rel).read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if not word.search(line):
+                        continue
+                    if (rel, lineno) in def_loc:
+                        continue
+                    refs.append({"file": rel, "line": lineno,
+                                 "text": line.strip()[:120]})
+                    if len(refs) >= 100:
+                        return refs
+        except Exception:
+            pass
+        return refs
+
+    def list_symbols(self, file: str = "", type_filter: str = "") -> list:
+        """列出文件中所有符号（可按类型过滤）。"""
+        with self._lock:
+            if file:
+                syms = list(self.file_symbols.get(file, []))
+            else:
+                syms = []
+                for entries in self.file_symbols.values():
+                    syms.extend(entries)
+        if type_filter:
+            syms = [s for s in syms if s.get("type") == type_filter]
+        return syms
+
+    def get_call_graph(self, function_name: str) -> dict:
+        """简单调用图：谁调用了该函数 / 该函数调用了谁。"""
+        result: dict = {"caller": [], "callee": []}
+        if not function_name:
+            return result
+        try:
+            result["caller"] = self.find_references(function_name)[:20]
+        except Exception:
+            pass
+        try:
+            defs = self.find_symbol(function_name, fuzzy=False)
+            if defs:
+                d = defs[0]
+                text = (self.root / d["file"]).read_text(
+                    encoding="utf-8", errors="ignore")
+                lines = text.splitlines()
+                start = d["line"] - 1
+                body = "\n".join(lines[start:start + 50])
+                called = set()
+                for m in re.finditer(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", body):
+                    called.add(m.group(1))
+                skip = {"if", "for", "while", "return", "print", "len", "str",
+                        "int", "range", "self", "super", "open", "isinstance",
+                        "except", "with", "yield", "await", "async"}
+                result["callee"] = sorted(called - skip)[:20]
+        except Exception:
+            pass
+        return result
+
+    # ------------------------------------------------------------------
+    # 缓存读写
+    # ------------------------------------------------------------------
+    def _load_cache(self):
+        try:
+            if not self.index_path.exists():
+                return
+            data = json.loads(self.index_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or data.get("version") != 1:
+                return
+            self.symbols = data.get("symbols", {})
+            self.file_mtimes = data.get("file_mtimes", {})
+            self.file_symbols = {}
+            for entries in self.symbols.values():
+                for s in entries:
+                    f = s.get("file", "")
+                    if f:
+                        self.file_symbols.setdefault(f, []).append(s)
+        except Exception:
+            self.symbols = {}
+            self.file_mtimes = {}
+            self.file_symbols = {}
+
+    def _save_cache(self):
+        try:
+            data = {
+                "version": 1,
+                "root": str(self.root),
+                "symbols": self.symbols,
+                "file_mtimes": self.file_mtimes,
+            }
+            self.index_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=1),
+                encoding="utf-8")
+        except Exception:
+            pass
+
+
 class ToolKit:
     def __init__(self, base_dir: str | None = None, memory=None,
                  skills_dir: str | None = None):
@@ -597,6 +1077,7 @@ class ToolKit:
                                    memory=memory)
         self.goals = GoalManager(memory=memory)
         self._mcp_manager = None
+        self._sym_indexer = None
 
     @property
     def mcp_manager(self):
@@ -671,10 +1152,12 @@ class ToolKit:
             },
             {
                 "name": "search_code",
-                "description": "在项目代码中逐行搜索关键词（不区分大小写）",
+                "description": "在项目代码中搜索。mode=keyword（默认）逐行 grep 关键词；mode=symbol 符号级查询（函数/类定义、引用位置、调用关系）",
                 "args": {
-                    "query": {"type": "string", "description": "搜索关键词",
+                    "query": {"type": "string", "description": "搜索关键词或符号名",
                                "required": True},
+                    "mode": {"type": "string", "description": "搜索模式：keyword（默认）| symbol",
+                              "required": False},
                     "max_results": {"type": "integer", "description": "最大返回条数",
                                     "required": False},
                 },
@@ -734,6 +1217,15 @@ class ToolKit:
             print(f"  [Tools] FileManager 初始化失败：{type(e).__name__}: {e}")
             return None
 
+    def _symbol_indexer(self):
+        """惰性构建 SymbolIndexer 单例。失败返回 None，由调用方降级。"""
+        if self._sym_indexer is None:
+            try:
+                self._sym_indexer = SymbolIndexer(str(self.tools.base_dir))
+            except Exception:
+                self._sym_indexer = False  # 标记为不可用，避免反复尝试
+        return self._sym_indexer if self._sym_indexer else None
+
     def execute_tool(self, name: str, args: dict | None = None) -> str:
         """按 name 分发执行 Agent 工具，统一返回字符串结果。异常被捕获。"""
         args = dict(args) if isinstance(args, dict) else {}
@@ -771,10 +1263,50 @@ class ToolKit:
                 return "\n".join(lines) if lines else "（空目录）"
 
             if name == "search_code":
-                from .search import search_code
                 query = args.get("query", "")
                 if not query:
                     return "缺少 query"
+                mode = (args.get("mode") or "keyword").lower()
+
+                # ---- 符号级查询模式 ----
+                if mode == "symbol":
+                    try:
+                        idx = self._symbol_indexer()
+                        if idx is None:
+                            return ("符号索引不可用（tree-sitter 与正则均失败），"
+                                    "请用 mode=keyword 关键词搜索")
+                        stats = idx.build()
+                        if stats.get("error"):
+                            return f"符号索引构建失败：{stats['error']}，请用 mode=keyword"
+
+                        # 1) 先找符号定义
+                        defs = idx.find_symbol(query)
+                        if defs:
+                            engine = "tree-sitter" if stats.get("tree_sitter") else "regex"
+                            out = [f"符号「{query}」定义（{len(defs)} 处，引擎={engine}）："]
+                            for d in defs[:30]:
+                                out.append(
+                                    f"  [{d.get('type','?')}] {d.get('file','?')}:"
+                                    f"{d.get('line','?')} {d.get('signature','')[:80]}"
+                                )
+                            return "\n".join(out)
+
+                        # 2) 没找到定义，尝试找引用
+                        refs = idx.find_references(query)
+                        if refs:
+                            out = [f"符号「{query}」无定义，但找到 {len(refs)} 处引用："]
+                            for r in refs[:20]:
+                                out.append(f"  {r['file']}:{r['line']} {r['text'][:80]}")
+                            return "\n".join(out)
+
+                        return (f"符号「{query}」未找到定义或引用"
+                                f"（已索引 {stats.get('total_files',0)} 文件，"
+                                f"{stats.get('total_symbols',0)} 符号）")
+                    except Exception as e:  # noqa: BLE001
+                        return f"符号搜索异常，降级关键词：{type(e).__name__}: {e}"
+
+                # ---- 默认关键词 grep 模式（向后兼容）----
+                from .search import search_code
                 matches = search_code(query,
                                       path=str(self.tools.base_dir),
                                       max_results=int(args.get("max_results", 50)))
