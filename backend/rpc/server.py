@@ -593,6 +593,48 @@ def _handle_ext_command(cmd: str) -> str:
                 return _ok(message=f"已移除保护 {arg}")
             return _err(f"未知安全操作: {op}")
 
+        if cmd.startswith("memory:"):
+            rest = cmd[len("memory:"):].strip()
+            op, _, arg = (rest + " ").partition(" ")
+            arg = arg.strip()
+            engine = _get_engine()
+            hub = getattr(engine, "memory_hub", None) if engine is not None else None
+            if hub is None:
+                return _err("记忆中心未就绪")
+            graph = hub.graph
+            long = hub.long
+            if op == "stats":
+                return _ok(memory=long.get_memory_stats(),
+                           graph=graph.get_graph_stats())
+            if op == "graph":
+                return _ok(**graph.get_graph_stats())
+            if op == "entity":
+                if not arg:
+                    return _err("缺少实体名")
+                return _ok(entity=graph.get_entity(arg),
+                           related=graph.get_related_entities(arg, depth=2))
+            if op == "search":
+                if not arg:
+                    return _err("缺少搜索关键词")
+                return _ok(results=graph.search_entities(arg))
+            if op == "export":
+                fmt = arg if arg in ("json", "graphml") else "json"
+                return _ok(format=fmt, data=graph.export_graph(fmt))
+            if op == "date":
+                spec = _json.loads(arg) if arg else {}
+                start = spec.get("start", "")
+                end = spec.get("end", "")
+                return _ok(items=long.search_by_date(start, end))
+            if op == "forget":
+                days = 30
+                try:
+                    days = int(arg) if arg else 30
+                except ValueError:
+                    days = 30
+                removed = long.forget_old(days=days)
+                return _ok(removed=removed, days=days)
+            return _err(f"未知记忆操作: {op}")
+
         if cmd.startswith("mcp:"):
             rest = cmd[len("mcp:"):].strip()
             op, _, payload = rest.partition(" ")
@@ -894,7 +936,7 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
         try:
             if cmd.startswith('browser:'):
                 return pb.CommandReply(output=_handle_browser(cmd[len('browser:'):]))
-            if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:')):
+            if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:', 'memory:')):
                 return pb.CommandReply(output=_handle_ext_command(cmd))
             if cmd.startswith('settings:'):
                 # 设置页的可选项 / 写入，统一走这里（返回 JSON 字符串）。
@@ -1460,12 +1502,13 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 return
             from core.multimodal import TTS  # 懒加载：避免拖慢后端启动
             voice = 'zh-CN-XiaoxiaoNeural'
+            rate = (request.rate or '').strip() or '+0%'
             try:
                 from core import config as _cfg
                 voice = str((_cfg.load().get('voice') or {}).get('id') or voice)
             except Exception:
                 pass
-            result = TTS().synth(text, voice=voice)
+            result = TTS().synth(text, voice=voice, rate=rate)
             data = bytes(getattr(result, 'data', b'') or b'')
             if not data:
                 logger.warning('ReadAloud: TTS produced no audio (voice=%s)', voice)
@@ -1477,6 +1520,33 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
             logger.exception('ReadAloud failed')
         finally:
             yield pb.AudioChunk(done=True)
+
+    # ---------------- Transcribe（音频转文字） ----------------
+    def Transcribe(self, request, context):
+        t0 = time.time()
+        try:
+            from core.multimodal import ASR
+            asr = ASR(language=(request.lang or 'zh').strip() or 'zh')
+            if not asr.available():
+                return pb.TranscribeReply(
+                    ok=False, error=asr.last_error or '语音识别未配置（whisper 未安装）',
+                    duration_ms=int((time.time() - t0) * 1000))
+            if request.audio:
+                text = asr.transcribe_bytes(bytes(request.audio))
+                recorded = False
+            else:
+                seconds = float(request.seconds or 5)
+                text = asr.listen(seconds=max(1.0, min(30.0, seconds)))
+                recorded = True
+            err = '' if text else (asr.last_error or '未识别到语音内容')
+            return pb.TranscribeReply(
+                ok=bool(text), text=text, error=err, recorded=recorded,
+                duration_ms=int((time.time() - t0) * 1000))
+        except Exception as e:
+            logger.exception('Transcribe failed')
+            return pb.TranscribeReply(
+                ok=False, error=f'语音识别失败：{type(e).__name__}: {e}',
+                duration_ms=int((time.time() - t0) * 1000))
 
     # ---------------- GetSettings ----------------
     def GetSettings(self, request, context):

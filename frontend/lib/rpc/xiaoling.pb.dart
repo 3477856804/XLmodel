@@ -2585,10 +2585,14 @@ class VoiceRequest extends $pb.GeneratedMessage {
 class ReadRequest extends $pb.GeneratedMessage {
   factory ReadRequest({
     $core.String? text,
+    $core.String? rate,
   }) {
     final $result = create();
     if (text != null) {
       $result.text = text;
+    }
+    if (rate != null) {
+      $result.rate = rate;
     }
     return $result;
   }
@@ -2598,6 +2602,7 @@ class ReadRequest extends $pb.GeneratedMessage {
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'ReadRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'text')
+    ..aOS(2, _omitFieldNames ? '' : 'rate')
     ..hasRequiredFields = false
   ;
 
@@ -2630,6 +2635,15 @@ class ReadRequest extends $pb.GeneratedMessage {
   $core.bool hasText() => $_has(0);
   @$pb.TagNumber(1)
   void clearText() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get rate => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set rate($core.String v) { $_setString(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasRate() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearRate() => $_clearField(2);
 }
 
 class AudioChunk extends $pb.GeneratedMessage {
@@ -2694,6 +2708,190 @@ class AudioChunk extends $pb.GeneratedMessage {
   $core.bool hasDone() => $_has(1);
   @$pb.TagNumber(2)
   void clearDone() => $_clearField(2);
+}
+
+class TranscribeRequest extends $pb.GeneratedMessage {
+  factory TranscribeRequest({
+    $core.List<$core.int>? audio,
+    $core.int? seconds,
+    $core.String? lang,
+  }) {
+    final $result = create();
+    if (audio != null) {
+      $result.audio = audio;
+    }
+    if (seconds != null) {
+      $result.seconds = seconds;
+    }
+    if (lang != null) {
+      $result.lang = lang;
+    }
+    return $result;
+  }
+  TranscribeRequest._() : super();
+  factory TranscribeRequest.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory TranscribeRequest.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'TranscribeRequest', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..a<$core.List<$core.int>>(1, _omitFieldNames ? '' : 'audio', $pb.PbFieldType.OY)
+    ..a<$core.int>(2, _omitFieldNames ? '' : 'seconds', $pb.PbFieldType.O3)
+    ..aOS(3, _omitFieldNames ? '' : 'lang')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  TranscribeRequest clone() => TranscribeRequest()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  TranscribeRequest copyWith(void Function(TranscribeRequest) updates) => super.copyWith((message) => updates(message as TranscribeRequest)) as TranscribeRequest;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static TranscribeRequest create() => TranscribeRequest._();
+  TranscribeRequest createEmptyInstance() => create();
+  static $pb.PbList<TranscribeRequest> createRepeated() => $pb.PbList<TranscribeRequest>();
+  @$core.pragma('dart2js:noInline')
+  static TranscribeRequest getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TranscribeRequest>(create);
+  static TranscribeRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<$core.int> get audio => $_getN(0);
+  @$pb.TagNumber(1)
+  set audio($core.List<$core.int> v) { $_setBytes(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasAudio() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAudio() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get seconds => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set seconds($core.int v) { $_setSignedInt32(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasSeconds() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearSeconds() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get lang => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set lang($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasLang() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLang() => $_clearField(3);
+}
+
+class TranscribeReply extends $pb.GeneratedMessage {
+  factory TranscribeReply({
+    $core.String? text,
+    $core.bool? ok,
+    $core.String? error,
+    $core.int? durationMs,
+    $core.bool? recorded,
+  }) {
+    final $result = create();
+    if (text != null) {
+      $result.text = text;
+    }
+    if (ok != null) {
+      $result.ok = ok;
+    }
+    if (error != null) {
+      $result.error = error;
+    }
+    if (durationMs != null) {
+      $result.durationMs = durationMs;
+    }
+    if (recorded != null) {
+      $result.recorded = recorded;
+    }
+    return $result;
+  }
+  TranscribeReply._() : super();
+  factory TranscribeReply.fromBuffer($core.List<$core.int> i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromBuffer(i, r);
+  factory TranscribeReply.fromJson($core.String i, [$pb.ExtensionRegistry r = $pb.ExtensionRegistry.EMPTY]) => create()..mergeFromJson(i, r);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(_omitMessageNames ? '' : 'TranscribeReply', package: const $pb.PackageName(_omitMessageNames ? '' : 'xiaoling'), createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'text')
+    ..aOB(2, _omitFieldNames ? '' : 'ok')
+    ..aOS(3, _omitFieldNames ? '' : 'error')
+    ..a<$core.int>(4, _omitFieldNames ? '' : 'durationMs', $pb.PbFieldType.O3)
+    ..aOB(5, _omitFieldNames ? '' : 'recorded')
+    ..hasRequiredFields = false
+  ;
+
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.deepCopy] instead. '
+  'Will be removed in next major version')
+  TranscribeReply clone() => TranscribeReply()..mergeFromMessage(this);
+  @$core.Deprecated(
+  'Using this can add significant overhead to your binary. '
+  'Use [GeneratedMessageGenericExtensions.rebuild] instead. '
+  'Will be removed in next major version')
+  TranscribeReply copyWith(void Function(TranscribeReply) updates) => super.copyWith((message) => updates(message as TranscribeReply)) as TranscribeReply;
+
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static TranscribeReply create() => TranscribeReply._();
+  TranscribeReply createEmptyInstance() => create();
+  static $pb.PbList<TranscribeReply> createRepeated() => $pb.PbList<TranscribeReply>();
+  @$core.pragma('dart2js:noInline')
+  static TranscribeReply getDefault() => _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<TranscribeReply>(create);
+  static TranscribeReply? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get text => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set text($core.String v) { $_setString(0, v); }
+  @$pb.TagNumber(1)
+  $core.bool hasText() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearText() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.bool get ok => $_getBF(1);
+  @$pb.TagNumber(2)
+  set ok($core.bool v) { $_setBool(1, v); }
+  @$pb.TagNumber(2)
+  $core.bool hasOk() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearOk() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get error => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set error($core.String v) { $_setString(2, v); }
+  @$pb.TagNumber(3)
+  $core.bool hasError() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearError() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.int get durationMs => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set durationMs($core.int v) { $_setSignedInt32(3, v); }
+  @$pb.TagNumber(4)
+  $core.bool hasDurationMs() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearDurationMs() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.bool get recorded => $_getBF(4);
+  @$pb.TagNumber(5)
+  set recorded($core.bool v) { $_setBool(4, v); }
+  @$pb.TagNumber(5)
+  $core.bool hasRecorded() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearRecorded() => $_clearField(5);
 }
 
 /// ===== 设置 =====

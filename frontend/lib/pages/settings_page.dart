@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../theme/theme.dart';
@@ -11,6 +12,7 @@ import '../rpc/xiaoling_ext.dart';
 import '../rpc/xiaoling.pb.dart' as pb;
 import '../widgets/mcp_panel.dart';
 import '../widgets/security_panel.dart';
+import '../widgets/knowledge_graph_panel.dart';
 import '../services/local_store.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -36,6 +38,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   bool _aboutExpanded = false;
   final List<_ChangeRecord> _changeLog = [];
   bool _diagExpanded = false;
+  Map<String, dynamic> _memStats = const {};
+  bool _memLoading = false;
+  bool _forgettingOld = false;
 
   final Map<String, bool> _toggles = {
     'alwaysOnTop': false,
@@ -52,11 +57,10 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     'autoUpdate': true,
   };
 
-  // 这些值现在存的都是「后端认识的值」，不再是显示名。
-  String _model = '活泼';        // 人格预设
-  String _voice = '晓晓';        // 仅用于展示
-  String _render = 'auto';       // 渲染模式
-  String _inferBackend = 'auto'; // 推理后端（以前和 _render 共用，是个 bug）
+  String _model = '活泼';
+  String _voice = '晓晓';
+  String _render = 'auto';
+  String _inferBackend = 'auto';
   String _threads = 'auto';
   String _theme = 'dark';
   String _language = 'zh-CN';
@@ -73,13 +77,11 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     '邮件': false,
   };
 
-  /// 各滑块的当前值（0~1）。之前这些滑块传的是写死的常量，
-  /// 所以拖不动 —— 现在统一由这里托管并持久化。
   final Map<String, double> _sliders = {
-    'speed': 0.55, // 语音语速
-    'volume': 0.80, // 语音音量
-    'opacity': 0.92, // 窗口透明度
-    'renderQuality': 0.78, // 3D 渲染质量
+    'speed': 0.55,
+    'volume': 0.80,
+    'opacity': 0.92,
+    'renderQuality': 0.78,
   };
   int _sliderSaveSeq = 0;
 
@@ -89,18 +91,11 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _Section('voice', '语音设置', Icons.record_voice_over_rounded, 'violet'),
     _Section('interface', '界面设置', Icons.dashboard_customize_rounded, 'green'),
     _Section('channels', '多平台通道', Icons.hub_rounded, 'gold'),
+    _Section('memory', '记忆与知识', Icons.psychology_outlined, 'pink'),
     _Section('advanced', '高级设置', Icons.tune_rounded, 'blue'),
     _Section('about', '关于小凌', Icons.info_outline_rounded, 'pink'),
   ];
 
-  // ------------------------------------------------------------------
-  // 说明：这 6 个列表原先都是写死的常量，问题很实在 ——
-  //  · 推理后端复用了渲染后端的列表（还带 macOS 专有的 Metal）；
-  //  · 线程数固定 2/4/6/8（本机 28 线程）；
-  //  · 界面语言列了根本没翻译的语言；
-  //  · 音色表写的名字跟后端音色 ID 对不上，选了会让朗读报错。
-  // 现在全部由后端 `settings:options` 按本机真实情况生成。
-  // ------------------------------------------------------------------
   List<_Opt> _optPersonas = const [];
   List<_Opt> _optInferBackends = const [];
   List<_Opt> _optThreads = const [];
@@ -112,9 +107,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   Map<String, dynamic> _optSliders = const {};
   bool _optsLoaded = false;
 
-  /// 音色下拉框当前选中的是**音色 ID**（如 zh-CN-XiaoxiaoNeural），
-  /// 不是中文显示名。之前写显示名会导致后端朗读时找不到音色。
   String _voiceId = '';
+  final AudioPlayer _voicePlayer = AudioPlayer();
+  bool _previewing = false;
 
   @override
   void initState() {
@@ -127,9 +122,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _loadSettings();
     _loadOptions();
     _calcCache();
+    _loadMemStats();
   }
 
-  /// 从后端拉「可选项」。失败也不影响其余设置项显示（用兜底项）。
   Future<void> _loadOptions() async {
     final raw = await XlClient.stub.safe(() =>
         XlClient.stub.commandOutput('settings:options'));
@@ -158,7 +153,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       _optVoices = _VoiceOpt.fromJson(vc['voices']);
       _voiceEngines = (vc['engines'] as Map?)?.cast<String, dynamic>() ?? const {};
       _optSliders = (data['sliders'] as Map?)?.cast<String, dynamic>() ?? const {};
-      // 后端配置里的当前值优先，其次才是本地
       final curVoice = (vc['current'] ?? '').toString();
       if (curVoice.isNotEmpty) _voiceId = curVoice;
       final curInfer = (mdl['inference_backend'] ?? '').toString();
@@ -200,7 +194,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   static List<_Opt> _nonEmpty(List<_Opt> got, List<_Opt> fallback) =>
       got.isEmpty ? fallback : got;
 
-  /// 给后端写一个设置项，并把结果提示给老板（失败要说清楚原因）。
   Future<bool> _setOption(String path, String value, {bool quiet = false}) async {
     final raw = await XlClient.stub.safe(
         () => XlClient.stub.commandOutput('settings:set $path $value'));
@@ -227,7 +220,46 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     _pulseCtrl.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
+    _voicePlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _applyVoice(String voiceId, String label) async {
+    setState(() {
+      _voiceId = voiceId;
+      _voice = label;
+    });
+    final r = await XlClient.stub.safe(
+        () => XlClient.stub.setVoice(pb.VoiceRequest(voiceId: voiceId)));
+    if (!mounted) return;
+    if (r?.ok != true) {
+      _showSnack('切换音色失败');
+      return;
+    }
+    _showSnack('已切换为「$label」，正在试听');
+    setState(() => _previewing = true);
+    try {
+      final local = await LocalStore.readJson('channels.json');
+      var speed = 0.55;
+      final sl = local['sliders'];
+      if (sl is Map && sl['speed'] is num) {
+        speed = (sl['speed'] as num).toDouble().clamp(0.0, 1.0);
+      }
+      final pct = ((speed - 0.5) * 100).round().clamp(-40, 50);
+      final rate = pct == 0 ? '+0%' : (pct > 0 ? '+$pct%' : '$pct%');
+      final audio = await XlClient.stub.readAloudBytes(
+          '你好，我是小凌，这是我的声音。',
+          rate: rate);
+      if (!mounted || !audio.success || audio.bytes.isEmpty) return;
+      final dir = await getTemporaryDirectory();
+      final f = File('${dir.path}/xl_voice_preview.mp3');
+      await f.writeAsBytes(audio.bytes);
+      await _voicePlayer.stop();
+      await _voicePlayer.play(DeviceFileSource(f.path));
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _previewing = false);
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -502,7 +534,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     });
   }
 
-  /// 滑块拖动：先更新界面，再防抖落盘（避免拖动过程中狂写文件）
   void _setSlider(String key, double v) {
     setState(() => _sliders[key] = v.clamp(0.0, 1.0));
     final seq = ++_sliderSaveSeq;
@@ -511,7 +542,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       _persistChannels();
     });
   }
-
 
   Future<void> _restoreLocal() async {
     final data = await LocalStore.readJson('channels.json');
@@ -525,8 +555,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       if (tg is Map) tg.forEach((k, v) {
         if (v is bool) _toggles[k.toString()] = v;
       });
-      // 主题模式不再从这里恢复 —— 它由 XlThemeController 统一持久化，
-      // 避免两处各存一份、互相打架。这里只同步一下显示值。
       final th = data['theme'];
       if (th is String && th.isNotEmpty) _theme = th;
       final sl = data['sliders'];
@@ -954,6 +982,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       case 'voice': return _voiceSection(p);
       case 'interface': return _interfaceSection(p);
       case 'channels': return _channelsSection(p);
+      case 'memory': return _memorySection(p);
       case 'advanced': return _advancedSection(p);
       case 'about': return _aboutSection(p);
       default: return _modelSection(p);
@@ -1025,10 +1054,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHeader(p, '模型设置', '选择角色、推理后端与线程配置', p.pink),
-        // 原先这里叫「角色模型」，选项写死成 小凌/Vivi/QuQu/Imeris/Yuki，
-        // 选中后走 UpdateSettings(model=…)，而那是往 **推理基底模型配置**
-        // (config.model.base_model) 里写名字 —— 等于用一个虚构的角色名
-        // 覆盖了真实模型名。现在改为写真正的人格预设。
         _selectRow(p, '角色人格', '小凌的性格与说话风格（人格预设）', Icons.face_6_rounded,
             _optPersonas, _model, p.pink, (v) async {
           setState(() => _model = v);
@@ -1197,22 +1222,9 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHeader(p, '语音设置', '语音识别与语音合成', p.violet),
-        // 原先这里的选项是 6 个写死的中文名（晓晓/晓伊/…），选中后走
-        // UpdateSettings(voice: '晓晓')，写进 config.voice.id 的居然是
-        // **中文显示名**而不是音色 ID（zh-CN-XiaoxiaoNeural），朗读时
-        // 后端拿着「晓晓」去合成必然失败。现在选项就是真实音色列表，
-        // 提交的是 ID。
         _selectRow(p, '合成音色', _voiceSubtitle(), Icons.graphic_eq_rounded,
             _voiceOpts(), _voiceId, p.violet, (v) async {
-          final label = _voiceName(v);
-          setState(() {
-            _voiceId = v;
-            _voice = label;
-          });
-          final r = await XlClient.stub.safe(
-              () => XlClient.stub.setVoice(pb.VoiceRequest(voiceId: v)));
-          if (!mounted) return;
-          _showSnack(r?.ok == true ? '音色已切换为「$label」' : '切换音色失败');
+          await _applyVoice(v, _voiceName(v));
         }),
         const SizedBox(height: 12),
         _switchRow(p, '语音识别', '允许小凌听到你的声音', Icons.record_voice_over_rounded, 'asr', p.pink),
@@ -1234,14 +1246,10 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     );
   }
 
-  /// 语音设置副标题：把 TTS 引擎的真实可用性说出来，
-  /// 免得列了一堆音色却一个都发不出声。
   String _voiceSubtitle() {
     if (!_optsLoaded) return '正在读取本机可用音色…';
     final e = _voiceEngines;
     final note = (e['note'] ?? '').toString();
-    // Android 上语音走 APP 原生 TTS，后端这一栏只是记录；
-    // 说明文案要用后端给的平台口径，别在手机上吓唬人说"音色暂不可用"。
     if (_hostPlatform() == 'android' && note.isNotEmpty) return note;
     if (e['edge_tts'] != true) {
       return '未检测到 edge-tts${note.isNotEmpty ? '，$note' : ''}';
@@ -1285,8 +1293,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     );
   }
 
-  /// 当前平台标识，跟后端 options.py 的 host_platform() 一一对应
-  /// （windows / macos / linux / android）。
   String _hostPlatform() {
     if (Platform.isAndroid) return 'android';
     if (Platform.isWindows) return 'windows';
@@ -1302,13 +1308,10 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     return id;
   }
 
-  /// 把音色表转成下拉选项（value=音色 ID，label=显示名）。
   List<_Opt> _voiceOpts() => _optVoices
       .map((v) => _Opt(v.id, v.name, note: v.style, enabled: v.available))
       .toList();
 
-  /// 音色标签。性别取自后端的真实字段，不再靠「名字里有没有 xiao/yun」猜
-  /// —— 那种猜法会把 Aria、ナナミ、曉佳 全部判成「中性」。
   Widget _voiceChip(XlPalette p, _VoiceOpt v) {
     final color = _genderColor(p, v.gender);
     final active = v.id == _voiceId;
@@ -1317,14 +1320,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       child: GestureDetector(
         onTap: v.available
             ? () async {
-                setState(() {
-                  _voiceId = v.id;
-                  _voice = v.name;
-                });
-                final r = await XlClient.stub.safe(
-                    () => XlClient.stub.setVoice(pb.VoiceRequest(voiceId: v.id)));
-                if (!mounted) return;
-                _showSnack(r?.ok == true ? '音色已切换为「${v.name}」' : '切换音色失败');
+                await _applyVoice(v.id, v.name);
               }
             : null,
         child: Container(
@@ -1339,11 +1335,17 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: AppTheme.glowDot(color, size: 6),
-              ),
+              _previewing && active
+                  ? SizedBox(
+                      width: 11,
+                      height: 11,
+                      child: CircularProgressIndicator(strokeWidth: 1.6, color: color),
+                    )
+                  : Container(
+                      width: 6,
+                      height: 6,
+                      decoration: AppTheme.glowDot(color, size: 6),
+                    ),
               const SizedBox(width: 8),
               Text(v.name,
                   style: TextStyle(
@@ -1388,8 +1390,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHeader(p, '界面设置', '主题、语言与启动行为', p.green),
-        // 主题模式以前是「假」的：选中只 setState，既不入库也不换肤，
-        // 和左下角那个「深色主题」按钮完全没关系。现在写进全局控制器并落盘。
         _selectRow(p, '主题模式', '深色为默认，浅色更明亮', Icons.brightness_6_rounded,
             _optThemes, _theme, p.green, (v) async {
           setState(() => _theme = v);
@@ -1401,7 +1401,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
         const SizedBox(height: 12),
         _selectRow(p, '界面语言', '目前仅简体中文为完整支持', Icons.language_rounded,
             _optLangs, _language, p.gold, (v) async {
-          // 没翻译完的语言直接拦下并说清楚，别让老板选完发现界面纹丝不动。
           final opt = _optLangs.firstWhere((o) => o.value == v,
               orElse: () => _Opt(v, v));
           if (!opt.enabled) {
@@ -1434,8 +1433,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
                 letterSpacing: XlLetterSpacing.ultra,
               )),
           const SizedBox(height: 14),
-          // 三张卡片以前是纯装饰（active 写死 true），点也没反应。
-          // 现在它们就是主题切换入口，并如实反映当前选中的模式。
           Row(
             children: [
               Expanded(
@@ -1525,9 +1522,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       {'name': 'Signal', 'desc': 'signal-cli REST 发送', 'icon': Icons.enhanced_encryption_rounded},
       {'name': '邮件', 'desc': 'SMTP 收发邮件', 'icon': Icons.email_rounded},
     ];
-    // 注意：这里必须是 Column 而不是 ListView。
-    // 本区块被放进外层已有的滚动容器里，再套一层可滚动组件会拿到无界高度约束，
-    // 结果是整页渲染空白（之前「多平台通道」点进去什么都没有就是这个原因）。
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1570,6 +1564,214 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
           );
         }).toList(),
       ],
+    );
+  }
+
+  Future<void> _loadMemStats() async {
+    if (_memLoading) return;
+    setState(() => _memLoading = true);
+    try {
+      final raw = await XlClient.stub.safe(() =>
+          XlClient.stub.commandOutput('memory:stats'));
+      if (!mounted) return;
+      Map<String, dynamic> data = const {};
+      if (raw != null && raw.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map<String, dynamic>) data = decoded;
+        } catch (_) {}
+      }
+      setState(() {
+        _memStats = data;
+        _memLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _memLoading = false);
+    }
+  }
+
+  Future<void> _forgetOld() async {
+    if (_forgettingOld) return;
+    setState(() => _forgettingOld = true);
+    try {
+      final raw = await XlClient.stub.safe(() =>
+          XlClient.stub.commandOutput('memory:forget 30'));
+      if (!mounted) return;
+      int removed = 0;
+      if (raw != null && raw.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) removed = (decoded['removed'] as num?)?.toInt() ?? 0;
+        } catch (_) {}
+      }
+      _showSnack('已清理 $removed 条旧记忆');
+      await _loadMemStats();
+    } finally {
+      if (mounted) setState(() => _forgettingOld = false);
+    }
+  }
+
+  void _openGraphPanel() {
+    final p = XlPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: p.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.xl)),
+        insetPadding: const EdgeInsets.all(24),
+        child: Container(
+          width: 640,
+          height: 560,
+          padding: const EdgeInsets.all(20),
+          child: const KnowledgeGraphPanel(),
+        ),
+      ),
+    );
+  }
+
+  Widget _memorySection(XlPalette p) {
+    final mem = (_memStats['memory'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final graph = (_memStats['graph'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final total = (mem['total'] as num?)?.toInt() ?? 0;
+    final entities = (graph['entities'] as num?)?.toInt() ?? 0;
+    final relations = (graph['relations'] as num?)?.toInt() ?? 0;
+    final tagDist = (mem['tag_distribution'] as Map?) ?? const {};
+    final recent = (mem['recent'] as List?) ?? const [];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(p, '记忆与知识', '小凌的长期记忆与知识图谱', p.pink),
+        Row(
+          children: [
+            Expanded(child: _memStatCard(p, '长期记忆', '$total', Icons.history_rounded, p.pink)),
+            const SizedBox(width: 10),
+            Expanded(child: _memStatCard(p, '实体', '$entities', Icons.category_rounded, p.gold)),
+            const SizedBox(width: 10),
+            Expanded(child: _memStatCard(p, '关系', '$relations', Icons.link_rounded, p.violet)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (tagDist.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: AppTheme.neuXs(context, r: XlRadius.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('标签分布',
+                    style: TextStyle(
+                      fontSize: XlFont.label,
+                      color: p.text3,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: XlLetterSpacing.wide,
+                    )),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: tagDist.entries.take(10).map((e) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: p.pink.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(color: p.pink.withOpacity(0.3)),
+                        ),
+                        child: Text('${e.key} × ${e.value}',
+                            style: TextStyle(
+                              color: p.text2,
+                              fontSize: XlFont.label,
+                              fontWeight: FontWeight.w600,
+                            )),
+                      )).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (recent.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: AppTheme.neuXs(context, r: XlRadius.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('最近记忆',
+                    style: TextStyle(
+                      fontSize: XlFont.label,
+                      color: p.text3,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: XlLetterSpacing.wide,
+                    )),
+                const SizedBox(height: 10),
+                ...recent.take(5).map((r) {
+                  final m = (r as Map).cast<String, dynamic>();
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.circle, size: 6, color: p.gold),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            (m['content']?.toString() ?? '').isEmpty
+                                ? '（空）'
+                                : m['content'].toString(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: p.text2,
+                              fontSize: XlFont.label,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _actionRow(p, '知识图谱可视化', '查看实体节点与关系连线', Icons.hub_outlined, p.pink, () => _openGraphPanel()),
+        const SizedBox(height: 10),
+        _actionRow(p, '清理旧记忆', _forgettingOld ? '正在清理…' : '删除 30 天前且重要度低的记忆',
+            Icons.cleaning_services_outlined, p.gold, () => _forgetOld()),
+        const SizedBox(height: 10),
+        _actionRow(p, '刷新统计', '重新拉取记忆与图谱数据', Icons.refresh_rounded, p.blue, () => _loadMemStats()),
+      ],
+    );
+  }
+
+  Widget _memStatCard(XlPalette p, String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neuXs(context, r: XlRadius.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 8),
+          Text(value,
+              style: TextStyle(
+                fontSize: XlFont.h4,
+                fontWeight: FontWeight.w800,
+                color: p.text1,
+              )),
+          const SizedBox(height: 2),
+          Text(label,
+              style: TextStyle(
+                fontSize: XlFont.label,
+                color: p.text3,
+                fontWeight: FontWeight.w600,
+                letterSpacing: XlLetterSpacing.wide,
+              )),
+        ],
+      ),
     );
   }
 
@@ -1916,8 +2118,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   }
 
   Widget _dropdown(XlPalette p, List<_Opt> options, String current, Color color, ValueChanged<String> onChanged) {
-    // 可选项还没拉回来 / 拉回来是空的时候，别让 DropdownButton 崩在
-    // `.first` 上（之前只要后端没起就会白屏一整页）。
     if (options.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1930,7 +2130,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
       );
     }
     final enabled = options.where((o) => o.enabled).toList();
-    // 当前值不在列表里时，退回第一个可用项，避免 DropdownButton 断言失败
     var safe = current;
     if (!options.any((o) => o.value == safe)) {
       safe = (enabled.isNotEmpty ? enabled.first : options.first).value;
@@ -2147,12 +2346,7 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
   Widget _sliderRow(XlPalette p, String key, String label, IconData icon,
       Color color, double fallback) {
     if (!_matches(label, '')) return const SizedBox.shrink();
-    // 取值范围与默认值由后端 settings:options 给出，不再各写一份。
-    // 例如「窗口透明度」下限是 30%，拖到底不会把窗口拖成全透明。
     final spec = _optSliders[key];
-    // 某些滑块只在特定平台有意义（"窗口透明度"是桌面窗口概念，
-    // 手机上没有自由浮动窗口）。后端给了 platforms 白名单，这里照着隐藏，
-    // 免得出现一个怎么拖都没反应的滑块。
     if (spec is Map) {
       final plats = spec['platforms'];
       if (plats is List && plats.isNotEmpty) {
@@ -2225,7 +2419,6 @@ class _SettingsPageState extends State<SettingsPage> with TickerProviderStateMix
     return LayoutBuilder(
       builder: (context, c) {
         final w = c.maxWidth;
-        // 视觉位置按 [lo, 1] 映射，这样拖到底就是下限值本身
         final v = span <= 0 ? 1.0 : ((value - lo) / span).clamp(0.0, 1.0);
         void handle(Offset local) {
           if (w <= 0) return;
@@ -2657,12 +2850,6 @@ class _Section {
   const _Section(this.key, this.label, this.icon, this.color);
 }
 
-/// 一个 TTS 音色。
-///
-/// 之所以不复用协议里的 `pb.VoiceInfo`：那个消息体只有 id/name/lang，
-/// **没有性别**，前端只能靠「名字里有没有 xiao/yun」硬猜，于是 Aria、
-/// ナナミ、曉佳 全被标成「中性」。这里的数据来自后端 `settings:options`，
-/// 性别、风格、是否可用都是后端给的真实值。
 class _VoiceOpt {
   final String id;
   final String name;
@@ -2706,9 +2893,6 @@ class _VoiceOpt {
   }
 }
 
-/// 设置项的一个可选值：value 存给后端，label 显示给人。
-/// 二者分离是必要的 —— 比如音色必须存 ID（zh-CN-XiaoxiaoNeural），
-/// 显示却是「晓晓」；theme 存 dark，显示「始终深色」。
 class _Opt {
   final String value;
   final String label;
@@ -2723,7 +2907,6 @@ class _Opt {
       if (e is Map) {
         final v = (e['value'] ?? e['id'] ?? '').toString();
         final l = (e['label'] ?? e['name'] ?? v).toString();
-        // available: false 表示这项在本机不可用（如未检测到 CUDA）
         final avail = e['available'] == null ? true : e['available'] == true;
         final sup = e['supported'] == null ? true : e['supported'] == true;
         out.add(_Opt(v, l,

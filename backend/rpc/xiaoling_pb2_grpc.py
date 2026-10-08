@@ -152,6 +152,11 @@ class XiaoLingStub:
                 request_serializer=xiaoling__pb2.ReadRequest.SerializeToString,
                 response_deserializer=xiaoling__pb2.AudioChunk.FromString,
                 _registered_method=True)
+        self.Transcribe = channel.unary_unary(
+                '/xiaoling.XiaoLing/Transcribe',
+                request_serializer=xiaoling__pb2.TranscribeRequest.SerializeToString,
+                response_deserializer=xiaoling__pb2.TranscribeReply.FromString,
+                _registered_method=True)
         self.GetSettings = channel.unary_unary(
                 '/xiaoling.XiaoLing/GetSettings',
                 request_serializer=xiaoling__pb2.Empty.SerializeToString,
@@ -425,6 +430,13 @@ class XiaoLingServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Transcribe(self, request, context):
+        """===== 语音识别（上传音频转文字；音频为空则服务端现场录音） =====
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetSettings(self, request, context):
         """===== 读取设置 =====
         """
@@ -690,6 +702,11 @@ def add_XiaoLingServicer_to_server(servicer, server):
                     servicer.ReadAloud,
                     request_deserializer=xiaoling__pb2.ReadRequest.FromString,
                     response_serializer=xiaoling__pb2.AudioChunk.SerializeToString,
+            ),
+            'Transcribe': grpc.unary_unary_rpc_method_handler(
+                    servicer.Transcribe,
+                    request_deserializer=xiaoling__pb2.TranscribeRequest.FromString,
+                    response_serializer=xiaoling__pb2.TranscribeReply.SerializeToString,
             ),
             'GetSettings': grpc.unary_unary_rpc_method_handler(
                     servicer.GetSettings,
@@ -1426,6 +1443,33 @@ class XiaoLing:
             '/xiaoling.XiaoLing/ReadAloud',
             xiaoling__pb2.ReadRequest.SerializeToString,
             xiaoling__pb2.AudioChunk.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Transcribe(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/xiaoling.XiaoLing/Transcribe',
+            xiaoling__pb2.TranscribeRequest.SerializeToString,
+            xiaoling__pb2.TranscribeReply.FromString,
             options,
             channel_credentials,
             insecure,

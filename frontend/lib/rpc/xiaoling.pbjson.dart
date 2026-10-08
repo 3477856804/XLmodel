@@ -543,12 +543,13 @@ const ReadRequest$json = {
   '1': 'ReadRequest',
   '2': [
     {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'rate', '3': 2, '4': 1, '5': 9, '10': 'rate'},
   ],
 };
 
 /// Descriptor for `ReadRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List readRequestDescriptor = $convert.base64Decode(
-    'CgtSZWFkUmVxdWVzdBISCgR0ZXh0GAEgASgJUgR0ZXh0');
+    'CgtSZWFkUmVxdWVzdBISCgR0ZXh0GAEgASgJUgR0ZXh0EhIKBHJhdGUYAiABKAlSBHJhdGU=');
 
 @$core.Deprecated('Use audioChunkDescriptor instead')
 const AudioChunk$json = {
@@ -562,6 +563,39 @@ const AudioChunk$json = {
 /// Descriptor for `AudioChunk`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List audioChunkDescriptor = $convert.base64Decode(
     'CgpBdWRpb0NodW5rEhIKBGRhdGEYASABKAxSBGRhdGESEgoEZG9uZRgCIAEoCFIEZG9uZQ==');
+
+@$core.Deprecated('Use transcribeRequestDescriptor instead')
+const TranscribeRequest$json = {
+  '1': 'TranscribeRequest',
+  '2': [
+    {'1': 'audio', '3': 1, '4': 1, '5': 12, '10': 'audio'},
+    {'1': 'seconds', '3': 2, '4': 1, '5': 5, '10': 'seconds'},
+    {'1': 'lang', '3': 3, '4': 1, '5': 9, '10': 'lang'},
+  ],
+};
+
+/// Descriptor for `TranscribeRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transcribeRequestDescriptor = $convert.base64Decode(
+    'ChFUcmFuc2NyaWJlUmVxdWVzdBIUCgVhdWRpbxgBIAEoDFIFYXVkaW8SGAoHc2Vjb25kcxgCIA'
+    'EoBVIHc2Vjb25kcxISCgRsYW5nGAMgASgJUgRsYW5n');
+
+@$core.Deprecated('Use transcribeReplyDescriptor instead')
+const TranscribeReply$json = {
+  '1': 'TranscribeReply',
+  '2': [
+    {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'ok', '3': 2, '4': 1, '5': 8, '10': 'ok'},
+    {'1': 'error', '3': 3, '4': 1, '5': 9, '10': 'error'},
+    {'1': 'duration_ms', '3': 4, '4': 1, '5': 5, '10': 'durationMs'},
+    {'1': 'recorded', '3': 5, '4': 1, '5': 8, '10': 'recorded'},
+  ],
+};
+
+/// Descriptor for `TranscribeReply`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transcribeReplyDescriptor = $convert.base64Decode(
+    'Cg9UcmFuc2NyaWJlUmVwbHkSEgoEdGV4dBgBIAEoCVIEdGV4dBIOCgJvaxgCIAEoCFICb2sSFA'
+    'oFZXJyb3IYAyABKAlSBWVycm9yEh8KC2R1cmF0aW9uX21zGAQgASgFUgpkdXJhdGlvbk1zEhoK'
+    'CHJlY29yZGVkGAUgASgIUghyZWNvcmRlZA==');
 
 @$core.Deprecated('Use settingsReplyDescriptor instead')
 const SettingsReply$json = {

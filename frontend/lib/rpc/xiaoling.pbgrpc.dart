@@ -113,6 +113,10 @@ class XiaoLingClient extends $grpc.Client {
       '/xiaoling.XiaoLing/ReadAloud',
       ($0.ReadRequest value) => value.writeToBuffer(),
       ($core.List<$core.int> value) => $0.AudioChunk.fromBuffer(value));
+  static final _$transcribe = $grpc.ClientMethod<$0.TranscribeRequest, $0.TranscribeReply>(
+      '/xiaoling.XiaoLing/Transcribe',
+      ($0.TranscribeRequest value) => value.writeToBuffer(),
+      ($core.List<$core.int> value) => $0.TranscribeReply.fromBuffer(value));
   static final _$getSettings = $grpc.ClientMethod<$0.Empty, $0.SettingsReply>(
       '/xiaoling.XiaoLing/GetSettings',
       ($0.Empty value) => value.writeToBuffer(),
@@ -294,6 +298,10 @@ class XiaoLingClient extends $grpc.Client {
 
   $grpc.ResponseStream<$0.AudioChunk> readAloud($0.ReadRequest request, {$grpc.CallOptions? options}) {
     return $createStreamingCall(_$readAloud, $async.Stream.fromIterable([request]), options: options);
+  }
+
+  $grpc.ResponseFuture<$0.TranscribeReply> transcribe($0.TranscribeRequest request, {$grpc.CallOptions? options}) {
+    return $createUnaryCall(_$transcribe, request, options: options);
   }
 
   $grpc.ResponseFuture<$0.SettingsReply> getSettings($0.Empty request, {$grpc.CallOptions? options}) {
@@ -551,6 +559,13 @@ abstract class XiaoLingServiceBase extends $grpc.Service {
         true,
         ($core.List<$core.int> value) => $0.ReadRequest.fromBuffer(value),
         ($0.AudioChunk value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.TranscribeRequest, $0.TranscribeReply>(
+        'Transcribe',
+        transcribe_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.TranscribeRequest.fromBuffer(value),
+        ($0.TranscribeReply value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.Empty, $0.SettingsReply>(
         'GetSettings',
         getSettings_Pre,
@@ -799,6 +814,10 @@ abstract class XiaoLingServiceBase extends $grpc.Service {
     yield* readAloud($call, await $request);
   }
 
+  $async.Future<$0.TranscribeReply> transcribe_Pre($grpc.ServiceCall $call, $async.Future<$0.TranscribeRequest> $request) async {
+    return transcribe($call, await $request);
+  }
+
   $async.Future<$0.SettingsReply> getSettings_Pre($grpc.ServiceCall $call, $async.Future<$0.Empty> $request) async {
     return getSettings($call, await $request);
   }
@@ -910,6 +929,7 @@ abstract class XiaoLingServiceBase extends $grpc.Service {
   $async.Future<$0.VoiceList> listVoices($grpc.ServiceCall call, $0.Empty request);
   $async.Future<$0.StatusReply> setVoice($grpc.ServiceCall call, $0.VoiceRequest request);
   $async.Stream<$0.AudioChunk> readAloud($grpc.ServiceCall call, $0.ReadRequest request);
+  $async.Future<$0.TranscribeReply> transcribe($grpc.ServiceCall call, $0.TranscribeRequest request);
   $async.Future<$0.SettingsReply> getSettings($grpc.ServiceCall call, $0.Empty request);
   $async.Future<$0.StatusReply> updateSettings($grpc.ServiceCall call, $0.SettingsRequest request);
   $async.Future<$0.DataBlob> exportData($grpc.ServiceCall call, $0.Empty request);

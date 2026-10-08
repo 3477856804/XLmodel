@@ -24,7 +24,7 @@ for _p in (ROOT, BACKEND):
         sys.path.insert(0, str(_p))
 
 from backend.core.memory import (
-    LongTermMemory, RAG, get_embedding_backend, embed_text,
+    LongTermMemory, RAG, KnowledgeGraph, get_embedding_backend, embed_text,
 )
 
 
@@ -132,6 +132,100 @@ def test_rag_stats_reports_backend(tmp_path):
     rag = RAG(path=str(tmp_path / "rag.jsonl"))
     s = rag.stats()
     assert s["embedding_backend"] == "hash-ngram"
+
+
+# ---------------------------------------------------------------------------
+# 4. 知识图谱增强方法
+# ---------------------------------------------------------------------------
+def _make_graph(tmp_path):
+    g = KnowledgeGraph(path=str(tmp_path / "kg.json"))
+    g.learn("小明是学生")
+    g.learn("小明喜欢篮球")
+    g.learn("篮球属于运动")
+    g.learn("小红喜欢音乐")
+    return g
+
+
+def test_kg_get_entity(tmp_path):
+    g = _make_graph(tmp_path)
+    info = g.get_entity("小明")
+    assert info["found"] is True
+    assert info["count"] >= 2
+    verbs = {r["verb"] for r in info["relations"]}
+    assert "是" in verbs or "喜欢" in verbs
+
+
+def test_kg_get_entity_missing(tmp_path):
+    g = _make_graph(tmp_path)
+    info = g.get_entity("不存在的实体")
+    assert info["found"] is False
+
+
+def test_kg_get_related_entities(tmp_path):
+    g = _make_graph(tmp_path)
+    rels = g.get_related_entities("小明", depth=2)
+    names = {r["name"] for r in rels}
+    assert "篮球" in names
+    assert all("hops" in r for r in rels)
+
+
+def test_kg_get_graph_stats(tmp_path):
+    g = _make_graph(tmp_path)
+    s = g.get_graph_stats()
+    assert s["entities"] >= 2
+    assert s["relations"] >= 3
+    assert s["most_active"], "应有最活跃实体列表"
+    assert s["most_active"][0]["count"] >= 1
+
+
+def test_kg_export_json_and_graphml(tmp_path):
+    g = _make_graph(tmp_path)
+    js = g.export_graph("json")
+    assert "entities" in js
+    xml = g.export_graph("graphml")
+    assert "<graphml" in xml
+    assert "<node" in xml
+
+
+def test_kg_search_entities(tmp_path):
+    g = _make_graph(tmp_path)
+    hits = g.search_entities("小")
+    names = {h["name"] for h in hits}
+    assert "小明" in names
+    assert all("count" in h for h in hits)
+
+
+# ---------------------------------------------------------------------------
+# 5. 长期记忆增强方法
+# ---------------------------------------------------------------------------
+def test_ltm_get_memory_stats(tmp_path):
+    m = LongTermMemory(path=str(tmp_path / "mem.json"))
+    m.add("user", "带标签内容", tags=["工作", "编程"])
+    m.add("user", "另一条", tags=["工作"])
+    s = m.get_memory_stats()
+    assert s["total"] == 2
+    assert s["tag_distribution"].get("工作") == 2
+    assert len(s["recent"]) == 2
+
+
+def test_ltm_search_by_date(tmp_path):
+    import time as _t
+    m = LongTermMemory(path=str(tmp_path / "mem.json"))
+    m.add("user", "今天的内容")
+    today = _t.strftime("%Y-%m-%d")
+    items = m.search_by_date(today, today)
+    assert any("今天的内容" in i["content"] for i in items)
+
+
+def test_ltm_forget_old_keeps_important(tmp_path):
+    import time as _t
+    m = LongTermMemory(path=str(tmp_path / "mem.json"))
+    m.add("user", "重要记忆", importance=0.95)
+    m.add("user", "普通记忆", importance=0.3)
+    removed = m.forget_old(days=0, keep_importance=0.8)
+    assert removed >= 1
+    contents = [i.content for i in m.recent(10)]
+    assert "重要记忆" in contents
 
 
 if __name__ == "__main__":

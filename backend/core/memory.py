@@ -511,6 +511,84 @@ class LongTermMemory:
         except Exception:
             return 0
 
+    # ---- 增量：记忆统计 / 日期范围搜索 / 遗忘旧记忆 ----
+    def get_memory_stats(self) -> dict:
+        """返回记忆总数、标签分布、最近访问列表。"""
+        try:
+            with self._lock:
+                items = list(self._items)
+            if not items:
+                return {"total": 0, "tag_distribution": {},
+                        "recent": [], "embedding_backend": get_embedding_backend()}
+            tag_dist: dict[str, int] = {}
+            for i in items:
+                for t in (i.tags or []):
+                    if t:
+                        tag_dist[t] = tag_dist.get(t, 0) + 1
+            top_tags = sorted(tag_dist.items(), key=lambda kv: kv[1], reverse=True)[:10]
+            recent = sorted(items, key=lambda x: x.timestamp, reverse=True)[:5]
+            return {
+                "total": len(items),
+                "tag_distribution": {k: v for k, v in top_tags},
+                "recent": [{"content": i.content[:80],
+                            "role": i.role,
+                            "timestamp": i.timestamp,
+                            "importance": round(i.importance, 3)}
+                           for i in recent],
+                "embedding_backend": get_embedding_backend(),
+            }
+        except Exception as e:
+            return {"total": 0, "tag_distribution": {}, "recent": [],
+                    "error": f"{type(e).__name__}: {e}"}
+
+    def search_by_date(self, start_date: str, end_date: str,
+                       limit: int = 100) -> list:
+        """按日期范围（YYYY-MM-DD）搜索记忆。"""
+        try:
+            def _ts(s):
+                if not s:
+                    return None
+                dt = datetime.strptime(str(s)[:10], "%Y-%m-%d")
+                return dt.timestamp()
+            start = _ts(start_date)
+            end = _ts(end_date)
+            if end is not None:
+                end += 86399.0
+            with self._lock:
+                items = list(self._items)
+            out = [i for i in items
+                   if (start is None or i.timestamp >= start)
+                   and (end is None or i.timestamp <= end)]
+            out.sort(key=lambda x: x.timestamp, reverse=True)
+            return [i.to_dict() for i in out[:max(limit, 1)]]
+        except Exception:
+            return []
+
+    def forget_old(self, days: int = 30, keep_importance: float = 0.8) -> int:
+        """清理 N 天前的旧记忆；重要度高于 keep_importance 的保留。"""
+        try:
+            days = max(int(days or 0), 0)
+            cutoff = time.time() - days * 86400.0
+            removed = 0
+            with self._lock:
+                self._ensure_vectors_aligned()
+                keep_items = []
+                keep_vecs = []
+                for i, v in zip(self._items, self._vectors):
+                    if i.timestamp < cutoff and i.importance < keep_importance:
+                        removed += 1
+                        continue
+                    keep_items.append(i)
+                    keep_vecs.append(v)
+                self._items = keep_items
+                self._vectors = keep_vecs
+                if removed:
+                    self._dirty = True
+                    self._save()
+            return removed
+        except Exception:
+            return 0
+
 
 class SessionPersistence:
     def __init__(self, history_path: str | None = None,
@@ -751,6 +829,118 @@ class KnowledgeGraph:
             return []
         with self._lock:
             return [k for k in self.entities if keyword in k][:limit]
+
+    def get_entity(self, entity_name: str) -> dict:
+        """获取实体详情：出现次数、关联关系列表。"""
+        try:
+            with self._lock:
+                info = self.entities.get(entity_name)
+                if not info:
+                    return {"name": entity_name, "found": False,
+                            "count": 0, "relations": []}
+                rels = []
+                for item in info.get("relations", []):
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        rels.append({"verb": item[0], "object": item[1]})
+                return {"name": entity_name, "found": True,
+                        "count": int(info.get("count", 0)),
+                        "relations": rels}
+        except Exception as e:
+            return {"name": entity_name, "found": False,
+                    "count": 0, "relations": [],
+                    "error": f"{type(e).__name__}: {e}"}
+
+    def get_related_entities(self, entity_name: str, depth: int = 1) -> list:
+        """广度优先获取关联实体，返回 [{name, relation, direction, hops}]。"""
+        try:
+            if not entity_name:
+                return []
+            depth = max(1, min(int(depth or 1), 3))
+            with self._lock:
+                if entity_name not in self.entities:
+                    return []
+                visited = {entity_name}
+                frontier = [(entity_name, 0)]
+                out = []
+                while frontier:
+                    cur, hops = frontier.pop(0)
+                    if hops >= depth:
+                        continue
+                    for subj, verb, obj in self.relations:
+                        if subj == cur and obj not in visited:
+                            visited.add(obj)
+                            out.append({"name": obj, "relation": verb,
+                                        "direction": "out", "hops": hops + 1})
+                            frontier.append((obj, hops + 1))
+                        elif obj == cur and subj not in visited:
+                            visited.add(subj)
+                            out.append({"name": subj, "relation": verb,
+                                        "direction": "in", "hops": hops + 1})
+                            frontier.append((subj, hops + 1))
+                return out[:200]
+        except Exception:
+            return []
+
+    def get_graph_stats(self) -> dict:
+        """返回实体数/关系数/最活跃实体 TOP10。"""
+        try:
+            with self._lock:
+                top = sorted(self.entities.items(),
+                             key=lambda kv: int(kv[1].get("count", 0)),
+                             reverse=True)[:10]
+                active = [{"name": k, "count": int(v.get("count", 0))}
+                          for k, v in top]
+                return {"entities": len(self.entities),
+                        "relations": len(self.relations),
+                        "most_active": active,
+                        "path": str(self.path)}
+        except Exception as e:
+            return {"entities": 0, "relations": 0,
+                    "most_active": [],
+                    "error": f"{type(e).__name__}: {e}"}
+
+    def export_graph(self, fmt: str = "json") -> str:
+        """导出图谱为 JSON 或 GraphML 字符串。"""
+        try:
+            fmt = (fmt or "json").lower()
+            with self._lock:
+                entities = dict(self.entities)
+                relations = list(self.relations)
+            if fmt == "graphml":
+                lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+                         '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">',
+                         '  <graph id="knowledge" edgedefault="directed">']
+                for name in entities:
+                    lines.append(f'    <node id="{name}"/>')
+                for subj, verb, obj in relations:
+                    eid = f"{subj}|{verb}|{obj}"
+                    lines.append(f'    <edge id="{eid}" source="{subj}" target="{obj}">')
+                    lines.append(f'      <att>{verb}</att>')
+                    lines.append('    </edge>')
+                lines.append('  </graph>')
+                lines.append('</graphml>')
+                return "\n".join(lines)
+            payload = {"entities": entities,
+                       "relations": [list(r) for r in relations],
+                       "exported_at": time.time()}
+            return json.dumps(payload, ensure_ascii=False, indent=1)
+        except Exception as e:
+            return json.dumps({"error": f"{type(e).__name__}: {e}"},
+                              ensure_ascii=False)
+
+    def search_entities(self, keyword: str, limit: int = 30) -> list:
+        """模糊搜索实体，返回 [{name, count}]。"""
+        try:
+            if not keyword:
+                return []
+            kw = keyword.strip()
+            with self._lock:
+                hits = [(k, int(v.get("count", 0)))
+                        for k, v in self.entities.items() if kw in k]
+            hits.sort(key=lambda x: x[1], reverse=True)
+            return [{"name": k, "count": c} for k, c in hits[:limit]]
+        except Exception:
+            return []
 
     def stats(self) -> dict:
         with self._lock:

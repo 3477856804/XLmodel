@@ -63,6 +63,9 @@ service XiaoLing {
   // ===== 语音朗读（流式音频） =====
   rpc ReadAloud (ReadRequest) returns (stream AudioChunk);
 
+  // ===== 语音识别（上传音频转文字；音频为空则服务端现场录音） =====
+  rpc Transcribe (TranscribeRequest) returns (TranscribeReply);
+
   // ===== 读取设置 =====
   rpc GetSettings (Empty) returns (SettingsReply);
 
@@ -325,11 +328,26 @@ message VoiceRequest {
 
 message ReadRequest {
   string text = 1;
+  string rate = 2;
 }
 
 message AudioChunk {
   bytes data = 1;
   bool done = 2;
+}
+
+message TranscribeRequest {
+  bytes audio = 1;
+  int32 seconds = 2;
+  string lang = 3;
+}
+
+message TranscribeReply {
+  string text = 1;
+  bool ok = 2;
+  string error = 3;
+  int32 duration_ms = 4;
+  bool recorded = 5;
 }
 
 // ===== 设置 =====

@@ -644,6 +644,32 @@ class TTS:
         self.cache = cache or AudioCache()
         self.cache_enabled = cache_enabled
         self.last_error = ""
+        self.default_voice = "zh-CN-XiaoxiaoNeural"
+
+    def list_voices(self, lang: str = "") -> list:
+        try:
+            return list_voices(lang)
+        except Exception as e:
+            self.last_error = f"list_voices: {type(e).__name__}: {e}"
+            return []
+
+    def set_default_voice(self, voice_id: str) -> bool:
+        try:
+            v = (voice_id or "").strip()
+            if not v:
+                self.last_error = "set_default_voice: empty voice id"
+                return False
+            if not any(x["id"] == v for x in VOICES):
+                self.last_error = f"set_default_voice: unknown voice {v}"
+                return False
+            self.default_voice = v
+            return True
+        except Exception as e:
+            self.last_error = f"set_default_voice: {type(e).__name__}: {e}"
+            return False
+
+    def get_default_voice(self) -> str:
+        return self.default_voice
 
     def synth(self, text: str, voice: str = None, rate: str = "+0%", pitch: str = "+0Hz",
               volume: str = "+0%", style: str = "", use_cache: bool = True) -> TTSResult:
@@ -783,18 +809,32 @@ class ASR:
         self.language = language
         self._model = None
         self._lock = threading.Lock()
+        self.last_error = ""
 
     def available(self) -> bool:
         try:
             import whisper  # noqa: F401
+            self.last_error = ""
             return True
         except ImportError:
+            self.last_error = "语音识别未配置（whisper 未安装）"
             return False
+
+    def status(self) -> dict:
+        return {
+            "engine": self.engine,
+            "model_size": self.model_size,
+            "language": self.language,
+            "available": self.available(),
+            "loaded": self._model is not None,
+            "last_error": self.last_error,
+        }
 
     def record(self, seconds: float = 5.0, sample_rate: int = 16000) -> str:
         try:
             import pyaudio
         except ImportError:
+            self.last_error = "录音不可用（pyaudio 未安装）"
             return ""
         path = Path(tempfile.gettempdir()) / f"xl_rec_{int(time.time() * 1000)}.wav"
         p = pyaudio.PyAudio()
@@ -810,8 +850,10 @@ class ASR:
                 w.setsampwidth(p.get_sample_size(pyaudio.paInt16))
                 w.setframerate(sample_rate)
                 w.writeframes(b"".join(frames))
+            self.last_error = ""
             return str(path)
-        except Exception:
+        except Exception as e:
+            self.last_error = f"录音失败：{type(e).__name__}: {e}"
             return ""
         finally:
             try:
@@ -828,19 +870,25 @@ class ASR:
             try:
                 import whisper
                 self._model = whisper.load_model(self.model_size)
+                self.last_error = ""
                 return True
-            except Exception:
+            except Exception as e:
+                self.last_error = f"whisper 模型加载失败：{type(e).__name__}: {e}"
                 return False
 
     def transcribe(self, path: str) -> str:
         if not path or not Path(path).exists():
+            self.last_error = f"音频文件不存在：{path}"
             return ""
         if not self._load():
             return ""
         try:
             result = self._model.transcribe(path, language=self.language, fp16=False)
-            return (result.get("text") or "").strip()
-        except Exception:
+            text = (result.get("text") or "").strip()
+            self.last_error = "" if text else "未识别到语音内容"
+            return text
+        except Exception as e:
+            self.last_error = f"语音识别失败：{type(e).__name__}: {e}"
             return ""
 
     def listen(self, seconds: float = 5.0) -> str:
@@ -855,8 +903,27 @@ class ASR:
             except OSError:
                 pass
 
+    def transcribe_bytes(self, data: bytes, suffix: str = ".wav") -> str:
+        if not data:
+            self.last_error = "音频数据为空"
+            return ""
+        tmp = Path(tempfile.gettempdir()) / f"xl_in_{int(time.time() * 1000)}{suffix}"
+        try:
+            tmp.write_bytes(data)
+            return self.transcribe(str(tmp))
+        except Exception as e:
+            self.last_error = f"音频写入失败：{type(e).__name__}: {e}"
+            return ""
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+
     def transcribe_pcm(self, pcm: bytes, sample_rate: int = 16000) -> str:
         if not pcm:
+            self.last_error = "PCM 数据为空"
             return ""
         tmp = Path(tempfile.gettempdir()) / f"xl_pcm_{int(time.time() * 1000)}.wav"
         try:
@@ -866,7 +933,8 @@ class ASR:
                 w.setframerate(sample_rate)
                 w.writeframes(pcm)
             return self.transcribe(str(tmp))
-        except Exception:
+        except Exception as e:
+            self.last_error = f"PCM 转写失败：{type(e).__name__}: {e}"
             return ""
         finally:
             try:
@@ -942,6 +1010,39 @@ class VoiceEngine:
 
     def set_emotion(self, emotion: str):
         self.emotion = emotion
+
+    def list_voices(self, lang: str = "") -> list:
+        try:
+            return list_voices(lang)
+        except Exception as e:
+            self.tts.last_error = f"list_voices: {type(e).__name__}: {e}"
+            return []
+
+    def set_voice(self, voice_name: str) -> bool:
+        try:
+            v = (voice_name or "").strip()
+            if not v:
+                self.tts.last_error = "set_voice: empty voice id"
+                return False
+            if not any(x["id"] == v for x in VOICES):
+                self.tts.last_error = f"set_voice: unknown voice {v}"
+                return False
+            self.tts.set_default_voice(v)
+            return True
+        except Exception as e:
+            self.tts.last_error = f"set_voice: {type(e).__name__}: {e}"
+            return False
+
+    def current_voice(self) -> str:
+        try:
+            return self.tts.get_default_voice()
+        except Exception:
+            return "zh-CN-XiaoxiaoNeural"
+
+    def voice_status(self) -> dict:
+        return {"tts": self.tts.last_error or "ok",
+                "asr": self.asr.status(),
+                "voices": len(VOICES)}
 
     def say(self, text: str, character: str = None, emotion: str = None) -> dict:
         ch = character or self.character

@@ -32,6 +32,7 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
   bool _connected = false;
   bool _playing = false;
   bool _inputFocused = false;
+  bool _listening = false;
   int _charCount = 0;
   String _stage = '';
   String _version = '';
@@ -195,11 +196,6 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       if (!mounted) return;
       setState(() {
         _connected = true;
-        // 这里原来显示的是「成长模块的基底权重状态」（stage），
-        // 那是微调用的底座，跟当前推理用的模型完全是两件事 ——
-        // 结果就是模型商店里明明已经切到本地模型，聊天页头上却写着
-        // 「尚未安装基底模型」，让人以为模型没加载成功。
-        // 改为直接显示当前推理模型。
         _stage = s.displayModel;
         _version = s.displayVersion;
       });
@@ -371,7 +367,8 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
     if (_speaking.contains(msgId)) return;
     setState(() => _speaking.add(msgId));
     try {
-      final result = await XlClient.stub.readAloudBytes(text);
+      final rate = await _ttsRateLabel();
+      final result = await XlClient.stub.readAloudBytes(text, rate: rate);
       if (!mounted || !result.success || result.bytes.isEmpty) return;
       final dir = await getTemporaryDirectory();
       final f = File('${dir.path}/xl_tts_$msgId.mp3');
@@ -401,6 +398,77 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
       return;
     }
     await _speak(text, msgId);
+  }
+
+  Future<String> _ttsRateLabel() async {
+    try {
+      final data = await LocalStore.readJson('channels.json');
+      final sliders = data['sliders'];
+      double speed = 0.55;
+      if (sliders is Map && sliders['speed'] is num) {
+        speed = (sliders['speed'] as num).toDouble().clamp(0.0, 1.0);
+      }
+      final pct = ((speed - 0.5) * 100).round().clamp(-40, 50);
+      return pct == 0 ? '+0%' : (pct > 0 ? '+${pct}%' : '${pct}%');
+    } catch (_) {
+      return '+0%';
+    }
+  }
+
+  Future<void> _startListening() async {
+    if (_listening || _busy) return;
+    setState(() => _listening = true);
+    final p = XlPalette.of(context);
+    try {
+      final r = await XlClient.stub.transcribeAudio(null, seconds: 6);
+      if (!mounted) return;
+      if (r.ok && r.text.trim().isNotEmpty) {
+        final existing = _input.text;
+        _input.text = existing.isEmpty
+            ? r.text.trim()
+            : '${existing.trimRight()} ${r.text.trim()}';
+        _input.selection = TextSelection.fromPosition(
+            TextPosition(offset: _input.text.length));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: p.surface,
+          elevation: 0,
+          duration: const Duration(milliseconds: 1400),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+          content: Row(children: [
+            Icon(Icons.mic_rounded, color: p.green, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text('已识别语音内容',
+                style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700))),
+          ]),
+        ));
+        _inputFocus.requestFocus();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: p.surface,
+          elevation: 0,
+          duration: const Duration(milliseconds: 2200),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+          content: Row(children: [
+            Icon(Icons.mic_off_rounded, color: p.red, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text(r.error.isEmpty ? '语音识别未配置' : r.error,
+                style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700))),
+          ]),
+        ));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        content: Text('语音识别未配置',
+            style: TextStyle(color: p.text1, fontSize: XlFont.captionSm)),
+      ));
+    } finally {
+      if (mounted) setState(() => _listening = false);
+    }
   }
 
   void _scrollBottom({bool force = false}) {
@@ -1814,11 +1882,13 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
                   height: XlLineHeight.relaxed,
                 ),
                 decoration: InputDecoration(
-                  hintText: _busy ? '小凌正在打字…' : '和小凌说句话…',
+                  hintText: _listening
+                      ? '正在聆听，请对着麦克风说话…'
+                      : (_busy ? '小凌正在打字…' : '和小凌说句话…'),
                   hintStyle: TextStyle(
                     fontSize: XlFont.bodySm,
-                    color: p.decor,
-                    fontWeight: FontWeight.w500,
+                    color: _listening ? p.pink : p.decor,
+                    fontWeight: FontWeight.w600,
                   ),
                   border: InputBorder.none,
                   isDense: true,
@@ -1827,8 +1897,36 @@ class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
               ),
             ),
           ),
+          _micBtn(p),
+          const SizedBox(width: 6),
           _focusBtn(p),
         ],
+      ),
+    );
+  }
+
+  Widget _micBtn(XlPalette p) {
+    final color = _listening ? p.pink : p.text2;
+    return _Pressable(
+      onTap: (_listening || _busy) ? null : _startListening,
+      scale: 0.9,
+      child: AnimatedContainer(
+        duration: XlDuration.fast,
+        width: 36,
+        height: 36,
+        decoration: _listening
+            ? BoxDecoration(
+                color: p.pink.withOpacity(0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: p.pink.withOpacity(0.6), width: 1.4),
+              )
+            : AppTheme.neuXs(context, r: XlRadius.sm),
+        child: _listening
+            ? Padding(
+                padding: const EdgeInsets.all(9),
+                child: CircularProgressIndicator(strokeWidth: 2, color: p.pink),
+              )
+            : Icon(Icons.mic_rounded, size: 17, color: color),
       ),
     );
   }

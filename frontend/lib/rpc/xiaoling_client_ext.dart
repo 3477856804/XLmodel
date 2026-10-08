@@ -438,16 +438,16 @@ extension XlApiVoices on XiaoLingClient {
 }
 
 extension XlApiAudio on XiaoLingClient {
-  Stream<AudioChunk> readAloudRaw(String text, {XlCallOptions opt = XlCallOptions.none}) {
-    return readAloud(ReadRequest(text: text), options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!));
+  Stream<AudioChunk> readAloudRaw(String text, {XlCallOptions opt = XlCallOptions.none, String rate = ''}) {
+    return readAloud(ReadRequest(text: text, rate: rate), options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!));
   }
 
-  Future<XlAudioResult> readAloudBytes(String text, {XlCallOptions opt = XlCallOptions.none}) async {
+  Future<XlAudioResult> readAloudBytes(String text, {XlCallOptions opt = XlCallOptions.none, String rate = ''}) async {
     final sw = Stopwatch()..start();
     final chunks = <int>[];
     var count = 0;
     try {
-      final req = ReadRequest(text: text);
+      final req = ReadRequest(text: text, rate: rate);
       await for (final c in readAloud(req, options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!))) {
         count++;
         chunks.addAll(c.data);
@@ -475,13 +475,14 @@ extension XlApiAudio on XiaoLingClient {
   Stream<XlAudioStreamProgress> readAloudProgress(
     String text, {
     XlCallOptions opt = XlCallOptions.none,
+    String rate = '',
     void Function(Uint8List chunk)? onChunk,
   }) async* {
     final sw = Stopwatch()..start();
     var chunks = 0;
     var bytes = 0;
     try {
-      final req = ReadRequest(text: text);
+      final req = ReadRequest(text: text, rate: rate);
       await for (final c in readAloud(req, options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!))) {
         chunks++;
         bytes += c.data.length;
@@ -501,9 +502,51 @@ extension XlApiAudio on XiaoLingClient {
     }
   }
 
-  Future<Uint8List> readAloudQuick(String text, {XlCallOptions opt = XlCallOptions.none}) async {
-    final r = await readAloudBytes(text, opt: opt);
+  Future<Uint8List> readAloudQuick(String text, {XlCallOptions opt = XlCallOptions.none, String rate = ''}) async {
+    final r = await readAloudBytes(text, opt: opt, rate: rate);
     return r.bytes;
+  }
+}
+
+class XlTranscribeResult {
+  final String text;
+  final bool ok;
+  final String error;
+  final bool recorded;
+  final int durationMs;
+  const XlTranscribeResult({
+    required this.text,
+    required this.ok,
+    required this.error,
+    required this.recorded,
+    required this.durationMs,
+  });
+  static const unavailable = XlTranscribeResult(
+    text: '', ok: false, error: '语音识别未配置', recorded: false, durationMs: 0);
+}
+
+extension XlApiAsr on XiaoLingClient {
+  Future<XlTranscribeResult> transcribeAudio(
+    Uint8List? audio, {
+    int seconds = 5,
+    String lang = 'zh',
+    XlCallOptions opt = XlCallOptions.fast,
+  }) async {
+    try {
+      final req = TranscribeRequest(lang: lang, seconds: seconds);
+      if (audio != null && audio.isNotEmpty) req.audio = audio;
+      final r = await transcribe(req, options: opt.timeout == null ? null : CallOptions(timeout: opt.timeout!));
+      return XlTranscribeResult(
+        text: r.text,
+        ok: r.ok,
+        error: r.error,
+        recorded: r.recorded,
+        durationMs: r.durationMs,
+      );
+    } catch (e) {
+      return const XlTranscribeResult(
+          text: '', ok: false, error: '语音识别未配置', recorded: false, durationMs: 0);
+    }
   }
 }
 
