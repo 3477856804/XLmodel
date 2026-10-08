@@ -18,8 +18,15 @@ class _TerminalPanelState extends State<TerminalPanel> {
   bool _connected = false;
   bool _creating = false;
   String? _error;
+  String _permissionLevel = 'default';
   StreamSubscription<pb.TerminalOutput>? _sub;
   static final RegExp _ansi = RegExp(r'\x1B\[[0-9;?]*[ -/]*[@-~]');
+
+  static const List<Map<String, dynamic>> _permLevels = [
+    {'value': 'readonly', 'label': '只读', 'colorField': 'gold', 'icon': Icons.lock_outline_rounded},
+    {'value': 'default', 'label': '默认', 'colorField': 'pink', 'icon': Icons.shield_outlined},
+    {'value': 'full', 'label': '完全', 'colorField': 'red', 'icon': Icons.shield_outlined},
+  ];
 
   @override
   void initState() {
@@ -67,6 +74,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
       _creating = false;
       _lines.clear();
       _lines.add('小凌终端已连接 · 会话 ${_shortId(resp.id)}');
+      _lines.add('沙箱权限: ${_permLabel(_permissionLevel)}');
       setState(() {});
       _subscribe();
     } catch (e) {
@@ -128,11 +136,39 @@ class _TerminalPanelState extends State<TerminalPanel> {
     });
   }
 
+  String _permLabel(String level) {
+    switch (level) {
+      case 'readonly': return '只读';
+      case 'full': return '完全';
+      default: return '默认';
+    }
+  }
+
+  Color _permColor(XlPalette p, String level) {
+    switch (level) {
+      case 'readonly': return p.gold;
+      case 'full': return p.red;
+      default: return p.pink;
+    }
+  }
+
+  IconData _permIcon(String level) {
+    switch (level) {
+      case 'readonly': return Icons.lock_outline_rounded;
+      case 'full': return Icons.warning_amber_rounded;
+      default: return Icons.shield_outlined;
+    }
+  }
+
   Future<void> _send(String cmd) async {
     final id = _sessionId;
     if (id == null || id.isEmpty) return;
     if (cmd.trim().isNotEmpty) {
-      setState(() => _lines.add('\$ $cmd'));
+      final permTag = _permissionLevel == 'readonly' ? ' [只读]' : _permissionLevel == 'full' ? ' [完全]' : '';
+      setState(() => _lines.add('\$$permTag $cmd'));
+      if (_permissionLevel == 'readonly') {
+        setState(() => _lines.add('[只读模式] 命令将被执行，但写入操作可能被沙箱拒绝'));
+      }
     }
     _inputCtrl.clear();
     try {
@@ -144,6 +180,15 @@ class _TerminalPanelState extends State<TerminalPanel> {
       if (!mounted) return;
       setState(() => _lines.add('[发送失败] $e'));
     }
+    _scrollToBottom();
+  }
+
+  void _changePermission(String level) {
+    if (_permissionLevel == level) return;
+    setState(() {
+      _permissionLevel = level;
+      _lines.add('权限切换 → ${_permLabel(level)}');
+    });
     _scrollToBottom();
   }
 
@@ -184,6 +229,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
 
   Widget _statusBar(XlPalette p) {
     final dot = _connected ? p.green : p.red;
+    final permColor = _permColor(p, _permissionLevel);
     return Row(
       children: [
         Container(
@@ -215,11 +261,61 @@ class _TerminalPanelState extends State<TerminalPanel> {
             ),
           ),
         ),
+        const SizedBox(width: 8),
+        _permChip(p, permColor),
         const Spacer(),
         _statusBtn(p, Icons.add_rounded, '新建', p.gold, () => _restart()),
         const SizedBox(width: 8),
         _statusBtn(p, Icons.close_rounded, '关闭', p.pink, () => _shutdownAndClear()),
       ],
+    );
+  }
+
+  Widget _permChip(XlPalette p, Color permColor) {
+    return PopupMenuButton<String>(
+      tooltip: '切换沙箱权限',
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+      color: p.surface,
+      onSelected: _changePermission,
+      itemBuilder: (ctx) => _permLevels.map((level) {
+        final v = level['value'] as String;
+        final l = level['label'] as String;
+        final isSelected = v == _permissionLevel;
+        return PopupMenuItem<String>(
+          value: v,
+          child: Row(
+            children: [
+              Icon(
+                isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                size: 16,
+                color: isSelected ? permColor : p.text3,
+              ),
+              const SizedBox(width: 8),
+              Text(l, style: TextStyle(fontSize: XlFont.captionSm, color: p.text1, fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600)),
+            ],
+          ),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: AppTheme.pill(context, color: permColor),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(_permIcon(_permissionLevel), size: 10, color: permColor),
+            const SizedBox(width: 4),
+            Text(
+              _permLabel(_permissionLevel),
+              style: TextStyle(
+                fontSize: XlFont.micro,
+                fontWeight: FontWeight.w800,
+                color: permColor,
+                letterSpacing: XlLetterSpacing.wider,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -329,11 +425,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
   }
 
   Widget _inputArea(XlPalette p) {
+    final permColor = _permColor(p, _permissionLevel);
     return Container(
       decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Row(
         children: [
+          Icon(_permIcon(_permissionLevel), size: 13, color: permColor),
+          const SizedBox(width: 6),
           Text('\$ ',
               style: TextStyle(
                 fontFamily: 'monospace',

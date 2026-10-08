@@ -1,337 +1,339 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
-import '../rpc/xiaoling_client_ext.dart';
-import '../rpc/xiaoling.pb.dart' as pb;
+import '../rpc/xiaoling.pb.dart';
+import '../services/local_store.dart';
 
 class CustomAgent {
   String name;
   String description;
   String systemPrompt;
-  String model;
-  List<String> tools;
-  int maxSteps;
-  double temperature;
-  bool isDefault;
+  List<String> skills;
+  String permissionLevel;
+  List<String> toolNames;
+  final DateTime createdAt;
   CustomAgent({
     required this.name,
     required this.description,
     required this.systemPrompt,
-    required this.model,
-    required this.tools,
-    required this.maxSteps,
-    required this.temperature,
-    this.isDefault = false,
-  });
+    required this.skills,
+    required this.permissionLevel,
+    required this.toolNames,
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'description': description,
         'systemPrompt': systemPrompt,
-        'model': model,
-        'tools': tools,
-        'maxSteps': maxSteps,
-        'temperature': temperature,
-        'isDefault': isDefault,
+        'skills': skills,
+        'permissionLevel': permissionLevel,
+        'toolNames': toolNames,
+        'createdAt': createdAt.toIso8601String(),
       };
 
-  factory CustomAgent.fromJson(Map<String, dynamic> j) => CustomAgent(
-        name: j['name'] as String? ?? '',
-        description: j['description'] as String? ?? '',
-        systemPrompt: j['systemPrompt'] as String? ?? '',
-        model: j['model'] as String? ?? '',
-        tools: (j['tools'] as List? ?? []).map((e) => e.toString()).toList(),
-        maxSteps: (j['maxSteps'] as num? ?? 12).toInt(),
-        temperature: (j['temperature'] as num? ?? 0.7).toDouble(),
-        isDefault: j['isDefault'] as bool? ?? false,
-      );
+  factory CustomAgent.fromJson(Map<String, dynamic> json) {
+    DateTime? created;
+    final rawTime = json['createdAt'];
+    if (rawTime is String) created = DateTime.tryParse(rawTime);
+    final rawSkills = json['skills'];
+    final rawTools = json['toolNames'];
+    return CustomAgent(
+      name: json['name'].toString(),
+      description: json['description'].toString(),
+      systemPrompt: json['systemPrompt'].toString(),
+      skills: rawSkills is List ? rawSkills.map((e) => e.toString()).toList() : [],
+      permissionLevel: json['permissionLevel']?.toString() ?? 'default',
+      toolNames: rawTools is List ? rawTools.map((e) => e.toString()).toList() : [],
+      createdAt: created,
+    );
+  }
 }
 
 class AgentCreator extends StatefulWidget {
-  final String dataPath;
-  const AgentCreator({super.key, this.dataPath = 'data/custom_agents.json'});
-
+  const AgentCreator({super.key});
   @override
   State<AgentCreator> createState() => _AgentCreatorState();
 }
 
-class _AgentCreatorState extends State<AgentCreator> {
-  static const List<String> _toolOptions = [
-    '文件读取',
-    '文件写入',
-    '终端',
-    '搜索',
-    '浏览器',
-    'MCP工具',
-    'Git',
+class _AgentCreatorState extends State<AgentCreator> with TickerProviderStateMixin {
+  final List<CustomAgent> _agents = [];
+  final Set<String> _expanded = {};
+  bool _loading = true;
+  String? _loadError;
+
+  static const List<Map<String, String>> _availableTools = [
+    {'name': 'list_dir', 'label': '列目录', 'group': '文件'},
+    {'name': 'read_file', 'label': '读文件', 'group': '文件'},
+    {'name': 'write_file', 'label': '写文件', 'group': '文件'},
+    {'name': 'search_code', 'label': '代码搜索', 'group': '搜索'},
+    {'name': 'run_command', 'label': '执行命令', 'group': '沙箱'},
+    {'name': 'run_sandboxed', 'label': '沙箱执行', 'group': '沙箱'},
+    {'name': 'browser_action', 'label': '浏览器动作', 'group': '浏览器'},
+    {'name': 'browser_route', 'label': '浏览器导航', 'group': '浏览器'},
+    {'name': 'browser_screenshot', 'label': '截图', 'group': '浏览器'},
+    {'name': 'browser_click', 'label': '点击', 'group': '浏览器'},
+    {'name': 'browser_fill', 'label': '填表', 'group': '浏览器'},
+    {'name': 'browser_evaluate', 'label': 'JS执行', 'group': '浏览器'},
+    {'name': 'browser_console', 'label': '控制台', 'group': '浏览器'},
+    {'name': 'memory_store', 'label': '记忆存储', 'group': '记忆'},
+    {'name': 'semantic_search', 'label': '语义搜索', 'group': '记忆'},
   ];
 
-  final TextEditingController _nameCtrl = TextEditingController();
-  final TextEditingController _descCtrl = TextEditingController();
-  final TextEditingController _promptCtrl = TextEditingController();
-  final TextEditingController _stepsCtrl = TextEditingController(text: '12');
+  static const List<Map<String, String>> _permissionLevels = [
+    {'value': 'readonly', 'label': '只读', 'desc': '仅读取文件和搜索，无写入/执行权限'},
+    {'value': 'default', 'label': '默认', 'desc': '可写文件、可在沙箱内执行命令'},
+    {'value': 'full', 'label': '完全', 'desc': '完全权限，可执行任意命令'},
+  ];
 
-  List<CustomAgent> _agents = [];
-  final List<String> _modelOptions = [];
-  String _selectedModel = '';
-  bool _modelsLoading = true;
-  bool _testRunning = false;
-  Set<String> _selectedTools = {'文件读取', '终端'};
-  double _temperature = 0.7;
-  int? _editingIndex;
-  bool _loading = true;
+  late AnimationController _enterCtrl;
 
   @override
   void initState() {
     super.initState();
+    _enterCtrl = AnimationController(duration: const Duration(milliseconds: 400), vsync: this);
+    _enterCtrl.forward();
     _load();
-    _loadModels();
   }
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
-    _descCtrl.dispose();
-    _promptCtrl.dispose();
-    _stepsCtrl.dispose();
+    _enterCtrl.dispose();
     super.dispose();
-  }
-
-  File get _file => File(widget.dataPath);
-
-  Future<void> _loadModels() async {
-    try {
-      final res = await XlClient.stub.installedModels();
-      if (!mounted) return;
-      setState(() {
-        _modelOptions
-          ..clear()
-          ..addAll(res.models.map((m) => m.name).where((n) => n.isNotEmpty));
-        if (_selectedModel.isEmpty && _modelOptions.isNotEmpty) {
-          _selectedModel = _modelOptions.first;
-        }
-        _modelsLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _modelsLoading = false);
-    }
   }
 
   Future<void> _load() async {
     try {
-      if (await _file.exists()) {
-        final raw = await _file.readAsString();
-        if (raw.trim().isNotEmpty) {
-          final list = jsonDecode(raw) as List;
-          _agents = list.map((e) => CustomAgent.fromJson(e as Map<String, dynamic>)).toList();
+      final data = await LocalStore.readJson('custom_agents.json');
+      if (!mounted) return;
+      final raw = data['agents'];
+      if (raw is List) {
+        final loaded = <CustomAgent>[];
+        for (final a in raw) {
+          if (a is Map) loaded.add(CustomAgent.fromJson(Map<String, dynamic>.from(a)));
         }
+        setState(() => _agents
+          ..clear()
+          ..addAll(loaded));
       }
-    } catch (_) {
-      _agents = [];
+      setState(() => _loading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e.toString();
+        _loading = false;
+      });
     }
-    if (!mounted) return;
-    setState(() => _loading = false);
   }
 
   Future<void> _persist() async {
+    await LocalStore.writeJson('custom_agents.json', {
+      'agents': _agents.map((a) => a.toJson()).toList(),
+    });
+  }
+
+  Future<void> _openEditor({CustomAgent? existing}) async {
+    final result = await showModalBottomSheet<CustomAgent>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AgentEditorSheet(
+        existing: existing,
+        availableTools: _availableTools,
+        permissionLevels: _permissionLevels,
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        final idx = _agents.indexWhere((a) => a.name == result.name);
+        if (idx >= 0) {
+          _agents[idx] = result;
+        } else {
+          _agents.add(result);
+        }
+      });
+      await _persist();
+    }
+  }
+
+  Future<void> _testAgent(CustomAgent agent) async {
+    final p = XlPalette.of(context);
+    final taskCtrl = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.lg)),
+        title: Text('测试 ${agent.name}',
+            style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: taskCtrl,
+            autofocus: true,
+            maxLines: 3,
+            style: TextStyle(fontSize: XlFont.bodySm, color: p.text1),
+            decoration: InputDecoration(
+              hintText: '输入测试任务…',
+              hintStyle: TextStyle(color: p.decor),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('取消', style: TextStyle(color: p.text3))),
+          TextButton(onPressed: () => Navigator.pop(ctx, taskCtrl.text.trim()), child: Text('运行', style: TextStyle(color: p.pink))),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty) return;
+
+    final ctxData = jsonEncode({
+      'agent_name': agent.name,
+      'permission_level': agent.permissionLevel,
+      'tool_names': agent.toolNames,
+      'system_prompt': agent.systemPrompt,
+    });
+
     try {
-      await _file.parent.create(recursive: true);
-      final encoded = jsonEncode(_agents.map((e) => e.toJson()).toList());
-      await _file.writeAsString(encoded);
+      final stream = XlClient.stub.agentStart(AgentRequest(
+        task: result,
+        context: ctxData,
+        autonomous: true,
+        maxSteps: 20,
+      ));
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => _TestRunDialog(stream: stream, agentName: agent.name),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('启动失败: $e')));
     }
   }
 
-  void _resetForm() {
-    _nameCtrl.clear();
-    _descCtrl.clear();
-    _promptCtrl.clear();
-    _stepsCtrl.text = '12';
-    _selectedModel = _modelOptions.isNotEmpty ? _modelOptions.first : '';
-    _selectedTools = {'文件读取', '终端'};
-    _temperature = 0.7;
-    _editingIndex = null;
-  }
-
-  Future<void> _save() async {
-    final name = _nameCtrl.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入 Agent 名称')));
-      return;
-    }
-    final agent = CustomAgent(
-      name: name,
-      description: _descCtrl.text.trim(),
-      systemPrompt: _promptCtrl.text,
-      model: _selectedModel,
-      tools: _selectedTools.toList(),
-      maxSteps: int.tryParse(_stepsCtrl.text.trim()) ?? 12,
-      temperature: _temperature,
-    );
-    setState(() {
-      if (_editingIndex != null && _editingIndex! >= 0 && _editingIndex! < _agents.length) {
-        agent.isDefault = _agents[_editingIndex!].isDefault;
-        _agents[_editingIndex!] = agent;
-      } else {
-        if (_agents.isEmpty) agent.isDefault = true;
-        _agents.add(agent);
-      }
-    });
-    await _persist();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已保存 Agent: $name')));
-    _resetForm();
-  }
-
-  void _edit(int i) {
-    final a = _agents[i];
-    setState(() {
-      _editingIndex = i;
-      _nameCtrl.text = a.name;
-      _descCtrl.text = a.description;
-      _promptCtrl.text = a.systemPrompt;
-      _stepsCtrl.text = '${a.maxSteps}';
-      if (a.model.isNotEmpty && !_modelOptions.contains(a.model)) {
-        _modelOptions.add(a.model);
-      }
-      _selectedModel = a.model.isEmpty
-          ? (_modelOptions.isNotEmpty ? _modelOptions.first : '')
-          : a.model;
-      _selectedTools = Set.from(a.tools);
-      _temperature = a.temperature;
-    });
-  }
-
-  Future<void> _delete(int i) async {
-    setState(() {
-      _agents.removeAt(i);
-    });
-    await _persist();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已删除')));
-  }
-
-  Future<void> _setDefault(int i) async {
-    setState(() {
-      for (var j = 0; j < _agents.length; j++) {
-        _agents[j].isDefault = j == i;
-      }
-    });
-    await _persist();
-  }
-
-  Future<void> _testRun() async {
-    final name = _nameCtrl.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先填写 Agent 名称')));
-      return;
-    }
-    if (_testRunning) return;
-    setState(() => _testRunning = true);
-    final lines = <String>[];
-    void Function(void Function())? setDialog;
-    showDialog(
+  Future<void> _deleteAgent(CustomAgent agent) async {
+    final p = XlPalette.of(context);
+    final ok = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogCtx) {
-        final p = XlPalette.of(dialogCtx);
-        return StatefulBuilder(
-          builder: (dialogCtx, setDialogFn) {
-            setDialog = setDialogFn;
-            return AlertDialog(
-              backgroundColor: p.surface,
-              title: Text('测试运行 · $name',
-                  style: TextStyle(color: p.text1, fontWeight: FontWeight.w800)),
-              content: SizedBox(
-                width: 420,
-                height: 320,
-                child: lines.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: p.pink)),
-                            const SizedBox(height: 12),
-                            Text('正在调用 AgentStart…',
-                                style: TextStyle(color: p.text3, fontSize: XlFont.captionSm)),
-                          ],
-                        ),
-                      )
-                    : SingleChildScrollView(
-                        child: Text(lines.join('\n'),
-                            style: TextStyle(
-                                color: p.text2,
-                                fontFamily: 'monospace',
-                                fontSize: XlFont.captionSm,
-                                height: XlLineHeight.relaxed)),
-                      ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogCtx).pop(),
-                  child: Text('关闭', style: TextStyle(color: p.pink)),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.lg)),
+        title: Text('删除 Agent', style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
+        content: Text('确定删除「${agent.name}」？此操作不可撤销。', style: TextStyle(fontSize: XlFont.bodySm, color: p.text2)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('取消', style: TextStyle(color: p.text3))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('删除', style: TextStyle(color: p.red))),
+        ],
+      ),
     );
-    try {
-      final stream = XlClient.stub.agentStart(pb.AgentRequest(
-        task: '你好，请用一句话向我介绍你自己。',
-        context: _promptCtrl.text,
-        maxSteps: 5,
-      ));
-      await for (final ev in stream) {
-        if (ev.error.isNotEmpty) {
-          lines.add('[错误] ${ev.error}');
-        } else if (ev.content.isNotEmpty) {
-          lines.add(ev.content);
-        } else if (ev.toolName.isNotEmpty) {
-          lines.add('[工具] ${ev.toolName}');
-        }
-        setDialog?.call(() {});
-      }
-      if (lines.isEmpty) lines.add('未收到任何事件，后端可能未启动 Agent 运行时');
-    } catch (e) {
-      lines.add('[失败] $e');
+    if (ok == true) {
+      setState(() => _agents.removeWhere((a) => a.name == agent.name));
+      await _persist();
     }
-    setDialog?.call(() {});
-    if (mounted) setState(() => _testRunning = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-    }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      children: [
+        _header(p),
+        const SizedBox(height: 12),
+        Expanded(child: _body(p)),
+      ],
+    );
+  }
+
+  Widget _header(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neu(context, r: XlRadius.xl),
+      child: Row(
         children: [
-          _formCard(p),
-          const SizedBox(height: 18),
-          _savedCard(p),
+          Icon(Icons.smart_toy_rounded, size: 18, color: p.pink),
+          const SizedBox(width: 8),
+          Text('自定义 Agent',
+              style: TextStyle(
+                fontSize: XlFont.h6,
+                fontWeight: FontWeight.w800,
+                color: p.text1,
+                letterSpacing: XlLetterSpacing.normal,
+              )),
+          const Spacer(),
+          _Pressable(
+            onTap: () => _openEditor(),
+            scale: 0.95,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: AppTheme.btn(context, r: XlRadius.pill),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_rounded, size: 16, color: p.btnInk),
+                  const SizedBox(width: 4),
+                  Text('新建 Agent',
+                      style: TextStyle(
+                        fontSize: XlFont.label,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _formCard(XlPalette p) {
+  Widget _body(XlPalette p) {
+    if (_loading) return Center(child: CircularProgressIndicator(color: p.pink));
+    if (_loadError != null) return Center(child: Text('加载失败: $_loadError', style: TextStyle(color: p.red)));
+    if (_agents.isEmpty) return _emptyState(p);
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+      itemCount: _agents.length,
+      itemBuilder: (_, i) => _agentCard(p, _agents[i]),
+    );
+  }
+
+  Widget _emptyState(XlPalette p) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: AppTheme.brandOrbLg(context, size: 80),
+            child: Icon(Icons.smart_toy_rounded, size: 32, color: p.btnInk),
+          ),
+          const SizedBox(height: 16),
+          Text('暂无自定义 Agent',
+              style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
+          const SizedBox(height: 6),
+          Text('创建一个专属 Agent 来自动化你的工作流',
+              style: TextStyle(fontSize: XlFont.captionSm, color: p.text3)),
+        ],
+      ),
+    );
+  }
+
+  Widget _agentCard(XlPalette p, CustomAgent agent) {
+    final expanded = _expanded.contains(agent.name);
+    final permInfo = _permissionLevels.firstWhere(
+      (e) => e['value'] == agent.permissionLevel,
+      orElse: () => {'label': agent.permissionLevel, 'desc': ''},
+    );
     return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neu(context, r: XlRadius.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -340,493 +342,525 @@ class _AgentCreatorState extends State<AgentCreator> {
               Container(
                 width: 36,
                 height: 36,
-                decoration: AppTheme.brandOrb(context, size: 36),
-                child: Icon(Icons.smart_toy_outlined, size: 18, color: p.btnInk),
+                decoration: AppTheme.orb(context, size: 36, color: p.pinkSoft),
+                child: Icon(Icons.psychology_rounded, size: 18, color: p.pink),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(_editingIndex != null ? '编辑 Agent' : '创建自定义 Agent',
-                        style: TextStyle(
-                          fontSize: XlFont.h6,
-                          fontWeight: FontWeight.w800,
-                          color: p.text1,
-                          letterSpacing: XlLetterSpacing.normal,
-                        )),
-                    const SizedBox(height: 2),
-                    Text('定义专属助手的人格、能力与边界',
-                        style: TextStyle(
-                          fontSize: XlFont.label,
-                          color: p.text3,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: XlLetterSpacing.wider,
-                        )),
+                    Text(agent.name,
+                        style: TextStyle(fontSize: XlFont.body, fontWeight: FontWeight.w800, color: p.text1)),
+                    Text(agent.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: XlFont.captionSm, color: p.text3)),
                   ],
                 ),
               ),
+              IconButton(
+                icon: Icon(Icons.play_arrow_rounded, size: 20, color: p.gold),
+                onPressed: () => _testAgent(agent),
+                tooltip: '测试运行',
+              ),
+              IconButton(
+                icon: Icon(Icons.edit_rounded, size: 18, color: p.text2),
+                onPressed: () => _openEditor(existing: agent),
+                tooltip: '编辑',
+              ),
+              IconButton(
+                icon: Icon(Icons.delete_outline_rounded, size: 18, color: p.red),
+                onPressed: () => _deleteAgent(agent),
+                tooltip: '删除',
+              ),
             ],
           ),
-          const SizedBox(height: 20),
-          _label(p, 'Agent 名称'),
-          const SizedBox(height: 8),
-          _sunkenField(p, controller: _nameCtrl, hint: '例如：代码审查助手'),
-          const SizedBox(height: 16),
-          _label(p, '描述'),
-          const SizedBox(height: 8),
-          _sunkenField(p, controller: _descCtrl, hint: '一句话说明这个 Agent 负责什么', maxLines: 2),
-          const SizedBox(height: 16),
-          _label(p, '系统提示词'),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: AppTheme.screen(context, r: XlRadius.md),
-            child: TextField(
-              controller: _promptCtrl,
-              maxLines: 6,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: XlFont.captionSm,
-                color: p.text1,
-                height: XlLineHeight.normal,
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: AppTheme.pill(context, color: p.gold, r: XlRadius.pill),
+                child: Text('权限: ${permInfo['label']}',
+                    style: TextStyle(fontSize: XlFont.micro, color: p.gold, fontWeight: FontWeight.w800)),
               ),
-              decoration: InputDecoration(
-                border: InputBorder.none,
-                hintText: '你是一个严谨的代码审查助手，重点关注安全性与性能…',
-                hintStyle: TextStyle(
-                  fontFamily: 'monospace',
-                  color: p.text3,
-                  fontSize: XlFont.captionSm,
-                ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: AppTheme.pill(context, color: p.pink, r: XlRadius.pill),
+                child: Text('工具: ${agent.toolNames.length}',
+                    style: TextStyle(fontSize: XlFont.micro, color: p.pink, fontWeight: FontWeight.w800)),
+              ),
+              const Spacer(),
+              _Pressable(
+                onTap: () => setState(() {
+                  if (expanded) {
+                    _expanded.remove(agent.name);
+                  } else {
+                    _expanded.add(agent.name);
+                  }
+                }),
+                child: Icon(expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 18, color: p.text3),
+              ),
+            ],
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('系统提示词', style: TextStyle(fontSize: XlFont.micro, color: p.text3, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(agent.systemPrompt, style: TextStyle(fontSize: XlFont.captionSm, color: p.text2, height: XlLineHeight.normal)),
+                  const SizedBox(height: 10),
+                  Text('技能 (${agent.skills.length})', style: TextStyle(fontSize: XlFont.micro, color: p.text3, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: agent.skills.map((s) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: AppTheme.pill(context, color: p.pink, r: XlRadius.pill),
+                      child: Text(s, style: TextStyle(fontSize: XlFont.micro, color: p.pink, fontWeight: FontWeight.w700)),
+                    )).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('允许工具 (${agent.toolNames.length})', style: TextStyle(fontSize: XlFont.micro, color: p.text3, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: agent.toolNames.map((t) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: AppTheme.pill(context, color: p.gold, r: XlRadius.pill),
+                      child: Text(t, style: TextStyle(fontSize: XlFont.micro, color: p.gold, fontWeight: FontWeight.w700)),
+                    )).toList(),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _modelPicker(p)),
-              const SizedBox(width: 16),
-              Expanded(child: _stepsInput(p)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _label(p, '工具集'),
-          const SizedBox(height: 8),
-          _toolsPicker(p),
-          const SizedBox(height: 16),
-          _tempRow(p),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(child: _primaryBtn(p)),
-              const SizedBox(width: 12),
-              _ghostBtn(p),
-            ],
-          ),
+          ],
         ],
       ),
     );
   }
+}
 
-  Widget _label(XlPalette p, String text) {
-    return Text(text,
-        style: TextStyle(
-          fontSize: XlFont.label,
-          fontWeight: FontWeight.w800,
-          color: p.text3,
-          letterSpacing: XlLetterSpacing.ultra,
-        ));
+class _AgentEditorSheet extends StatefulWidget {
+  final CustomAgent? existing;
+  final List<Map<String, String>> availableTools;
+  final List<Map<String, String>> permissionLevels;
+  const _AgentEditorSheet({this.existing, required this.availableTools, required this.permissionLevels});
+  @override
+  State<_AgentEditorSheet> createState() => _AgentEditorSheetState();
+}
+
+class _AgentEditorSheetState extends State<_AgentEditorSheet> {
+  late TextEditingController _nameCtrl;
+  late TextEditingController _descCtrl;
+  late TextEditingController _promptCtrl;
+  late TextEditingController _skillCtrl;
+  late List<String> _skills;
+  late String _permissionLevel;
+  late Set<String> _selectedTools;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    _nameCtrl = TextEditingController(text: e?.name ?? '');
+    _descCtrl = TextEditingController(text: e?.description ?? '');
+    _promptCtrl = TextEditingController(text: e?.systemPrompt ?? '');
+    _skillCtrl = TextEditingController();
+    _skills = List<String>.from(e?.skills ?? []);
+    _permissionLevel = e?.permissionLevel ?? 'default';
+    _selectedTools = Set<String>.from(e?.toolNames ?? []);
   }
 
-  Widget _sunkenField(XlPalette p,
-      {required TextEditingController controller, required String hint, int maxLines = 1}) {
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descCtrl.dispose();
+    _promptCtrl.dispose();
+    _skillCtrl.dispose();
+    super.dispose();
+  }
+
+  void _addSkill() {
+    final s = _skillCtrl.text.trim();
+    if (s.isNotEmpty && !_skills.contains(s)) {
+      setState(() {
+        _skills.add(s);
+        _skillCtrl.clear();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    final isDark = p.isDark;
+    final bg = isDark ? p.surface : const Color(0xFFF5F0F2);
+    final media = MediaQuery.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      decoration: AppTheme.sunken(context, r: XlRadius.md),
-      child: TextField(
-        controller: controller,
-        maxLines: maxLines,
-        style: TextStyle(
-          fontSize: XlFont.bodySm,
-          color: p.text1,
-          fontWeight: FontWeight.w600,
-        ),
-        decoration: InputDecoration(
-          border: InputBorder.none,
-          hintText: hint,
-          hintStyle: TextStyle(color: p.text3, fontSize: XlFont.bodySm),
-        ),
+      margin: EdgeInsets.only(bottom: media.viewInsets.bottom),
+      constraints: BoxConstraints(maxHeight: media.size.height * 0.85),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-    );
-  }
-
-  Widget _modelPicker(XlPalette p) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _label(p, '模型选择'),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: AppTheme.sunken(context, r: XlRadius.md),
-          child: _modelsLoading
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Row(children: [
-                    SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: p.decor)),
-                    const SizedBox(width: 10),
-                    Text('加载模型中…',
-                        style: TextStyle(fontSize: XlFont.bodySm, color: p.decor)),
-                  ]),
-                )
-              : _modelOptions.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text('未连接模型，请先在模型页下载',
-                          style: TextStyle(fontSize: XlFont.bodySm, color: p.decor)),
-                    )
-                  : DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _modelOptions.contains(_selectedModel)
-                            ? _selectedModel
-                            : _modelOptions.first,
-                        isExpanded: true,
-                        dropdownColor: p.surface,
-                        icon: Icon(Icons.expand_more_rounded, color: p.decor),
-                        style: TextStyle(
-                          fontSize: XlFont.bodySm,
-                          color: p.text1,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        items: _modelOptions
-                            .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                            .toList(),
-                        onChanged: (v) =>
-                            setState(() => _selectedModel = v ?? _modelOptions.first),
-                      ),
-                    ),
-        ),
-      ],
-    );
-  }
-
-  Widget _stepsInput(XlPalette p) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _label(p, '最大步数'),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          decoration: AppTheme.sunken(context, r: XlRadius.md),
-          child: TextField(
-            controller: _stepsCtrl,
-            keyboardType: TextInputType.number,
-            style: TextStyle(
-              fontSize: XlFont.bodySm,
-              color: p.text1,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: p.divider, borderRadius: BorderRadius.circular(2)),
+              ),
             ),
-            decoration: InputDecoration(
-              border: InputBorder.none,
-              hintText: '12',
-              hintStyle: TextStyle(color: p.text3, fontSize: XlFont.bodySm),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _toolsPicker(XlPalette p) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: _toolOptions.map((t) {
-        final selected = _selectedTools.contains(t);
-        return GestureDetector(
-          onTap: () => setState(() {
-            if (selected) {
-              _selectedTools.remove(t);
-            } else {
-              _selectedTools.add(t);
-            }
-          }),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: selected
-                ? AppTheme.accentSoft(context, r: XlRadius.pill)
-                : AppTheme.ghost(context, r: XlRadius.pill),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            const SizedBox(height: 16),
+            Text(widget.existing == null ? '新建 Agent' : '编辑 Agent',
+                style: TextStyle(fontSize: XlFont.h5, fontWeight: FontWeight.w800, color: p.text1)),
+            const SizedBox(height: 16),
+            _field(p, '名称', _nameCtrl, hint: '如：代码审查专家'),
+            const SizedBox(height: 12),
+            _field(p, '描述', _descCtrl, hint: '一句话描述这个 Agent 的职责'),
+            const SizedBox(height: 12),
+            _field(p, '系统提示词', _promptCtrl, hint: '定义 Agent 的行为、知识边界和工作方式…', maxLines: 5),
+            const SizedBox(height: 16),
+            Text('权限级别', style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1)),
+            const SizedBox(height: 8),
+            ...widget.permissionLevels.map((perm) => _permOption(p, perm)),
+            const SizedBox(height: 16),
+            Text('工具白名单', style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1)),
+            const SizedBox(height: 4),
+            Text('勾选此 Agent 可使用的工具（不选则允许全部）',
+                style: TextStyle(fontSize: XlFont.micro, color: p.text3)),
+            const SizedBox(height: 8),
+            _toolsGrid(p),
+            const SizedBox(height: 12),
+            Row(
               children: [
-                Icon(
-                  selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                  size: 13,
-                  color: selected ? p.pink : p.decor,
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+                    child: TextField(
+                      controller: _skillCtrl,
+                      style: TextStyle(fontSize: XlFont.captionSm, color: p.text1),
+                      decoration: InputDecoration(
+                        hintText: '添加技能标签…',
+                        hintStyle: TextStyle(fontSize: XlFont.captionSm, color: p.decor),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onSubmitted: (_) => _addSkill(),
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 6),
-                Text(t,
-                    style: TextStyle(
-                      fontSize: XlFont.captionSm,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                      color: selected ? p.pink : p.text2,
-                      letterSpacing: XlLetterSpacing.wider,
-                    )),
+                const SizedBox(width: 8),
+                IconButton(onPressed: _addSkill, icon: Icon(Icons.add_rounded, color: p.pink)),
               ],
             ),
-          ),
-        );
-      }).toList(),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _skills.map((s) => Chip(
+                label: Text(s, style: TextStyle(fontSize: XlFont.micro, color: p.pink)),
+                backgroundColor: p.pinkSoft,
+                deleteIcon: Icon(Icons.close_rounded, size: 14, color: p.pink),
+                onDeleted: () => setState(() => _skills.remove(s)),
+              )).toList(),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.pop(context), child: Text('取消', style: TextStyle(color: p.text3))),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: () {
+                    if (_nameCtrl.text.trim().isEmpty) return;
+                    Navigator.pop(context, CustomAgent(
+                      name: _nameCtrl.text.trim(),
+                      description: _descCtrl.text.trim(),
+                      systemPrompt: _promptCtrl.text.trim(),
+                      skills: _skills,
+                      permissionLevel: _permissionLevel,
+                      toolNames: _selectedTools.toList(),
+                      createdAt: widget.existing?.createdAt,
+                    ));
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: p.pink,
+                    foregroundColor: p.btnInk,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.pill)),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child: const Text('保存', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _tempRow(XlPalette p) {
+  Widget _field(XlPalette p, String label, TextEditingController ctrl, {String? hint, int maxLines = 1}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            _label(p, '温度 (Temperature)'),
-            const Spacer(),
-            Text(_temperature.toStringAsFixed(2),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: XlFont.captionSm,
-                  fontWeight: FontWeight.w800,
-                  color: p.gold,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                )),
-          ],
-        ),
-        SliderTheme(
-          data: SliderThemeData(
-            activeTrackColor: p.pink,
-            inactiveTrackColor: p.surfaceLo,
-            thumbColor: p.pink,
-            overlayColor: p.pink.withOpacity(0.15),
-            trackHeight: 3,
-          ),
-          child: Slider(
-            value: _temperature,
-            min: 0,
-            max: 2,
-            divisions: 20,
-            onChanged: (v) => setState(() => _temperature = v),
+        Text(label, style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.text1)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+          child: TextField(
+            controller: ctrl,
+            maxLines: maxLines,
+            style: TextStyle(fontSize: XlFont.captionSm, color: p.text1),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: TextStyle(fontSize: XlFont.captionSm, color: p.decor),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _primaryBtn(XlPalette p) {
-    return GestureDetector(
-      onTap: _save,
+  Widget _permOption(XlPalette p, Map<String, String> perm) {
+    final selected = _permissionLevel == perm['value'];
+    return _Pressable(
+      onTap: () => setState(() => _permissionLevel = perm['value']!),
+      scale: 0.98,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: AppTheme.btnLg(context, r: XlRadius.pill),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: selected
+            ? AppTheme.brand(context, r: XlRadius.md)
+            : AppTheme.sunkenXs(context, r: XlRadius.md),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.save_rounded, size: 16, color: p.btnInk),
-            const SizedBox(width: 8),
-            Text(_editingIndex != null ? '更新 Agent' : '保存 Agent',
-                style: TextStyle(
-                  fontSize: XlFont.caption,
-                  fontWeight: FontWeight.w800,
-                  color: p.btnInk,
-                  letterSpacing: XlLetterSpacing.wider,
-                )),
+            Icon(
+              selected ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+              size: 18,
+              color: selected ? p.btnInk : p.text3,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(perm['label']!,
+                      style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w800, color: selected ? p.btnInk : p.text1)),
+                  Text(perm['desc']!,
+                      style: TextStyle(fontSize: XlFont.micro, color: selected ? p.btnInk.withOpacity(0.8) : p.text3)),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _ghostBtn(XlPalette p) {
-    return GestureDetector(
-      onTap: _testRunning ? null : _testRun,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: AppTheme.ghost(context, r: XlRadius.pill),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _testRunning
-                ? SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: p.text1),
-                  )
-                : Icon(Icons.play_arrow_rounded, size: 16, color: p.text1),
-            const SizedBox(width: 8),
-            Text(_testRunning ? '运行中' : '测试运行',
-                style: TextStyle(
-                  fontSize: XlFont.caption,
-                  fontWeight: FontWeight.w800,
-                  color: p.text1,
-                  letterSpacing: XlLetterSpacing.wider,
-                )),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _savedCard(XlPalette p) {
+  Widget _toolsGrid(XlPalette p) {
+    final groups = <String, List<Map<String, String>>>{};
+    for (final t in widget.availableTools) {
+      final g = t['group']!;
+      groups.putIfAbsent(g, () => []).add(t);
+    }
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: AppTheme.neu(context, r: XlRadius.xxl),
+      padding: const EdgeInsets.all(10),
+      decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        children: groups.entries.map((entry) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('已保存的 Agent',
-                  style: TextStyle(
-                    fontSize: XlFont.h6,
-                    fontWeight: FontWeight.w800,
-                    color: p.text1,
-                    letterSpacing: XlLetterSpacing.normal,
-                  )),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
-                child: Text('${_agents.length}',
-                    style: TextStyle(
-                      fontSize: XlFont.label,
-                      fontWeight: FontWeight.w800,
-                      color: p.text2,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    )),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(entry.key, style: TextStyle(fontSize: XlFont.micro, color: p.text3, fontWeight: FontWeight.w800)),
               ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (_agents.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Center(
-                child: Column(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: AppTheme.brandOrb(context, size: 56),
-                      child: Icon(Icons.smart_toy_outlined, size: 24, color: p.btnInk),
-                    ),
-                    const SizedBox(height: 12),
-                    Text('暂无自定义 Agent',
-                        style: TextStyle(
-                          fontSize: XlFont.caption,
-                          color: p.text2,
-                          fontWeight: FontWeight.w700,
-                        )),
-                  ],
-                ),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: entry.value.map((tool) {
+                  final selected = _selectedTools.contains(tool['name']);
+                  return FilterChip(
+                    label: Text(tool['label']!, style: TextStyle(fontSize: XlFont.micro, color: selected ? p.btnInk : p.text2)),
+                    selected: selected,
+                    onSelected: (v) => setState(() {
+                      if (v) {
+                        _selectedTools.add(tool['name']!);
+                      } else {
+                        _selectedTools.remove(tool['name']);
+                      }
+                    }),
+                    backgroundColor: p.surface,
+                    selectedColor: p.pink,
+                    checkmarkColor: p.btnInk,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.pill)),
+                    side: BorderSide.none,
+                  );
+                }).toList(),
               ),
-            )
-          else
-            for (int i = 0; i < _agents.length; i++) ...[
-              _agentTile(p, _agents[i], i),
-              if (i != _agents.length - 1) const SizedBox(height: 10),
+              const SizedBox(height: 6),
             ],
-        ],
+          );
+        }).toList(),
       ),
     );
   }
+}
 
-  Widget _agentTile(XlPalette p, CustomAgent a, int i) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: a.isDefault ? AppTheme.accentSoft(context, r: XlRadius.lg) : AppTheme.neuXs(context, r: XlRadius.lg),
+class _TestRunDialog extends StatefulWidget {
+  final Stream<AgentEvent> stream;
+  final String agentName;
+  const _TestRunDialog({required this.stream, required this.agentName});
+  @override
+  State<_TestRunDialog> createState() => _TestRunDialogState();
+}
+
+class _TestRunDialogState extends State<_TestRunDialog> {
+  final List<AgentEvent> _events = [];
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.stream.listen((ev) {
+      if (!mounted) return;
+      setState(() {
+        _events.add(ev);
+        if (ev.done) _done = true;
+      });
+    }, onError: (e) {
+      if (!mounted) return;
+      setState(() => _done = true);
+    }, onDone: () {
+      if (!mounted) return;
+      setState(() => _done = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return AlertDialog(
+      backgroundColor: p.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.lg)),
+      title: Text('测试运行: ${widget.agentName}', style: TextStyle(fontSize: XlFont.h6, fontWeight: FontWeight.w800, color: p.text1)),
+      content: SizedBox(
+        width: 480,
+        height: 400,
+        child: _events.isEmpty
+            ? Center(child: CircularProgressIndicator(color: p.pink))
+            : ListView.builder(
+                itemCount: _events.length,
+                itemBuilder: (_, i) => _eventTile(p, _events[i]),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(_done ? '关闭' : '等待中…', style: TextStyle(color: p.pink)),
+        ),
+      ],
+    );
+  }
+
+  Widget _eventTile(XlPalette p, AgentEvent ev) {
+    IconData icon;
+    Color color;
+    switch (ev.type) {
+      case 'tool_call':
+        icon = Icons.build_rounded;
+        color = p.blue;
+        break;
+      case 'tool_result':
+        icon = Icons.check_circle_rounded;
+        color = p.green;
+        break;
+      case 'done':
+        icon = Icons.flag_rounded;
+        color = p.green;
+        break;
+      case 'error':
+        icon = Icons.error_rounded;
+        color = p.red;
+        break;
+      default:
+        icon = Icons.bubble_chart_rounded;
+        color = p.text3;
+    }
+    final body = ev.type == 'tool_call' ? ev.toolArgs : (ev.type == 'tool_result' ? ev.toolResult : ev.content);
+    final label = ev.type == 'tool_call' ? '调用 ${ev.toolName}' : ev.type;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: p.pink.withOpacity(p.isDark ? 0.14 : 0.10),
-              borderRadius: BorderRadius.circular(XlRadius.md),
-              border: Border.all(color: p.pink.withOpacity(0.3), width: 1),
-            ),
-            child: Icon(Icons.smart_toy_outlined, size: 18, color: p.pink),
-          ),
-          const SizedBox(width: 12),
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(a.name,
-                        style: TextStyle(
-                          fontSize: XlFont.caption,
-                          fontWeight: FontWeight.w800,
-                          color: p.text1,
-                          letterSpacing: XlLetterSpacing.wide,
-                        )),
-                    const SizedBox(width: 8),
-                    if (a.isDefault)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: p.gold.withOpacity(p.isDark ? 0.18 : 0.14),
-                          borderRadius: BorderRadius.circular(XlRadius.pill),
-                          border: Border.all(color: p.gold.withOpacity(0.4), width: 1),
-                        ),
-                        child: Text('默认',
-                            style: TextStyle(
-                              fontSize: XlFont.micro,
-                              fontWeight: FontWeight.w800,
-                              color: p.gold,
-                              letterSpacing: XlLetterSpacing.wider,
-                            )),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  a.description.isEmpty ? a.model : '${a.description} · ${a.model}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: XlFont.label,
-                    color: p.text3,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: XlLetterSpacing.wider,
-                  ),
-                ),
+                Text(label, style: TextStyle(fontSize: XlFont.micro, color: color, fontWeight: FontWeight.w800)),
+                if (body.isNotEmpty)
+                  Text(body.length > 200 ? '${body.substring(0, 200)}…' : body,
+                      style: TextStyle(fontSize: XlFont.micro, color: p.text2, height: XlLineHeight.normal)),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          _iconBtn(p, Icons.edit_outlined, () => _edit(i)),
-          const SizedBox(width: 6),
-          _iconBtn(p, Icons.star_outline_rounded, () => _setDefault(i), active: a.isDefault),
-          const SizedBox(width: 6),
-          _iconBtn(p, Icons.delete_outline_rounded, () => _delete(i), danger: true),
         ],
       ),
     );
   }
+}
 
-  Widget _iconBtn(XlPalette p, IconData icon, VoidCallback onTap,
-      {bool danger = false, bool active = false}) {
-    final color = danger ? p.red : (active ? p.gold : p.text2);
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.95});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: AppTheme.neuXxs(context, r: XlRadius.sm),
-        child: Icon(icon, size: 14, color: color),
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: () {
+        if (mounted) setState(() => _down = false);
+      },
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: XlDuration.micro,
+        curve: XlCurve.standard,
+        child: widget.child,
       ),
     );
   }

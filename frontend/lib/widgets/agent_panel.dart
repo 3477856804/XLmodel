@@ -442,6 +442,12 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
         if (e.toolName.contains('sub_agent') || e.toolName.contains('delegate')) {
           return _delegateCard(p, e);
         }
+        if (e.toolName == 'semantic_search') {
+          return _semanticSearchCard(p, e);
+        }
+        if (e.toolName == 'search_code' && e.toolArgs.contains('symbol')) {
+          return _symbolSearchCard(p, e);
+        }
         return _raisedCard(
           p,
           icon: Icons.build_rounded,
@@ -629,12 +635,136 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
     );
   }
 
+  Widget _semanticSearchCard(XlPalette p, AgentEvent e) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neu(context, r: XlRadius.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.psychology_alt_rounded, size: 15, color: p.gold),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('语义向量搜索',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: AppTheme.pill(context, color: p.gold, r: XlRadius.pill),
+                child: Text('embedding',
+                    style: TextStyle(fontSize: XlFont.micro, color: p.gold, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          if (e.toolArgs.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+              child: Text(_prettyJson(e.toolArgs),
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    height: XlLineHeight.normal,
+                    color: p.text2,
+                    fontFamily: 'monospace',
+                  )),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _symbolSearchCard(XlPalette p, AgentEvent e) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.neu(context, r: XlRadius.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bubble_chart_rounded, size: 15, color: p.pink),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('符号索引搜索',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: AppTheme.pill(context, color: p.pink, r: XlRadius.pill),
+                child: Text('symbol',
+                    style: TextStyle(fontSize: XlFont.micro, color: p.pink, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          if (e.toolArgs.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+              child: Text(_prettyJson(e.toolArgs),
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    height: XlLineHeight.normal,
+                    color: p.text2,
+                    fontFamily: 'monospace',
+                  )),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _toolResultCard(XlPalette p, AgentEvent e) {
     final idx = _events.indexOf(e);
     final prev = idx > 0 ? _events[idx - 1] : null;
     final isSubAgentResult = prev != null &&
         prev.type == 'tool_call' &&
         (prev.toolName.contains('sub_agent') || prev.toolName.contains('delegate'));
+    final isSemanticResult = prev != null &&
+        prev.type == 'tool_call' &&
+        prev.toolName == 'semantic_search';
+    final isSymbolResult = prev != null &&
+        prev.type == 'tool_call' &&
+        prev.toolName == 'search_code' &&
+        prev.toolArgs.contains('symbol');
+    final resultIcon = isSubAgentResult
+        ? Icons.people_alt_rounded
+        : isSemanticResult
+            ? Icons.psychology_alt_rounded
+            : isSymbolResult
+                ? Icons.bubble_chart_rounded
+                : Icons.check_circle_rounded;
+    final resultColor = isSubAgentResult
+        ? p.pink
+        : isSemanticResult
+            ? p.gold
+            : isSymbolResult
+                ? p.pink
+                : p.green;
+    final resultTitle = isSubAgentResult
+        ? '子 Agent 结果'
+        : isSemanticResult
+            ? '语义搜索结果'
+            : isSymbolResult
+                ? '符号搜索结果'
+                : '工具结果';
     final full = e.toolResult;
     final expanded = _expanded.contains(idx);
     final truncated = full.length > 500;
@@ -645,12 +775,7 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _headerRow(
-              p,
-              isSubAgentResult ? Icons.people_alt_rounded : Icons.check_circle_rounded,
-              isSubAgentResult ? p.pink : p.green,
-              isSubAgentResult ? '子 Agent 结果' : '工具结果',
-              p.text1),
+          _headerRow(p, resultIcon, resultColor, resultTitle, p.text1),
           const SizedBox(height: 8),
           Text(shown,
               style: TextStyle(

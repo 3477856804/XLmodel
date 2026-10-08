@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
+import 'code_viewer.dart';
 
 class CodeSearchPanel extends StatefulWidget {
   const CodeSearchPanel({super.key});
@@ -22,12 +23,21 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
   int _total = 0;
   double _elapsedMs = 0;
   String _kind = 'all';
+  String _searchMode = 'keyword';
   late AnimationController _enterCtrl;
 
   static const _kinds = <String, String>{
     '全部': 'all',
     '定义': 'definition',
     '引用': 'reference',
+  };
+
+  static const _symbolTypes = <String, IconData>{
+    'function': Icons.functions_rounded,
+    'method': Icons.memory_rounded,
+    'class': Icons.category_rounded,
+    'variable': Icons.circle_outlined,
+    'import': Icons.input_rounded,
   };
 
   @override
@@ -54,6 +64,7 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
   }
 
   String get _kindParam {
+    if (_searchMode == 'symbol') return 'symbol';
     switch (_kind) {
       case 'definition':
         return 'definition';
@@ -114,6 +125,61 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
     ));
   }
 
+  Future<void> _openFile(CodeMatch m) async {
+    try {
+      final content = await XlClient.stub.fileRead(FileReadRequest(path: m.file));
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
+            decoration: BoxDecoration(
+              color: XlPalette.of(ctx).bg,
+              borderRadius: BorderRadius.circular(XlRadius.xl),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: XlPalette.of(ctx).divider, width: 1)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.description_rounded, size: 16, color: XlPalette.of(ctx).pink),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text('${m.file}:${m.line}',
+                            style: TextStyle(
+                              fontSize: XlFont.caption,
+                              fontWeight: FontWeight.w800,
+                              color: XlPalette.of(ctx).text1,
+                            )),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close_rounded, size: 18, color: XlPalette.of(ctx).text3),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: CodeViewer(file: content),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('打开文件失败: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = XlPalette.of(context);
@@ -167,6 +233,8 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _modeTabs(p),
+        const SizedBox(height: 10),
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -176,8 +244,59 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
           ],
         ),
         const SizedBox(height: 10),
-        _kindChips(p),
+        if (_searchMode == 'keyword') _kindChips(p),
       ],
+    );
+  }
+
+  Widget _modeTabs(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
+      child: Row(
+        children: [
+          Expanded(child: _modeTab(p, '关键词', 'keyword', Icons.text_fields_rounded)),
+          Expanded(child: _modeTab(p, '符号', 'symbol', Icons.bubble_chart_rounded)),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeTab(XlPalette p, String label, String mode, IconData icon) {
+    final selected = _searchMode == mode;
+    return _Pressable(
+      onTap: () {
+        if (_searchMode != mode) {
+          setState(() {
+            _searchMode = mode;
+            _searched = false;
+            _matches = [];
+          });
+        }
+      },
+      scale: 0.95,
+      child: AnimatedContainer(
+        duration: XlDuration.fast,
+        curve: XlCurve.standard,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: selected
+            ? AppTheme.brand(context, r: XlRadius.pill)
+            : const BoxDecoration(),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: selected ? p.btnInk : p.text3),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.captionSm,
+                  fontWeight: FontWeight.w800,
+                  color: selected ? p.btnInk : p.text3,
+                  letterSpacing: XlLetterSpacing.wide,
+                )),
+          ],
+        ),
+      ),
     );
   }
 
@@ -196,7 +315,7 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
               onSubmitted: (_) => _search(),
               style: TextStyle(fontSize: XlFont.bodySm, color: p.text1),
               decoration: InputDecoration(
-                hintText: '搜索代码…',
+                hintText: _searchMode == 'symbol' ? '输入符号名（函数/类/变量）…' : '搜索代码…',
                 hintStyle: TextStyle(fontSize: XlFont.bodySm, color: p.decor),
                 border: InputBorder.none,
                 isDense: true,
@@ -301,9 +420,11 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
   }
 
   Widget _matchTile(XlPalette p, CodeMatch m) {
-    final isDef = m.kind == 'definition';
+    final isSymbolMode = _searchMode == 'symbol';
+    final symbolIcon = _symbolTypes[m.kind] ?? Icons.code_rounded;
+    final isDef = m.kind == 'definition' || (isSymbolMode && m.kind.isNotEmpty);
     return _Pressable(
-      onTap: () => _copyMatch(m),
+      onTap: () => isSymbolMode ? _openFile(m) : _copyMatch(m),
       scale: 0.98,
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -326,6 +447,22 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
                 children: [
                   Row(
                     children: [
+                      if (isSymbolMode) ...[
+                        Icon(symbolIcon, size: 13, color: p.gold),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: AppTheme.pill(context, color: p.gold, r: XlRadius.pill),
+                          child: Text(m.kind,
+                              style: TextStyle(
+                                fontSize: XlFont.micro,
+                                color: p.gold,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: XlLetterSpacing.wider,
+                              )),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Expanded(
                         child: Text(m.file,
                             overflow: TextOverflow.ellipsis,
@@ -408,7 +545,7 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
         children: [
           Icon(Icons.manage_search_rounded, size: 44, color: p.decor),
           const SizedBox(height: 12),
-          Text('输入关键词搜索代码',
+          Text(_searchMode == 'symbol' ? '输入符号名查找定义与引用' : '输入关键词搜索代码',
               style: TextStyle(
                 fontSize: XlFont.bodySm,
                 color: p.text3,
