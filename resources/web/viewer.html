@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>小凌 · 3D</title>
+<style>
+  :root{ --bg1:#1b1524; --bg2:#0e0b14; --fg:#e8dff0; --dim:#9c8fae; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg2);
+    font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;color:var(--fg)}
+  #cv{display:block;width:100%;height:100%;touch-action:none}
+  #stage{position:fixed;inset:0;
+    background:
+      radial-gradient(120% 90% at 50% 12%, rgba(255,111,165,.16), transparent 62%),
+      radial-gradient(90% 70% at 50% 100%, rgba(232,196,106,.10), transparent 60%),
+      linear-gradient(180deg,var(--bg1),var(--bg2));
+  }
+  #hint{position:fixed;left:0;right:0;bottom:10px;text-align:center;font-size:11px;
+    color:var(--dim);pointer-events:none;opacity:.75;transition:opacity .6s}
+  #msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:10px;text-align:center;padding:24px;
+    background:rgba(14,11,20,.82);backdrop-filter:blur(6px);z-index:9}
+  #msg.hide{display:none}
+  .spin{width:34px;height:34px;border:3px solid rgba(255,255,255,.14);
+    border-top-color:#FF6FA5;border-radius:50%;animation:sp 900ms linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #msg .t{font-size:13px;color:var(--dim);letter-spacing:.4px}
+  #msg .e{font-size:12px;color:#ff8f9c;max-width:84%;word-break:break-all;line-height:1.6}
+  .bar{width:190px;height:4px;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}
+  .bar>i{display:block;height:100%;width:0%;border-radius:99px;
+    background:linear-gradient(90deg,#FF6FA5,#E8C46A);transition:width .25s}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"./vendor/three.module.js",
+  "three/addons/":"./vendor/addons/",
+  "@pixiv/three-vrm":"./vendor/three-vrm.module.js"
+}}
+</script>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas></div>
+<div id="hint">拖动旋转 · 滚轮缩放 · 双指捏合缩放</div>
+<div id="msg"><div class="spin"></div><div class="t">正在加载形象…</div><div class="bar"><i></i></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMUtils, VRMLoaderPlugin } from '@pixiv/three-vrm';
+
+/* ------------------------------------------------------------------ 与 Flutter 通信 */
+const channel = (window.flutter_inappwebview && window.flutter_inappwebview.callHandler)
+  ? window.flutter_inappwebview : null;
+function post(type, payload) {
+  try { channel && channel.callHandler('xlViewer', JSON.stringify({ type, ...payload })); } catch (e) {}
+  try { window.parent && window.parent.postMessage({ source: 'xlViewer', type, ...payload }, '*'); } catch (e) {}
+}
+const $msg = document.getElementById('msg');
+const $bar = document.querySelector('.bar > i');
+function showMsg(title, err) {
+  $msg.classList.remove('hide');
+  $msg.innerHTML = err
+    ? `<div class="t">${title}</div><div class="e">${err}</div>`
+    : `<div class="spin"></div><div class="t">${title}</div><div class="bar"><i style="width:${$bar ? $bar.style.width : '0%'}"></i></div>`;
+}
+function hideMsg() { $msg.classList.add('hide'); }
+// 失败要同时走 console.error：Flutter 侧只转发 ERROR 级日志，
+// 少了这一句，VRM 解析失败会变成"页面静静卡在加载中"，完全没法远程排查。
+window.__xlFail = (t, e) => {
+  console.error('[xl] ' + t + ' :: ' + (e || ''));
+  showMsg(t, e);
+  post('error', { message: e || t });
+};
+
+/* ------------------------------------------------------------------ 渲染器 / 场景 */
+const canvas = document.getElementById('cv');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
+    powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false });
+} catch (e) { window.__xlFail('3D 初始化失败', String(e)); throw e; }
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+window.__xlRenderer = renderer;   // 供冒烟测试读取真实绘制统计
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
+
+// 三点布光（柔光箱 + 补光 + 轮廓光），避免 unlit 材质死板
+scene.add(new THREE.HemisphereLight(0xffe6f2, 0x241a30, 1.15));
+const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(0.8, 1.5, 2.2); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffc7de, 0.55); fill.position.set(-1.6, 0.6, 1.1); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0xffe0a8, 0.7);  rim.position.set(0.4, 1.2, -2.4); scene.add(rim);
+
+// 地面投影感的软圆盘（纯装饰，不接收阴影，成本低）
+const disc = new THREE.Mesh(
+  new THREE.CircleGeometry(1, 48),
+  new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 })
+);
+disc.rotation.x = -Math.PI / 2; disc.position.y = 0.001; scene.add(disc);
+
+/* ------------------------------------------------------------------ 轨道相机（自实现，零依赖） */
+const orbit = { az: 0, pol: Math.PI / 2 - 0.06, dist: 3, targetY: 1.0, autoRotate: true };
+function applyCamera() {
+  const t = new THREE.Vector3(0, orbit.targetY, 0);
+  const sp = Math.sin(orbit.pol), cp = Math.cos(orbit.pol);
+  camera.position.set(
+    t.x + orbit.dist * sp * Math.sin(orbit.az),
+    t.y + orbit.dist * cp,
+    t.z + orbit.dist * sp * Math.cos(orbit.az)
+  );
+  camera.lookAt(t);
+}
+let dragging = false, lastX = 0, lastY = 0, pinch = 0;
+canvas.addEventListener('pointerdown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId); orbit.autoRotate = false;
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  orbit.az -= (e.clientX - lastX) * 0.008;
+  orbit.pol = Math.min(Math.PI - 0.12, Math.max(0.12, orbit.pol - (e.clientY - lastY) * 0.006));
+  lastX = e.clientX; lastY = e.clientY; applyCamera();
+});
+const endDrag = e => { dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (_) {} };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  orbit.dist = Math.min(12, Math.max(0.6, orbit.dist * (1 + Math.sign(e.deltaY) * 0.12)));
+  applyCamera();
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  if (e.touches.length !== 2) return;
+  const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+                       e.touches[0].clientY - e.touches[1].clientY);
+  if (pinch) { orbit.dist = Math.min(12, Math.max(0.6, orbit.dist * (pinch / d))); applyCamera(); }
+  pinch = d;
+}, { passive: true });
+canvas.addEventListener('touchend', () => { pinch = 0; });
+
+/* 供 Flutter 侧 evaluateJavascript 调用的遥控器（保留原有 UI 控件手感）。 */
+window.__xl = {
+  autoRotate(on) { orbit.autoRotate = !!on; },
+  zoomFactor(z) {
+    const base = orbit.base || orbit.dist;
+    orbit.dist = Math.min(14, Math.max(0.6, base / Math.max(0.2, +z || 1)));
+    applyCamera();
+  },
+  setDistance(d) { orbit.dist = Math.min(14, Math.max(0.6, +d || 3)); applyCamera(); },
+  view(name) {
+    const az = { '正面': 0, '左侧': Math.PI / 2, '右侧': -Math.PI / 2, '背面': Math.PI }[name];
+    orbit.az = az === undefined ? orbit.az : az;
+    orbit.pol = (name === '俯视') ? 0.62 : (Math.PI / 2 - 0.05);
+    orbit.autoRotate = false;
+    applyCamera();
+  },
+  exposure(v) { renderer.toneMappingExposure = Math.max(0.2, Math.min(3, +v || 1)); },
+  reset() { orbit.az = 0; orbit.pol = Math.PI / 2 - 0.05; orbit.dist = orbit.base || orbit.dist; applyCamera(); }
+};
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+/* ------------------------------------------------------------------ 加载 VRM */
+const params = new URLSearchParams(location.search);
+const modelName = params.get('model') || '小凌.vrm';
+
+const loader = new GLTFLoader();
+loader.register(parser => new VRMLoaderPlugin(parser));
+loader.crossOrigin = 'anonymous';
+
+let vrm = null;
+const clock = new THREE.Clock();
+
+loader.load(
+  './models/' + encodeURIComponent(modelName),
+  gltf => {
+    const v = gltf.userData.vrm;
+    if (!v) { window.__xlFail('不是有效的 VRM', modelName); return; }
+    VRMUtils.removeUnnecessaryJoints(gltf.scene);
+    VRMUtils.rotateVRM0(v);                       // VRM0 是 T-pose，转成 VRM1 的 A-pose 约定
+    v.scene.traverse(o => { if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; } });
+    scene.add(v.scene);
+    vrm = v;
+
+    // 自动取景：量出包围盒，把相机放到刚好装下全身的距离
+    const box = new THREE.Box3().setFromObject(v.scene);
+    const size = new THREE.Vector3(); box.getSize(size);
+    const center = new THREE.Vector3(); box.getCenter(center);
+    const height = Math.max(size.y, 0.4);
+    orbit.targetY = center.y;
+    orbit.dist = Math.max(1.2, (height * 0.62) / Math.tan((camera.fov * Math.PI / 180) / 2));
+    orbit.pol = Math.PI / 2 - 0.05;
+    orbit.az = 0;
+    orbit.base = orbit.dist;              // 记下"刚好装下"的距离，供缩放控件换算
+    disc.scale.setScalar(Math.max(size.x, size.z) * 0.85);
+    disc.position.y = box.min.y + 0.002;
+    applyCamera();
+
+    hideMsg();
+    post('ready', { model: modelName, height: +height.toFixed(3) });
+    setTimeout(() => { const h = document.getElementById('hint'); if (h) h.style.opacity = 0; }, 4200);
+  },
+  p => {
+    if (p && p.total) {
+      const pct = Math.floor(p.loaded / p.total * 100);
+      const b = document.querySelector('.bar > i'); if (b) b.style.width = pct + '%';
+      const t = document.querySelector('#msg .t'); if (t) t.textContent = `正在加载形象… ${pct}%`;
+    }
+  },
+  err => {
+    window.__xlFail('形象加载失败',
+      `${modelName}　${(err && (err.message || err.type)) || err || '未知错误'}`);
+  }
+);
+
+/* ------------------------------------------------------------------ 主循环：呼吸 / 眨眼 / 注视 */
+let blinkAt = 2 + Math.random() * 3, blinkPhase = -1;
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const t = clock.elapsedTime;
+
+  if (vrm) {
+    if (orbit.autoRotate) { orbit.az += dt * 0.16; applyCamera(); }
+
+    // 呼吸：胸腔轻微起伏 + 身体上下浮动（幅度克制，像活着但不夸张）
+    const h = vrm.humanoid;
+    if (h) {
+      const spine = h.getNormalizedBoneNode('spine');
+      const chest = h.getNormalizedBoneNode('chest');
+      const breath = Math.sin(t * 1.15) * 0.5 + 0.5;
+      if (spine) spine.rotation.x = THREE.MathUtils.lerp(spine.rotation.x, 0.018 * breath, 0.08);
+      if (chest) chest.rotation.x = THREE.MathUtils.lerp(chest.rotation.x, 0.026 * breath, 0.08);
+    }
+    if (vrm.scene) vrm.scene.position.y = Math.sin(t * 1.15) * 0.006;
+
+    // 眨眼：随机间隔，闭-合走一条快曲线
+    blinkAt -= dt;
+    if (blinkAt <= 0 && blinkPhase < 0) { blinkPhase = 0; blinkAt = 2.4 + Math.random() * 3.6; }
+    let blink = 0;
+    if (blinkPhase >= 0) {
+      blinkPhase += dt / 0.18;
+      if (blinkPhase >= 1) { blinkPhase = -1; blink = 0; }
+      else blink = Math.sin(blinkPhase * Math.PI);
+    }
+    const em = vrm.expressionManager;
+    if (em) { try { em.setValue('blink', blink); } catch (_) {} }
+
+    // 注视：让目光跟着相机，始终"看着你"
+    if (vrm.lookAt) { vrm.lookAt.target = camera; }
+    vrm.update(dt);
+  }
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

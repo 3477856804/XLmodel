@@ -1,0 +1,29 @@
+name: deploy-pages
+
+# 官网源码在 website/ 下；改动它才重新部署。
+on:
+  push:
+    branches: [main]
+    paths: ['website/**']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 组装站点目录
+        run: |
+          mkdir -p site
+          cp website/index.html site/index.html
+          # 官网是单文件（样式/脚本全内联），但 assets/ 若以后加了图片也要带上
+          if [ -d website/assets ]; then cp -r website/assets site/; fi
+          ls -la site
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          # 安全：Token 一律走仓库 Secrets，绝不硬编码。
+          # 旧版这里写死过一个 API Token —— 已在 Git 历史里，请务必去
+          # Cloudflare 后台 **Rotate（轮换作废）** 那枚令牌。
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy site --project-name=xiaoling

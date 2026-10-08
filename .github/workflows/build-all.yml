@@ -1,0 +1,182 @@
+name: Build All Platforms
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # 不能低于 3.32：flutter_inappwebview 6.2.0-beta.x（含 Linux 实现）
+  # 要求 Flutter >= 3.32 / Dart SDK ^3.8，用 3.24 会在 pub get 阶段直接失败。
+  # 与本地开发机保持一致，避免"本地能过、CI 挂了"。
+  FLUTTER_VERSION: "3.47.6"
+  APP_VERSION: "0.0.1"
+  RELEASE_TAG: "v0.0.1"
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"XiaoLing $RELEASE_TAG\",\"body\":\"XiaoLing AI Companion $RELEASE_TAG\n\n全平台构建产物（Flutter UI + Python gRPC 后端）\n- Linux x64 (tar.gz)\n- Windows x64 (zip)\n- macOS (dmg)\n- Android (apk, 含 Chaquopy Python 沙箱)\n\n后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。\",\"draft\":false}" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Release created: id={r.get(\"id\")} url={r.get(\"html_url\")}')"
+
+  build-linux:
+    needs: prepare-release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - name: Install Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Bundle backend
+        run: |
+          pyinstaller --onefile --name backend --clean --collect-all torch --collect-all transformers --collect-all edge_tts main.py
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Build Flutter Linux
+        run: |
+          cd frontend && flutter pub get && flutter build linux --release
+      - name: Package
+        run: |
+          BUNDLE=frontend/build/linux/x64/release/bundle
+          cp dist/backend $BUNDLE/backend && chmod +x $BUNDLE/backend
+          mkdir -p release
+          tar -czf release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz -C $(dirname $BUNDLE) $(basename $BUNDLE)
+          ls -lh release/
+      - name: Upload to release
+        run: |
+          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+            --data-binary @release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-linux-${{ env.APP_VERSION }}.tar.gz" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+
+  build-windows:
+    needs: prepare-release
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
+      - name: Bundle backend
+        run: |
+          pyinstaller --onefile --name backend --clean --collect-all torch --collect-all transformers --collect-all edge_tts main.py
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Regenerate Windows project
+        run: |
+          Remove-Item -Recurse -Force frontend\windows -ErrorAction SilentlyContinue
+          cd frontend
+          flutter create --platforms=windows .
+      - name: Build Flutter Windows
+        run: |
+          cd frontend
+          flutter pub get
+          flutter build windows --release
+      - name: Package
+        run: |
+          $releaseDir = "frontend\build\windows\x64\runner\Release"
+          Copy-Item "dist\backend.exe" "$releaseDir\backend.exe"
+          if (!(Test-Path "release")) { New-Item -ItemType Directory -Path "release" }
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "release\xiaoling-windows-${{ env.APP_VERSION }}.zip" -Force
+          dir release
+      - name: Upload to release
+        shell: bash
+        run: |
+          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+            --data-binary @release/xiaoling-windows-${{ env.APP_VERSION }}.zip \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-windows-${{ env.APP_VERSION }}.zip" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+
+  build-macos:
+    needs: prepare-release
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
+      - name: Bundle backend
+        run: |
+          pyinstaller --onefile --name backend --clean --collect-all torch --collect-all transformers --collect-all edge_tts main.py
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Build Flutter macOS
+        run: |
+          cd frontend && flutter pub get && flutter build macos --release
+      - name: Package
+        run: |
+          APP=$(find frontend/build/macos/Build/Products/Release -name "*.app" -maxdepth 1 | head -1)
+          cp dist/backend "$APP/Contents/MacOS/backend" && chmod +x "$APP/Contents/MacOS/backend"
+          mkdir -p release
+          hdiutil create -volname "XiaoLing" -srcfolder "$(dirname $APP)" -ov -format UDZO release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
+          ls -lh release/
+      - name: Upload to release
+        run: |
+          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+            --data-binary @release/xiaoling-macos-${{ env.APP_VERSION }}.dmg \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-macos-${{ env.APP_VERSION }}.dmg" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+
+  build-android:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Build Android APK
+        run: |
+          cd frontend && flutter pub get && flutter build apk --release
+      - name: Rename
+        run: |
+          cp frontend/build/app/outputs/flutter-apk/app-release.apk xiaoling-android-${{ env.APP_VERSION }}.apk
+          ls -lh xiaoling-android-${{ env.APP_VERSION }}.apk
+      - name: Upload to release
+        run: |
+          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+            --data-binary @xiaoling-android-${{ env.APP_VERSION }}.apk \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-android-${{ env.APP_VERSION }}.apk" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"

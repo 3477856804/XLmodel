@@ -1,0 +1,50 @@
+name: xiaoling
+description: 小凌
+publish_to: 'none'
+version: 0.0.1+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  grpc: ^4.0.1
+  protobuf: ^4.0.0
+  fixnum: ^1.1.0
+  path_provider: ^2.1.0
+  http: ^1.2.0
+  # 真 3D：桌面端（Win/macOS/Linux）与移动端统一走 InAppWebView + 本地
+  # three.js/three-vrm 渲染 VRM。原先的 model_viewer_plus 在桌面会崩
+  # （它内部用 webview_flutter，而后者没有桌面实现，
+  # 触发 'WebViewPlatform.instance != null' 断言），故替换。
+  #
+  # 版本必须是 6.2.0-beta.x：稳定版 6.1.5 **没有 Linux 实现**
+  # （只有 android/ios/macos/windows/web），而本项目要发四个平台。
+  # 6.2.0-beta.3 开始带 flutter_inappwebview_linux（WPE WebKit）。
+  # 若哪天 6.2.0 转正，改成 ^6.2.0 即可。
+  flutter_inappwebview: ^6.2.0-beta.3
+  path: ^1.9.0
+  audioplayers: ^6.1.0
+  file_picker: ^13.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  msix: ^3.16.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/xiaoling.png
+    - assets/icon.png
+
+msix_config:
+  display_name: 小凌
+  publisher_name: XiaoLing
+  publisher_display_name: XiaoLing
+  identity_name: 3477856804.XiaoLing
+  msix_version: 0.0.1.0
+  logo_path: assets/xiaoling.png
+  capabilities: internetClient, privateNetworkClientServer
