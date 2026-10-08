@@ -9,8 +9,8 @@
 
 | 平台 | 地址 | 说明 |
 |---|---|---|
-| GitHub | `https://github.com/3477856804/XLmodel` | 与 `XLmodel-release`（放安装包的仓库）同属一个账号 |
-| Gitee | `https://gitee.com/COSMOnb666/XLmodel` | 与 `scripts/publish.py` 里的 `REPO_SLUG` 一致 |
+| Gitee | `https://gitee.com/COSMOnb666/XLmodel` | **已推送**（私有库，默认分支 `main`） |
+| GitHub | `https://github.com/3477856804/XLmodel` | 与 `XLmodel-release`（放安装包的仓库）同属一个账号，**待推送** |
 
 远端已经在本地配好（`github` / `gitee` 两个 remote），推送只需 token：
 
@@ -23,6 +23,25 @@ python tools/push_repos.py --dry-run  # 只看会做什么
 ```
 
 脚本会把 token 临时写进 remote URL，推完立刻改回干净地址，不会留在 `.git/config` 里。
+
+**重要**：Gitee 上原本已有一份较早的项目代码。按「绝不删除文件」的原则，
+没有强推覆盖 —— 远端历史已合并进 `main`（冲突取本地新版），旧版本仍完整
+保留为 `archive/pre-3d-20261008` 分支可随时回看。
+
+### 推送踩过的三个坑（脚本已内置处理）
+
+1. **全局代理**：本机 git 全局配了 `http.proxy/https.proxy = http://43.99.100.108:3128`，
+   直连 Gitee 会 `TLS connect error: wrong version number`。脚本默认绕过；
+   需要代理上网的机器加 `--use-proxy`。
+2. **Schannel**：Windows 默认 TLS 后端跟 Gitee 握手报 `SEC_E_INVALID_TOKEN`，
+   改用 `-c http.sslBackend=openssl`。
+3. **令牌用户名**：Gitee 要求地址里的用户名是**令牌本人的 login**
+   （本项目令牌属 `mvpth`，仓库却在 `COSMOnb666` 名下），
+   写成仓库 owner 会 `remote: The token username invalid`（403）。
+   脚本会调 `/api/v5/user` 自动查出来。
+
+另外首次 `fetch` 偶发 `SSL_read: decryption failed or bad record mac`，
+多半是网络抖动，重试即可（脚本已内置 3 次重试）。
 
 **提交前记得**：`.gitignore` 已排除 `resources/models/`、`*.vrm`、`frontend/build/`、
 `.star_core/`、`data/` 与各类发布二进制，所以首次提交只有约 243 个文件 / 8 MB。
