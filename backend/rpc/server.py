@@ -100,6 +100,21 @@ _mcp_manager_lock = threading.Lock()
 _workflow_engine = None
 _workflow_engine_lock = threading.Lock()
 
+_browser_tool = None
+_browser_tool_lock = threading.Lock()
+
+
+def _get_browser_tool():
+    """懒加载 BrowserTool 单例（保留活动页面状态，供点击/输入/JS 连续操作）。"""
+    global _browser_tool
+    if _browser_tool is not None:
+        return _browser_tool
+    with _browser_tool_lock:
+        if _browser_tool is None:
+            from core.browser_tool import BrowserTool
+            _browser_tool = BrowserTool()
+    return _browser_tool
+
 
 def _get_security_center():
     global _security_center
@@ -301,6 +316,139 @@ def _scan_plugin_market(pmgr) -> list:
     for root in roots:
         _scan_root(root, seen, out)
     return out
+
+
+def _handle_browser(body: str) -> str:
+    """前端浏览器面板统一入口：browser:<op> [json-args]。返回 JSON 字符串。
+
+    走 ExecuteCommand 而非新增 gRPC 方法 —— 与 settings:/sandbox: 同一思路，
+    避免为几个浏览器动作改 proto 并重生成 Dart/Python 桩。
+    核心原则：有真实浏览器就截图渲染，没有就明确降级，绝不假装能跑 JS。
+    """
+    import base64 as _b64
+    import json as _json
+    import tempfile as _tmp
+
+    op, _, rest = body.partition(" ")
+    op = op.strip().lower()
+    rest = rest.strip()
+    args = {}
+    if rest:
+        try:
+            parsed = _json.loads(rest)
+            if isinstance(parsed, dict):
+                args = parsed
+        except Exception:                                              # noqa: BLE001
+            args = {}
+
+    try:
+        tool = _get_browser_tool()
+    except Exception as e:                                             # noqa: BLE001
+        return _json.dumps({"ok": False, "error": f"浏览器模块加载失败: {e}"},
+                           ensure_ascii=False)
+
+    def _shot_path() -> str:
+        return os.path.join(_tmp.gettempdir(), "xl_browser_shot.png")
+
+    def _attach_image(d: dict) -> dict:
+        """把截图文件读成 base64 塞回结果；读不到就不带图，不报错。"""
+        try:
+            p = d.get("path")
+            if p and os.path.isfile(p):
+                with open(p, "rb") as f:
+                    d["image_b64"] = _b64.b64encode(f.read()).decode("ascii")
+        except Exception:                                              # noqa: BLE001
+            pass
+        d.pop("path", None)
+        return d
+
+    def _nav_then_shot(fn) -> dict:
+        res = fn()
+        if res.get("ok"):
+            shot = tool.screenshot_current(_shot_path())
+            res["rendered"] = shot.get("rendered", res.get("rendered"))
+            if shot.get("ok"):
+                res["path"] = shot.get("path")
+            res["text"] = tool.get_page_text()
+        return _attach_image(res)
+
+    try:
+        if op == "status":
+            return _json.dumps(tool.status_dict(), ensure_ascii=False)
+
+        if op == "navigate":
+            url = (args.get("url") or "").strip()
+            if not url:
+                return _json.dumps({"ok": False, "error": "缺少 url"}, ensure_ascii=False)
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
+            res = tool.navigate_and_screenshot(url, _shot_path())
+            if not res.get("ok") and not res.get("rendered"):
+                try:
+                    html = tool.render(url)
+                    res = {
+                        "ok": bool(html),
+                        "rendered": False,
+                        "url": tool.current_url or url,
+                        "title": tool._extract_title(html),
+                        "error": "静态模式：仅抓取原始 HTML，不渲染 JS",
+                    }
+                except Exception as e:                                      # noqa: BLE001
+                    res = {"ok": False, "rendered": False, "error": str(e)}
+            res["text"] = tool.get_page_text()
+            return _json.dumps(_attach_image(res), ensure_ascii=False)
+
+        if op == "back":
+            return _json.dumps(_nav_then_shot(tool.go_back), ensure_ascii=False)
+        if op == "forward":
+            return _json.dumps(_nav_then_shot(tool.go_forward), ensure_ascii=False)
+        if op == "reload":
+            return _json.dumps(_nav_then_shot(tool.reload), ensure_ascii=False)
+
+        if op == "screenshot":
+            return _json.dumps(_attach_image(tool.screenshot_current(_shot_path())),
+                               ensure_ascii=False)
+
+        if op == "click":
+            sel = (args.get("selector") or "").strip()
+            if not sel:
+                return _json.dumps({"ok": False, "error": "缺少 selector"}, ensure_ascii=False)
+            return _json.dumps(_nav_then_shot(lambda: tool.click(sel)), ensure_ascii=False)
+
+        if op == "fill":
+            sel = (args.get("selector") or "").strip()
+            val = args.get("value") or ""
+            if not sel:
+                return _json.dumps({"ok": False, "error": "缺少 selector"}, ensure_ascii=False)
+            return _json.dumps(_nav_then_shot(lambda: tool.fill(sel, val)), ensure_ascii=False)
+
+        if op == "evaluate":
+            js = args.get("js") or ""
+            if not js:
+                return _json.dumps({"ok": False, "error": "缺少 js"}, ensure_ascii=False)
+            return _json.dumps(tool.evaluate(js), ensure_ascii=False)
+
+        if op == "wait":
+            sel = (args.get("selector") or "").strip()
+            if not sel:
+                return _json.dumps({"ok": False, "error": "缺少 selector"}, ensure_ascii=False)
+            return _json.dumps(
+                tool.wait_for_selector(sel, int(args.get("timeout") or 5000)),
+                ensure_ascii=False)
+
+        if op == "text":
+            return _json.dumps({
+                "ok": True,
+                "text": tool.get_page_text(),
+                "rendered": tool._is_browser_ready(),
+                "current_url": tool.current_url,
+            }, ensure_ascii=False)
+
+        return _json.dumps({"ok": False, "error": f"未知 browser 操作: {op}"},
+                           ensure_ascii=False)
+    except Exception as e:                                             # noqa: BLE001
+        return _json.dumps({"ok": False, "error": f"browser {op} 失败: {e}"},
+                           ensure_ascii=False)
 
 
 def _handle_ext_command(cmd: str) -> str:
@@ -744,6 +892,8 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
     def ExecuteCommand(self, request, context):
         cmd = (request.command or '').strip()
         try:
+            if cmd.startswith('browser:'):
+                return pb.CommandReply(output=_handle_browser(cmd[len('browser:'):]))
             if cmd.startswith(('plugin:', 'workflow:', 'security:', 'mcp:')):
                 return pb.CommandReply(output=_handle_ext_command(cmd))
             if cmd.startswith('settings:'):

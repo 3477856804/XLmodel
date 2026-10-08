@@ -1081,10 +1081,12 @@ class XiaoLing:
         parts = [DEFAULT_SYSTEM_PROMPT]
         # 人格预设引导语（活泼/温柔/高冷/元气/沉稳 或自定义）。
         # 放在最前面以确保优先级高于默认人格设定。
+        # 注意：persona_presets 内部用 `from core.config import ...` 绝对导入，
+        # 必须延迟到运行期（此时 server.py 已把 backend/ 加进 sys.path），
+        # 不能提到模块顶层，否则在测试/直接导入场景会 ModuleNotFoundError。
         try:
-            from core import config as _cfg
             from core import persona_presets as _pp
-            hint = _pp.hint_for(_cfg.load().get('persona'))
+            hint = _pp.hint_for(load_config().get('persona'))
             if hint:
                 parts.append(hint)
         except Exception:

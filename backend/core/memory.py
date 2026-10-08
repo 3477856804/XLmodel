@@ -642,6 +642,15 @@ class SessionPersistence:
 
 
 class KnowledgeGraph:
+    # 预编译 REL_VERBS 对应的匹配正则：learn() 每次对话都会被调用，
+    # 旧实现每条动词都 re.compile 一次（12 次/对话），纯属重复劳动。
+    # 提到类级别只编译一次。
+    _REL_PATTERNS = [
+        re.compile(ENTITY_RE.pattern + re.escape(verb) +
+                   r"([\u4e00-\u9fff\w]{2,10})")
+        for verb in REL_VERBS
+    ]
+
     def __init__(self, path: str | None = None, max_entities: int = 5000,
                  max_relations: int = 20000):
         self.path = Path(path) if path else GRAPH_PATH
@@ -649,6 +658,10 @@ class KnowledgeGraph:
         self.max_relations = max_relations
         self.entities: dict[str, dict] = {}
         self.relations: list[tuple] = []
+        # 关系三元组去重集合：旧实现用 `pair not in self.relations` 做列表
+        # 成员判断，关系数到上万时这是 O(n) × 命中数 = O(n²)，每次对话都卡。
+        # 用 set 做 O(1) 去重，relations 列表仍保留以维持顺序与持久化格式。
+        self._relation_set: set[tuple] = set()
         self._lock = threading.RLock()
         self._load()
 
@@ -660,9 +673,11 @@ class KnowledgeGraph:
             self.entities = data.get("entities", {}) or {}
             rels = data.get("relations", []) or []
             self.relations = [tuple(r) if isinstance(r, (list, tuple)) else r for r in rels]
+            self._relation_set = set(self.relations)
         except Exception:
             self.entities = {}
             self.relations = []
+            self._relation_set = set()
 
     def _save(self):
         try:
@@ -680,9 +695,7 @@ class KnowledgeGraph:
             return 0
         added = 0
         with self._lock:
-            for verb in REL_VERBS:
-                pat = re.compile(ENTITY_RE.pattern + re.escape(verb) +
-                                 r"([\u4e00-\u9fff\w]{2,10})")
+            for verb, pat in zip(REL_VERBS, self._REL_PATTERNS):
                 for m in pat.finditer(text):
                     subj = m.group(1).strip()
                     obj = m.group(2).strip()[:10]
@@ -691,12 +704,15 @@ class KnowledgeGraph:
                     info = self.entities.setdefault(subj, {"count": 0, "relations": []})
                     info["count"] = int(info.get("count", 0)) + 1
                     pair = (subj, verb, obj)
-                    if pair not in self.relations:
+                    if pair not in self._relation_set:
+                        self._relation_set.add(pair)
                         self.relations.append(pair)
                         info.setdefault("relations", []).append([verb, obj])
                     added += 1
             if len(self.relations) > self.max_relations:
-                self.relations = self.relations[-int(self.max_relations * 0.7):]
+                kept = self.relations[-int(self.max_relations * 0.7):]
+                self.relations = kept
+                self._relation_set = set(kept)
             if len(self.entities) > self.max_entities:
                 top = sorted(self.entities.items(),
                              key=lambda kv: kv[1].get("count", 0), reverse=True)
@@ -746,6 +762,7 @@ class KnowledgeGraph:
         with self._lock:
             self.entities.clear()
             self.relations.clear()
+            self._relation_set.clear()
             self._save()
 
 

@@ -245,6 +245,160 @@ class BrowserTool:
             return {"ok": False, "error": str(e)}
 
     # ------------------------------------------------------------------
+    # 前端面板专用：导航+截图一步、纯文本/HTML、等待元素、历史导航
+    # 全部 try-except 包裹；真实浏览器不可用时诚实返回降级错误，绝不伪装。
+    # ------------------------------------------------------------------
+    def status_dict(self) -> dict:
+        """引擎状态快照，供前端面板判断该显示「JS渲染」还是「静态模式」。"""
+        try:
+            return {
+                "ok": True,
+                "pw_imported": bool(_PLAYWRIGHT_IMPORTED),
+                "rendered": self._is_browser_ready(),
+                "pw_failed": bool(self._pw_failed),
+                "current_url": self.current_url,
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def navigate_and_screenshot(self, url: str, path: str) -> dict:
+        """导航到 url 并对活动页截图保存到 path，一步完成。
+
+        成功返回 {ok, path, url, title, status, rendered}。
+        真实浏览器不可用时返回 {ok:False, rendered:False, error}，不做伪装。
+        """
+        try:
+            if not self._ensure_browser():
+                return {
+                    "ok": False,
+                    "rendered": False,
+                    "error": "真实浏览器不可用：静态模式无法渲染 JS 或截图",
+                }
+            try:
+                self._close_page()
+            except Exception:
+                pass
+            try:
+                self._page = self._browser.new_page()
+                resp = self._page.goto(
+                    url, timeout=self.timeout * 1000, wait_until="load"
+                )
+                try:
+                    self._page.wait_for_timeout(1500)
+                except Exception:
+                    pass
+                self._page.screenshot(path=path, full_page=True)
+                self.current_url = self._page.url
+                self.current_html = self._page.content()
+                return {
+                    "ok": True,
+                    "path": path,
+                    "url": self.current_url,
+                    "title": self._extract_title(self.current_html or ""),
+                    "status": resp.status if resp else None,
+                    "rendered": True,
+                }
+            except Exception as e:
+                self._close_page()
+                return {"ok": False, "rendered": True, "error": f"导航或截图失败: {e}"}
+        except Exception as e:
+            return {"ok": False, "rendered": False, "error": str(e)}
+
+    def screenshot_current(self, path: str) -> dict:
+        """对当前活动页截图（不重新导航）。无活动页时返回明确错误。"""
+        try:
+            if not self._page:
+                return {"ok": False, "rendered": self._is_browser_ready(),
+                        "error": "无活动页面：请先导航到一个网址"}
+            self._page.screenshot(path=path, full_page=True)
+            return {"ok": True, "path": path, "url": self.current_url,
+                    "rendered": self._is_browser_ready()}
+        except Exception as e:
+            return {"ok": False, "rendered": self._is_browser_ready(), "error": str(e)}
+
+    def get_page_text(self) -> str:
+        """获取当前活动页纯文本（优先读 live DOM，回退到已缓存 HTML）。"""
+        try:
+            if self._page is not None:
+                try:
+                    self.current_html = self._page.content()
+                except Exception:
+                    pass
+            if not self.current_html:
+                return ""
+            text = re.sub(r"<script[^>]*>.*?</script>", "", self.current_html,
+                          flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<style[^>]*>.*?</style>", "", text,
+                          flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            return text[:5000]
+        except Exception:
+            return ""
+
+    def get_page_html(self) -> str:
+        """获取当前活动页完整 HTML（优先 live DOM）。"""
+        try:
+            if self._page is not None:
+                try:
+                    self.current_html = self._page.content()
+                except Exception:
+                    pass
+            return self.current_html or ""
+        except Exception:
+            return ""
+
+    def wait_for_selector(self, selector: str, timeout: int = 5000) -> dict:
+        """等待元素出现（需真实浏览器 + 已打开页面）。"""
+        try:
+            if not self._page:
+                return {"ok": False, "error": "无活动页面：请先导航（需真实浏览器）"}
+            self._page.wait_for_selector(selector, timeout=int(timeout))
+            self.current_html = self._page.content()
+            return {"ok": True, "selector": selector}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def go_back(self) -> dict:
+        """浏览器后退一步。"""
+        try:
+            if not self._page:
+                return {"ok": False, "error": "无活动页面"}
+            self._page.go_back()
+            self.current_url = self._page.url
+            self.current_html = self._page.content()
+            return {"ok": True, "url": self.current_url,
+                    "rendered": self._is_browser_ready()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def go_forward(self) -> dict:
+        """浏览器前进一步。"""
+        try:
+            if not self._page:
+                return {"ok": False, "error": "无活动页面"}
+            self._page.go_forward()
+            self.current_url = self._page.url
+            self.current_html = self._page.content()
+            return {"ok": True, "url": self.current_url,
+                    "rendered": self._is_browser_ready()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def reload(self) -> dict:
+        """刷新当前活动页。"""
+        try:
+            if not self._page:
+                return {"ok": False, "error": "无活动页面"}
+            self._page.reload(timeout=self.timeout * 1000, wait_until="load")
+            self.current_url = self._page.url
+            self.current_html = self._page.content()
+            return {"ok": True, "url": self.current_url,
+                    "rendered": self._is_browser_ready()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ------------------------------------------------------------------
     # 提取（复用原正则逻辑，兼容现有调用）
     # ------------------------------------------------------------------
     def _extract_title(self, html: str) -> str:
