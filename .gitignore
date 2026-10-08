@@ -3,6 +3,13 @@ __pycache__/
 .pytest_cache/
 .star_core/
 data/
+
+# ---- 运行时生成物 / 沙箱（每次运行重建，不入库）----
+.symbol_index.json
+logs/
+tmp/
+workspace/
+
 frontend/build/
 frontend/.dart_tool/
 frontend/test/
