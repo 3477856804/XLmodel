@@ -662,6 +662,7 @@ class SymbolIndexer:
         self.file_symbols: dict[str, list[dict]] = {}
         self.file_mtimes: dict[str, float] = {}
         self._call_graph: dict | None = None
+        self._rel_index: dict | None = None
         self._lock = threading.RLock()
         self._ts_available = self._detect_tree_sitter()
 
@@ -1148,6 +1149,31 @@ class SymbolIndexer:
             pass
         return sorted(found)
 
+    def _ensure_rel_index(self) -> dict:
+        """单遍构建带位置的调用关系索引（缓存）。永不抛异常。"""
+        if self._rel_index is not None:
+            return self._rel_index
+        known = self._known_names()
+        callers: dict = {}
+        callees: dict = {}
+        try:
+            for rel in list(self.file_symbols.keys()):
+                for span in self._iter_spans(rel):
+                    if span["type"] not in ("function", "method"):
+                        continue
+                    caller = span["name"]
+                    body = self._read_body(rel, span)
+                    for c in self._callees_in_body(body, known):
+                        callees.setdefault(caller, set()).add(c)
+                        if c != caller:
+                            callers.setdefault(c, []).append({
+                                "caller": caller, "file": rel,
+                                "line": span["start"], "type": span["type"]})
+        except Exception:
+            pass
+        self._rel_index = {"callers": callers, "callees": callees}
+        return self._rel_index
+
     def find_callers(self, symbol_name: str) -> dict:
         """找出哪些函数/方法调用了指定符号（反向引用）。"""
         if not symbol_name:
@@ -1158,26 +1184,17 @@ class SymbolIndexer:
                 return {"symbol": symbol_name, "exists": False,
                         "callers": [],
                         "error": f"符号「{symbol_name}」未在索引中定义"}
-            callers: list[dict] = []
+            idx = self._ensure_rel_index()
             seen: set = set()
-            word = re.compile(r"(?:\b|\.)" + re.escape(symbol_name) + r"\s*\(")
-            for rel in list(self.file_symbols.keys()):
-                for span in self._iter_spans(rel):
-                    if span["type"] not in ("function", "method"):
-                        continue
-                    if span["name"] == symbol_name:
-                        continue
-                    body = self._read_body(rel, span)
-                    if not word.search(body):
-                        continue
-                    key = (rel, span["start"])
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    callers.append({"caller": span["name"], "file": rel,
-                                    "line": span["start"], "type": span["type"]})
-            callers.sort(key=lambda c: (c["file"], c["line"]))
-            return {"symbol": symbol_name, "exists": True, "callers": callers}
+            out: list[dict] = []
+            for r in idx["callers"].get(symbol_name, []):
+                k = (r["file"], r["line"])
+                if k in seen:
+                    continue
+                seen.add(k)
+                out.append(r)
+            out.sort(key=lambda c: (c["file"], c["line"]))
+            return {"symbol": symbol_name, "exists": True, "callers": out}
         except Exception as e:  # noqa: BLE001
             return {"symbol": symbol_name,
                     "error": f"{type(e).__name__}: {e}", "callers": []}
@@ -1191,20 +1208,14 @@ class SymbolIndexer:
             if symbol_name not in known:
                 return {"symbol": symbol_name, "exists": False, "callees": [],
                         "error": f"符号「{symbol_name}」未在索引中定义"}
-            agg: dict[str, list] = {}
-            for rel in list(self.file_symbols.keys()):
-                for span in self._iter_spans(rel):
-                    if span["type"] not in ("function", "method"):
-                        continue
-                    if span["name"] != symbol_name:
-                        continue
-                    body = self._read_body(rel, span)
-                    for c in self._callees_in_body(body, known):
-                        agg.setdefault(c, []).append({"file": rel,
-                                                      "line": span["start"]})
-            callees = [{"callee": c, "defined_at": locs[:5]}
-                       for c, locs in sorted(agg.items())]
-            return {"symbol": symbol_name, "exists": True, "callees": callees}
+            idx = self._ensure_rel_index()
+            out: list[dict] = []
+            with self._lock:
+                for c in sorted(idx["callees"].get(symbol_name, set())):
+                    locs = [{"file": s["file"], "line": s["line"]}
+                            for s in self.symbols.get(c, [])[:3]]
+                    out.append({"callee": c, "defined_at": locs})
+            return {"symbol": symbol_name, "exists": True, "callees": out}
         except Exception as e:  # noqa: BLE001
             return {"symbol": symbol_name,
                     "error": f"{type(e).__name__}: {e}", "callees": []}

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
+import '../rpc/xiaoling_client_ext.dart';
 
 class AgentPanel extends StatefulWidget {
   const AgentPanel({super.key});
@@ -23,6 +24,11 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
   int _totalSteps = 0;
   final Set<int> _expanded = {};
   late AnimationController _enterCtrl;
+  final TextEditingController _termCtrl = TextEditingController();
+  String _termOut = '';
+  bool _termBusy = false;
+  List<Map<String, dynamic>> _tasks = [];
+  Timer? _taskTimer;
 
   static const _examples = <String>[
     '搜索项目中的 TODO',
@@ -35,13 +41,17 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
     super.initState();
     _enterCtrl = AnimationController(duration: const Duration(milliseconds: 500), vsync: this);
     _enterCtrl.forward();
+    _taskTimer = Timer.periodic(const Duration(seconds: 3), (_) => _refreshTasks());
+    _refreshTasks();
   }
 
   @override
   void dispose() {
+    _taskTimer?.cancel();
     _sub?.cancel();
     _taskCtrl.dispose();
     _maxStepsCtrl.dispose();
+    _termCtrl.dispose();
     _scroll.dispose();
     _enterCtrl.dispose();
     super.dispose();
@@ -115,6 +125,42 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
     if (mounted) setState(() => _running = false);
   }
 
+  Future<void> _runTerminal() async {
+    final cmd = _termCtrl.text.trim();
+    if (cmd.isEmpty || _termBusy) return;
+    setState(() {
+      _termBusy = true;
+      _termOut = '';
+    });
+    try {
+      final out = await XlClient.stub.commandOutput('agent:terminal run $cmd');
+      if (!mounted) return;
+      setState(() => _termOut = out);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _termOut = 'error: $e');
+    } finally {
+      if (mounted) setState(() => _termBusy = false);
+    }
+  }
+
+  Future<void> _refreshTasks() async {
+    try {
+      final out = await XlClient.stub.commandOutput('agent:task list');
+      if (!mounted) return;
+      final decoded = jsonDecode(out);
+      if (decoded is Map && decoded['tasks'] is List) {
+        final parsed = (decoded['tasks'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        if (mounted) setState(() => _tasks = parsed);
+      }
+    } catch (_) {
+      return;
+    }
+  }
+
   String _prettyJson(String raw) {
     if (raw.trim().isEmpty) return '';
     try {
@@ -133,8 +179,189 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
       children: [
         _inputArea(p),
         const SizedBox(height: 10),
+        _devTools(p),
+        const SizedBox(height: 10),
         _eventsArea(p),
       ],
+    );
+  }
+
+  Widget _devTools(XlPalette p) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: AppTheme.neu(context, r: XlRadius.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.terminal_rounded, size: 15, color: p.gold),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  decoration: AppTheme.sunkenXs(context, r: XlRadius.sm),
+                  child: TextField(
+                    controller: _termCtrl,
+                    enabled: !_termBusy,
+                    textInputAction: TextInputAction.done,
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.text1,
+                      fontFamily: 'monospace',
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'agent:terminal run ...',
+                      hintStyle: TextStyle(fontSize: XlFont.captionSm, color: p.decor),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onSubmitted: (_) => _runTerminal(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _Pressable(
+                onTap: _termBusy ? null : _runTerminal,
+                scale: 0.94,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: AppTheme.btn(context, r: XlRadius.pill),
+                  child: Text('执行',
+                      style: TextStyle(
+                        fontSize: XlFont.captionSm,
+                        fontWeight: FontWeight.w800,
+                        color: p.btnInk,
+                      )),
+                ),
+              ),
+            ],
+          ),
+          if (_termOut.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(maxHeight: 140),
+              padding: const EdgeInsets.all(8),
+              decoration: AppTheme.screen(context, r: XlRadius.sm),
+              child: SingleChildScrollView(
+                child: Text(_termOut,
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      height: XlLineHeight.normal,
+                      color: p.text2,
+                      fontFamily: 'monospace',
+                    )),
+              ),
+            ),
+          ],
+          if (_tasks.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _taskStrip(p),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _taskStrip(XlPalette p) {
+    final visible = _tasks.take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.hourglass_bottom_rounded, size: 13, color: p.pink),
+            const SizedBox(width: 6),
+            Text('后台任务',
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  color: p.text2,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: visible.map((t) {
+            final st = (t['status'] ?? '').toString();
+            final running = st == 'running';
+            final color = st == 'completed'
+                ? p.green
+                : (st == 'failed' || st == 'cancelled')
+                    ? p.red
+                    : running
+                        ? p.gold
+                        : p.text3;
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: AppTheme.sunkenXs(context, r: XlRadius.pill),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(running ? Icons.sync_rounded : Icons.circle,
+                      size: running ? 11 : 8, color: color),
+                  const SizedBox(width: 5),
+                  Text('${t['name'] ?? 'task'} · $st',
+                      style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                      )),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  bool _looksLikeDiff(String text) {
+    return text.contains('+++') || text.contains('---');
+  }
+
+  Widget _diffOrPlain(XlPalette p, String text) {
+    if (!_looksLikeDiff(text)) {
+      return Text(text,
+          style: TextStyle(
+            fontSize: XlFont.captionSm,
+            height: XlLineHeight.normal,
+            color: p.text2,
+            fontFamily: 'monospace',
+          ));
+    }
+    final lines = text.split('\n');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines.map((line) {
+        Color c = p.text2;
+        FontWeight w = FontWeight.w400;
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          c = p.green;
+          w = FontWeight.w600;
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          c = p.red;
+          w = FontWeight.w600;
+        } else if (line.startsWith('@@')) {
+          c = p.gold;
+          w = FontWeight.w700;
+        } else if (line.startsWith('---') || line.startsWith('+++')) {
+          c = p.text3;
+          w = FontWeight.w700;
+        }
+        return Text(line,
+            style: TextStyle(
+              fontSize: XlFont.captionSm,
+              height: XlLineHeight.normal,
+              color: c,
+              fontFamily: 'monospace',
+              fontWeight: w,
+            ));
+      }).toList(),
     );
   }
 
@@ -777,13 +1004,7 @@ class _AgentPanelState extends State<AgentPanel> with TickerProviderStateMixin {
         children: [
           _headerRow(p, resultIcon, resultColor, resultTitle, p.text1),
           const SizedBox(height: 8),
-          Text(shown,
-              style: TextStyle(
-                fontSize: XlFont.captionSm,
-                height: XlLineHeight.normal,
-                color: p.text2,
-                fontFamily: 'monospace',
-              )),
+          _diffOrPlain(p, shown),
           if (truncated) ...[
             const SizedBox(height: 8),
             _Pressable(

@@ -166,6 +166,27 @@ def _get_knowledge_base():
     return _knowledge_base
 
 
+_code_indexer = None
+_code_indexer_lock = threading.Lock()
+
+
+def _get_code_indexer():
+    """懒加载符号级代码索引单例（调用关系/定义跳转/继承）。"""
+    global _code_indexer
+    if _code_indexer is not None:
+        return _code_indexer
+    with _code_indexer_lock:
+        if _code_indexer is None:
+            from core.tools import SymbolIndexer
+            idx = SymbolIndexer(_PROJECT_ROOT)
+            try:
+                idx.build()
+            except Exception:
+                pass
+            _code_indexer = idx
+    return _code_indexer
+
+
 _multifile_editor = None
 _multifile_editor_lock = threading.Lock()
 _bg_tasks = None
@@ -915,6 +936,68 @@ def _handle_ext_command(cmd: str) -> str:
                 src = kb.get_source(arg)
                 return (_ok(source=src) if src else _err(f"未找到块 {arg}"))
             return _err(f"未知知识库操作: {op}")
+
+        if cmd.startswith("code:"):
+            rest = cmd[len("code:"):].strip()
+            op, _, arg = (rest + " ").partition(" ")
+            arg = arg.strip()
+            try:
+                idx = _get_code_indexer()
+            except Exception as e:  # noqa: BLE001
+                return _err(f"代码索引不可用: {e}")
+
+            if op == "callers":
+                if not arg:
+                    return _err("缺少符号名")
+                return _ok(**idx.find_callers(arg))
+            if op == "callees":
+                if not arg:
+                    return _err("缺少符号名")
+                return _ok(**idx.find_callees(arg))
+            if op == "chain":
+                m = re.match(r"^(.*?)\s+--depth\s+(\d+)$", arg)
+                depth = 3
+                if m:
+                    arg, depth = m.group(1).strip(), int(m.group(2))
+                if not arg:
+                    return _err("缺少符号名")
+                return _ok(**idx.get_call_chain(arg, max_depth=depth))
+            if op == "graph":
+                as_dot = "--dot" in arg
+                clean = re.sub(r"--dot", " ", arg)
+                dm = re.search(r"--depth\s+(\d+)", clean)
+                depth = int(dm.group(1)) if dm else 2
+                clean = re.sub(r"--depth\s+\d+", " ", clean).strip()
+                if clean:
+                    g = idx.get_subgraph(clean, depth=depth)
+                else:
+                    g = idx.build_call_graph()
+                if as_dot:
+                    return _ok(dot=idx.export_dot(g), center=clean or None,
+                               node_count=g.get("node_count", len(g.get("nodes", []))),
+                               edge_count=g.get("edge_count", len(g.get("edges", []))))
+                return _ok(**g)
+            if op == "goto":
+                if not arg:
+                    return _err("缺少位置 FILE:LINE:COL")
+                parts = arg.rsplit(":", 2)
+                if len(parts) != 3:
+                    return _err("格式应为 FILE:LINE:COL")
+                fpath, lns, cns = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                try:
+                    lni, cni = int(lns), int(cns)
+                except ValueError:
+                    return _err("行/列必须为数字")
+                return _ok(**idx.goto_definition(fpath, lni, cni))
+            if op == "impl":
+                if not arg:
+                    return _err("缺少接口/抽象类名")
+                return _ok(**idx.find_implementation(arg))
+            if op == "inherits":
+                if not arg:
+                    return _err("缺少类名")
+                return _ok(**idx.get_inheritance_chain(arg))
+            return _err(f"未知代码索引操作: {op}")
     except Exception as e:  # noqa: BLE001
         logger.exception("ext command failed: %s", cmd)
         return _err(f"{type(e).__name__}: {e}")
