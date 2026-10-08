@@ -25,6 +25,12 @@ Process? _backendProc;
 
 Future<void> _startBackend() async {
   if (Platform.environment['FLUTTER_TEST'] == '1') return;
+  // 单文件版由 packaging/launcher.py 负责拉起后端，并置这个环境变量。
+  // 没有这道判断就会出现两个 backend.exe 抢 50051：启动器拉一个、这里又拉一个。
+  if (Platform.environment['XIAOLING_BACKEND_STARTED'] == '1') {
+    debugPrint('后端已由启动器拉起，跳过自行启动');
+    return;
+  }
   try {
     final exeDir = File(Platform.resolvedExecutable).parent;
     final backendPath = Platform.isWindows
@@ -61,8 +67,10 @@ Future<void> _probeBackend() async {
   }
 }
 
+/// 沙箱：桌面端由后端的 core/sandbox 提供（模型下载、受限执行都落在那里），
+/// Android 端由 Termux 原生侧提供。以前这里只放行 Android，桌面用户虽然能看到
+/// 模型商店却始终"不在沙箱里"——下载的模型跟着程序目录走，升级即丢。
 Future<void> _startSandbox() async {
-  if (!Platform.isAndroid) return;
   try {
     await SandboxService.start();
   } catch (e) { debugPrint('操作失败: $e'); }

@@ -134,10 +134,10 @@ def main() -> int:
     exe_old = OUT / EXE_OLD_NAME
     exe_new = OUT / EXE_NEW_NAME
     if exe_old.exists():
-        if exe_new.exists():
-            exe_old.unlink()
-        else:
-            exe_old.rename(exe_new)
+        # 用 replace 覆盖而不是先 unlink 再 rename：
+        # 重复运行时 小凌.exe 已存在，先删会触发本工作区的删除拦截；
+        # replace 是"覆盖写入"，语义相同但不产生删除动作。
+        exe_old.replace(exe_new)
         print(f'  主程序重命名：{EXE_OLD_NAME} → {EXE_NEW_NAME}')
     elif not exe_new.exists():
         print(f'  警告：输出目录里既没有 {EXE_OLD_NAME} 也没有 {EXE_NEW_NAME}')

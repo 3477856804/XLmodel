@@ -38,9 +38,9 @@ CORE_MODULES = [
     'agent', 'browser_tool', 'channels', 'config', 'context', 'dsh_compat',
     'engine', 'fileops', 'fusion', 'git_tool', 'growth', 'knowledge_base',
     'mcp_client', 'memory', 'model', 'multimodal', 'options',
-    'persona_presets', 'plugin_sdk', 'plugin_system', 'quarantine', 'search',
-    'security_center', 'sub_agent', 'system', 'terminal', 'tools', 'updater',
-    'webpanel', 'workflow_engine',
+    'persona_presets', 'plugin_sdk', 'plugin_system', 'quarantine', 'sandbox',
+    'search', 'security_center', 'sub_agent', 'system', 'terminal', 'tools',
+    'updater', 'webpanel', 'workflow_engine',
 ]
 RPC_MODULES = ['server', 'xiaoling_pb2', 'xiaoling_pb2_grpc']
 RENDERER_MODULES = ['stage', 'vrm_gltf']
@@ -188,7 +188,10 @@ exe = EXE(
     strip=False,
     upx=False,              # 不依赖 UPX：本机未必装，压缩也拖慢冷启动
     runtime_tmpdir=None,
-    console=True,           # 保留控制台：老板测试时能直接看到后端日志，便于排障
+    # 无控制台窗口：由 packaging/launcher.py 以 CREATE_NO_WINDOW 拉起，
+    # 用户全程看不到黑窗口。输出会被重定向到 <用户根>/logs/backend.log，
+    # 排障时仍然有据可查（见 launcher.py 的 _backend_log）。
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

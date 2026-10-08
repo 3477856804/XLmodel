@@ -88,6 +88,12 @@ MODEL_PRESETS = {
 }
 
 WEIGHT_EXTS = (".safetensors", ".bin", ".gguf", ".pt", ".pth")
+
+# 下载任务进度表：{模型名: {"percent","status","channel","error",...}}
+# 模型商店的 UI 是"发起下载后另起轮询"看进度的，两次是不同的 RPC 请求，
+# 光靠 progress_cb 回调传不到 UI —— 必须有这份进程内的共享表。
+# status 取值：starting / downloading / done / error
+TASKS: dict = {}
 CONFIG_FILES = ("config.json", "tokenizer.json", "tokenizer_config.json",
                 "vocab.json", "merges.txt", "special_tokens_map.json")
 
@@ -1226,21 +1232,49 @@ class ModelStore:
         return None
 
     # ---------------- 下载：多通道自动回退 ----------------
+
     def download(self, model_name: str, progress_cb=None,
                  channel: str = "auto") -> dict:
         """下载模型。国内网络优先走 ModelScope / HF 镜像，失败自动回退。
 
         channel: auto（默认，按序尝试）| modelscope | hf-mirror | huggingface
         返回: {"ok": bool, "channel": str, "path": str, "size": str, "error": str}
+
+        进度除了回调给调用方，还会写进全局 TASKS —— 模型商店是在另一个
+        RPC 里轮询进度的（不是调用 download 的那个请求），没有这份共享表，
+        UI 就只能干等，看不出到底在下还是卡住了。
         """
+        TASKS[model_name] = {
+            'percent': 0.0, 'status': 'starting', 'channel': channel,
+            'started': time.time(),
+        }
+
+        def _wrap(done, total):
+            pct = 0.0
+            try:
+                if total:
+                    pct = min(99.0, round(done * 100.0 / total, 1))
+            except Exception:
+                pct = 0.0
+            TASKS[model_name].update({'percent': pct, 'status': 'downloading'})
+            try:
+                if progress_cb:
+                    progress_cb(done, total)
+            except Exception:
+                pass
+
         preset = MODEL_PRESETS.get(model_name)
         if not preset:
+            TASKS[model_name] = {'percent': 0.0, 'status': 'error',
+                                 'error': f'未知模型：{model_name}'}
             return {"ok": False, "error": f"未知模型：{model_name}"}
 
         dest = self.store_dir / model_name
         try:
             dest.mkdir(parents=True, exist_ok=True)
         except OSError as e:
+            TASKS[model_name] = {'percent': 0.0, 'status': 'error',
+                                 'error': f'无法创建目录 {dest}：{e}'}
             return {"ok": False, "error": f"无法创建目录 {dest}：{e}"}
 
         repo = preset["repo"]
@@ -1248,25 +1282,33 @@ class ModelStore:
 
         errors = []
         for ch in order:
+            TASKS[model_name].update({'channel': ch, 'status': 'downloading'})
             try:
                 if ch == "modelscope":
                     res = self._download_modelscope(model_name, repo, dest,
-                                                    progress_cb)
+                                                    _wrap)
                 else:
-                    res = self._download_hf(repo, dest, progress_cb, endpoint=ch)
+                    res = self._download_hf(repo, dest, _wrap, endpoint=ch)
             except Exception as e:  # noqa: BLE001
                 res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             if res.get("ok"):
                 info = scan_model_dir(dest)
                 if info.get("ok"):
+                    TASKS[model_name] = {
+                        'percent': 100.0, 'status': 'done', 'channel': ch,
+                        'path': str(dest), 'size': info.get('size', '0 B'),
+                    }
                     return {"ok": True, "channel": ch, "path": str(dest),
                             "size": info.get("size", "0 B")}
                 res = {"ok": False,
                        "error": "文件不完整（缺少 config.json 或权重损坏）"}
             errors.append(f"[{ch}] {res.get('error', '未知错误')}")
 
+        err = "；".join(errors) or "全部通道均失败"
+        TASKS[model_name] = {'percent': 0.0, 'status': 'error', 'error': err,
+                             'tried': order}
         return {"ok": False, "channel": ",".join(order),
-                "error": "；".join(errors) or "全部通道均失败",
+                "error": err,
                 "tried": order}
 
     def _channel_order(self, channel: str, repo: str) -> list:
@@ -2451,8 +2493,8 @@ class ModelReplacement:
     def recommended_for_self(self) -> list:
         return fit_models_for_hardware()
 
-    def download(self, name: str, progress_cb=None) -> dict:
-        return self.store.download(name, progress_cb)
+    def download(self, name: str, progress_cb=None, channel: str = "auto") -> dict:
+        return self.store.download(name, progress_cb, channel=channel)
 
     def delete(self, name: str) -> bool:
         if self.selected_name == name:

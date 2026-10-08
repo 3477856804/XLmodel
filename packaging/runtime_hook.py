@@ -12,27 +12,46 @@ import sys
 
 os.environ.setdefault('XIAOLING_FROZEN', '1')
 
-# ---- 把可写数据隔离到 runtime/ 子目录（仅打包态生效）----
+# ---- 把可写数据放进「用户目录 / 沙箱」，永久与程序本体分离 ----
 #
-# 冲突背景：backend/core/config.py 里
-#     app_dir()      = sys.executable 所在目录（未设 XIAOLING_HOME 时）
-#     DATA_DIR       = app_dir() / "data"
-#     STAR_DIR       = app_dir() / ".star_core"
-# 而 Flutter Windows 的 Release 产物里**也有一个 data/ 目录**
-# （放着 app.so、icudtl.dat、flutter_assets）。打包时两个产物要合并到同一目录，
-# 于是后端的聊天记录/记忆就会直接写进 Flutter 的资源目录里 —— 两者混在一起，
-# 既脏，又让"清理数据"这类操作随时可能误伤前端资源，导致应用打不开。
+# 要解决的问题其实有两个，而且都不能忍：
+#   1) 撞名：config.py 里 DATA_DIR = app_dir()/"data"，而 Flutter Windows 的
+#      Release 产物自带一个 data/（app.so、icudtl.dat、flutter_assets）。
+#      两者同名会让聊天记录、记忆直接写进前端资源目录。
+#   2) 易失：如果把数据放在 exe 同级，用户把 exe 挪个地方、解压覆盖升级，
+#      或者装到 Program Files（不可写），辛苦下载的模型就没了/写不进去。
 #
-# 解法：打包态下把 XIAOLING_HOME 指到 exe 同级的 runtime/，
-# 于是 data/ 与 .star_core/ 全部落进 runtime/，与 Flutter 的 data/ 彻底分开。
-# 顺带把打包进去的插件从只读资源区搬到这个可写目录，插件开箱即用。
+# 解法：打包态下把 XIAOLING_HOME 指到**本机用户数据目录**下的 <沙箱>，
+#      · Windows  %LOCALAPPDATA%\Xiaoling\runtime
+#      · Linux    $XDG_DATA_HOME 或 ~/.local/share/xiaoling/runtime
+#      · macOS    ~/Library/Application Support/Xiaoling/runtime
+#   于是 .star_core/（含 models/）与 data/ 全部落在那里：
+#      · 程序可以任意移动、覆盖升级，已下载的模型不受影响；
+#      · 用户从模型商店下载的 GGUF 就存在这个沙箱里，重启后直接可用；
+#      · 不需要管理员权限，Program Files 也能正常用。
+#   沙箱根目录见 backend/core/sandbox.py，两者是同一个地方。
 if getattr(sys, 'frozen', False) and not os.environ.get('XIAOLING_HOME'):
     try:
         import shutil
-        _exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        _home = os.path.join(_exe_dir, 'runtime')
+
+        if sys.platform.startswith('win'):
+            base = os.environ.get('LOCALAPPDATA') or \
+                os.path.join(os.path.expanduser('~'), 'AppData', 'Local')
+            root = os.path.join(base, 'Xiaoling')
+        elif sys.platform == 'darwin':
+            root = os.path.join(os.path.expanduser('~'), 'Library',
+                                'Application Support', 'Xiaoling')
+        else:
+            base = os.environ.get('XDG_DATA_HOME') or \
+                os.path.join(os.path.expanduser('~'), '.local', 'share')
+            root = os.path.join(base, 'xiaoling')
+
+        _home = os.path.join(root, 'runtime')
         os.makedirs(_home, exist_ok=True)
         os.environ['XIAOLING_HOME'] = _home
+        os.environ['XIAOLING_SANDBOX_ROOT'] = root
+
+        # 首次运行：把打包进去的插件从只读资源区搬到这个可写沙箱
         _mei = getattr(sys, '_MEIPASS', '') or ''
         _src = os.path.join(_mei, '.star_core', 'plugins')
         _dst = os.path.join(_home, '.star_core', 'plugins')

@@ -134,6 +134,88 @@ def _get_workflow_engine():
     return _workflow_engine
 
 
+def _handle_sandbox(cmd: str) -> str:
+    """沙箱指令路由。返回 JSON 字符串。
+
+    桌面端（Windows / Linux / macOS）的模型商店下载与沙箱工具都走这里；
+    Android 侧仍由 Termux 的 MethodChannel 提供，不经过本函数。
+
+    子命令：
+        sandbox:status               沙箱路径 + 用量 + 下载进度（UI 轮询这个）
+        sandbox:download <名> [通道]  后台起线程下载模型（GB 级，不能同步等）
+        sandbox:exec <命令>           在 workspace 内执行（带白名单与超时）
+        sandbox:ls / read / write     受限的文件操作
+        sandbox:path / usage          路径与用量快照
+    """
+    import json as _json
+    import threading as _th
+
+    def _err(msg):
+        return _json.dumps({"ok": False, "error": str(msg)}, ensure_ascii=False)
+
+    rest = (cmd or '').strip()
+    if not rest:
+        return _err('缺少子命令')
+    op, _, arg = (rest + ' ').partition(' ')
+    op, arg = op.strip(), arg.strip()
+
+    try:
+        from core import sandbox as _sb
+
+        if op == 'status':
+            return _json.dumps(_sb.status(), ensure_ascii=False)
+
+        if op in ('path', 'paths'):
+            return _json.dumps({"ok": True, "paths": _sb.paths()},
+                               ensure_ascii=False)
+
+        if op == 'usage':
+            return _json.dumps({"ok": True, "usage": _sb.usage()},
+                               ensure_ascii=False)
+
+        if op == 'download':
+            parts = arg.split()
+            if not parts:
+                return _err('用法：sandbox:download <模型名> [通道]')
+            name = parts[0]
+            channel = parts[1] if len(parts) > 1 else 'auto'
+
+            # 必须异步：几个 GB 的 GGUF 同步下载会把这条 RPC 请求堵死，
+            # UI 也只有拿到即时返回才好去做轮询。
+            def _worker():
+                try:
+                    from core.model import LocalModel
+                    LocalModel().download(name, channel=channel)
+                except Exception as e:                          # noqa: BLE001
+                    from core.model import TASKS
+                    TASKS[name] = {'percent': 0.0, 'status': 'error',
+                                   'error': f'{type(e).__name__}: {e}'}
+
+            _th.Thread(target=_worker, daemon=True).start()
+            return _json.dumps(
+                {"ok": True, "name": name,
+                 "message": f'已在沙箱后台开始下载：{name}'},
+                ensure_ascii=False)
+
+        if op in ('exec', 'run'):
+            return _json.dumps(_sb.run(arg), ensure_ascii=False)
+
+        if op == 'ls':
+            return _json.dumps(_sb.list_dir(arg), ensure_ascii=False)
+
+        if op == 'read':
+            return _json.dumps(_sb.read_file(arg), ensure_ascii=False)
+
+        if op == 'write':
+            p, _, content = arg.partition(' ')
+            return _json.dumps(_sb.write_file(p, content), ensure_ascii=False)
+
+        return _err(f'未知沙箱子命令：{op}')
+    except Exception as e:                                      # noqa: BLE001
+        logger.exception('sandbox command failed: %s', cmd)
+        return _err(f'{type(e).__name__}: {e}')
+
+
 def _handle_ext_command(cmd: str) -> str:
     """轻量扩展命令路由：插件 / 工作流 / 安全 / MCP。返回 JSON 字符串。"""
     import json as _json
@@ -581,6 +663,10 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 # Dart/ Python 桩代码。
                 from core import options as _options
                 return pb.CommandReply(output=_options.handle(cmd.split(':', 1)[1]))
+            if cmd.startswith('sandbox:'):
+                # 桌面端沙箱：模型商店下载、受限执行、路径/用量查询。
+                # 与 settings: 同样返回 JSON，理由一致 —— 不必为此改 proto。
+                return pb.CommandReply(output=_handle_sandbox(cmd.split(':', 1)[1]))
             engine = _get_engine()
             if engine is None:
                 return pb.CommandReply(output='引擎未就绪，无法执行指令。')
