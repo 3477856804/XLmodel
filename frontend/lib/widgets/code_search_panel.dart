@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
 import '../rpc/xiaoling.pb.dart';
+import '../rpc/xiaoling_client_ext.dart';
 import 'code_viewer.dart';
 
 class CodeSearchPanel extends StatefulWidget {
@@ -24,6 +26,7 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
   double _elapsedMs = 0;
   String _kind = 'all';
   String _searchMode = 'keyword';
+  bool _callBusy = false;
   late AnimationController _enterCtrl;
 
   static const _kinds = <String, String>{
@@ -178,6 +181,286 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('打开文件失败: $e')));
     }
+  }
+
+  Future<Map<String, dynamic>> _call(String cmd) async {
+    final reply = await XlClient.stub.command(cmd);
+    final decoded = jsonDecode(reply.output) as Map<String, dynamic>;
+    if (decoded['ok'] != true) {
+      throw Exception(decoded['error']?.toString() ?? '请求失败');
+    }
+    return decoded;
+  }
+
+  String _symbolNameOf(CodeMatch m) {
+    final text = m.text.trim();
+    final re = RegExp(r'([A-Za-z_][A-Za-z0-9_]*)');
+    final first = re.firstMatch(text)?.group(1);
+    if (first != null && first != 'def' && first != 'class' && first != 'function') {
+      return first;
+    }
+    return _queryCtrl.text.trim();
+  }
+
+  Future<void> _openPath(String path, {int line = 1}) async {
+    try {
+      final content = await XlClient.stub.fileRead(FileReadRequest(path: path));
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 700),
+            decoration: BoxDecoration(
+              color: XlPalette.of(ctx).bg,
+              borderRadius: BorderRadius.circular(XlRadius.xl),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: XlPalette.of(ctx).divider, width: 1)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.location_on_rounded, size: 16, color: XlPalette.of(ctx).pink),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text('$path:$line',
+                            style: TextStyle(
+                              fontSize: XlFont.caption,
+                              fontWeight: FontWeight.w800,
+                              color: XlPalette.of(ctx).text1,
+                            )),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close_rounded, size: 18, color: XlPalette.of(ctx).text3),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(child: CodeViewer(file: content, focusLine: line)),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('打开文件失败: $e')));
+    }
+  }
+
+  Future<void> _openCallInfo(CodeMatch m) async {
+    final name = _symbolNameOf(m);
+    if (name.isEmpty || _callBusy) return;
+    FocusScope.of(context).unfocus();
+    setState(() => _callBusy = true);
+    Map<String, dynamic>? callers;
+    Map<String, dynamic>? callees;
+    Map<String, dynamic>? chain;
+    String? fail;
+    try {
+      final results = await Future.wait([
+        _call('code:callers $name'),
+        _call('code:callees $name'),
+        _call('code:chain $name --depth 2'),
+      ]);
+      callers = results[0];
+      callees = results[1];
+      chain = results[2];
+    } catch (e) {
+      fail = e.toString();
+    }
+    if (!mounted) return;
+    setState(() => _callBusy = false);
+    if (fail != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: const Text('代码索引未构建'),
+      ));
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.35,
+        expand: false,
+        builder: (ctx, scroll) => Container(
+          decoration: BoxDecoration(
+            color: XlPalette.of(ctx).bg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: ListView(
+            controller: scroll,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.account_tree_rounded, size: 18, color: XlPalette.of(ctx).pink),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('调用关系 · $name',
+                        style: TextStyle(
+                          fontSize: XlFont.bodySm,
+                          fontWeight: FontWeight.w800,
+                          color: XlPalette.of(ctx).text1,
+                        )),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, size: 18, color: XlPalette.of(ctx).text3),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _callersSection(ctx, callers?['callers'] as List?),
+              const SizedBox(height: 12),
+              _calleesSection(ctx, callees?['callees'] as List?),
+              const SizedBox(height: 12),
+              _chainSection(ctx, chain?['chain'] as Map?),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _callersSection(BuildContext context, List? data) {
+    final p = XlPalette.of(context);
+    final list = (data ?? []);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('调用者 · ${list.length}',
+            style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.gold)),
+        const SizedBox(height: 6),
+        if (list.isEmpty)
+          Text('无', style: TextStyle(fontSize: XlFont.captionSm, color: p.text3))
+        else
+          ...list.map((e) {
+            final m = (e as Map).cast<String, dynamic>();
+            return _callerRow(context, m['caller']?.toString() ?? '',
+                m['file']?.toString() ?? '', (m['line'] as num?)?.toInt() ?? 1);
+          }),
+      ],
+    );
+  }
+
+  Widget _callerRow(BuildContext context, String caller, String file, int line) {
+    final p = XlPalette.of(context);
+    return _Pressable(
+      onTap: () => _openPath(file, line: line),
+      scale: 0.98,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(10),
+        decoration: AppTheme.sunkenXs(context, r: XlRadius.md),
+        child: Row(
+          children: [
+            Icon(Icons.arrow_upward_rounded, size: 13, color: p.pink),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(caller,
+                  style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w700, color: p.text1)),
+            ),
+            Text('$file:$line',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: XlFont.micro, color: p.text3)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _calleesSection(BuildContext context, List? data) {
+    final p = XlPalette.of(context);
+    final list = (data ?? []);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('被调用 · ${list.length}',
+            style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.gold)),
+        const SizedBox(height: 6),
+        if (list.isEmpty)
+          Text('无', style: TextStyle(fontSize: XlFont.captionSm, color: p.text3))
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: list.map((e) {
+              final m = (e as Map).cast<String, dynamic>();
+              final c = m['callee']?.toString() ?? '';
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: AppTheme.pill(context, color: p.pink, r: XlRadius.pill),
+                child: Text(c,
+                    style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w700, color: p.btnInk)),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _chainSection(BuildContext context, Map? root) {
+    final p = XlPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('调用链',
+            style: TextStyle(fontSize: XlFont.caption, fontWeight: FontWeight.w800, color: p.gold)),
+        const SizedBox(height: 6),
+        if (root == null)
+          Text('无', style: TextStyle(fontSize: XlFont.captionSm, color: p.text3))
+        else
+          _chainNode(context, root, 0),
+      ],
+    );
+  }
+
+  Widget _chainNode(BuildContext context, Map node, int depth) {
+    final p = XlPalette.of(context);
+    final name = node['name']?.toString() ?? '';
+    final file = node['file']?.toString();
+    final line = (node['line'] as num?)?.toInt() ?? 1;
+    final children = (node['children'] as List?) ?? [];
+    return Padding(
+      padding: EdgeInsets.only(left: 14.0 * depth, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Pressable(
+            onTap: (file != null && file.isNotEmpty)
+                ? () => _openPath(file, line: line)
+                : null,
+            scale: 0.98,
+            child: Row(
+              children: [
+                Icon(Icons.chevron_right_rounded, size: 12, color: p.gold),
+                const SizedBox(width: 6),
+                Text(name,
+                    style: TextStyle(fontSize: XlFont.captionSm, fontWeight: FontWeight.w700, color: p.text1)),
+                if (file != null && file.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Text('$file:$line',
+                      style: TextStyle(fontSize: XlFont.micro, color: p.text3)),
+                ],
+              ],
+            ),
+          ),
+          ...children.map((c) => _chainNode(context, (c as Map).cast<String, dynamic>(), depth + 1)),
+        ],
+      ),
+    );
   }
 
   @override
@@ -489,10 +772,42 @@ class _CodeSearchPanelState extends State<CodeSearchPanel> with TickerProviderSt
                   ),
                   const SizedBox(height: 6),
                   _highlightedText(p, m.text, _queryCtrl.text.trim()),
+                  if (isSymbolMode && isDef) ...[
+                    const SizedBox(height: 8),
+                    _callersBtn(p, m),
+                  ],
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _callersBtn(XlPalette p, CodeMatch m) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: _Pressable(
+        onTap: _callBusy ? null : () => _openCallInfo(m),
+        scale: 0.94,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: AppTheme.ghost(context, r: XlRadius.pill),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.account_tree_rounded, size: 12, color: p.pink),
+              const SizedBox(width: 6),
+              Text('查看调用者',
+                  style: TextStyle(
+                    fontSize: XlFont.captionSm,
+                    fontWeight: FontWeight.w800,
+                    color: p.pink,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ],
+          ),
         ),
       ),
     );

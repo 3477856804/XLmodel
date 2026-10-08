@@ -5,21 +5,50 @@ import '../theme/theme.dart';
 
 class CodeViewer extends StatefulWidget {
   final pb.FileContent? file;
-  const CodeViewer({super.key, this.file});
+  final int? focusLine;
+  const CodeViewer({super.key, this.file, this.focusLine});
   @override
   State<CodeViewer> createState() => _CodeViewerState();
 }
 
 class _CodeViewerState extends State<CodeViewer> {
   static const int _maxLines = 1000;
+  static const double _lineH = 19;
   bool _copied = false;
+  final ScrollController _vCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToFocus());
+  }
 
   @override
   void didUpdateWidget(covariant CodeViewer old) {
     super.didUpdateWidget(old);
-    if (old.file?.path != widget.file?.path) {
+    if (old.file?.path != widget.file?.path ||
+        old.focusLine != widget.focusLine) {
       _copied = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToFocus());
     }
+  }
+
+  @override
+  void dispose() {
+    _vCtrl.dispose();
+    super.dispose();
+  }
+
+  void _jumpToFocus() {
+    final target = widget.focusLine;
+    if (target == null || !_vCtrl.hasClients) return;
+    final pos = (target - 1) * _lineH;
+    final max = _vCtrl.position.maxScrollExtent;
+    _vCtrl.animateTo(
+      pos.clamp(0.0, max),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+    );
   }
 
   Future<void> _copyAll(String content) async {
@@ -171,6 +200,7 @@ class _CodeViewerState extends State<CodeViewer> {
         children: [
           Expanded(
             child: SingleChildScrollView(
+              controller: _vCtrl,
               scrollDirection: Axis.vertical,
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -233,15 +263,21 @@ class _CodeViewerState extends State<CodeViewer> {
   }
 
   Widget _codeColumn(XlPalette p, List<String> lines) {
+    final focus = widget.focusLine;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (int i = 0; i < lines.length; i++)
-          SizedBox(
-            height: 19,
-            child: RichText(
-              text: TextSpan(
-                children: _highlightLine(p, lines[i]),
+          Container(
+            color: (focus != null && i + 1 == focus)
+                ? p.pink.withOpacity(0.18)
+                : null,
+            child: SizedBox(
+              height: _lineH,
+              child: RichText(
+                text: TextSpan(
+                  children: _highlightLine(p, lines[i]),
+                ),
               ),
             ),
           ),
