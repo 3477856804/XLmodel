@@ -43,6 +43,10 @@ opencv-python>=4.8.0           # 2D 兜底桌宠的 WEBM 视频动画
 pyttsx3>=2.90                  # 离线语音朗读
 sounddevice>=0.4.6             # 语音输入（麦克风）
 edge-tts>=6.1.0                # 联网高质量情感语音（语音朗读 ReadAloud 依赖；multimodal.py 懒加载）
+# playwright>=1.40.0           # 【可选】真实浏览器自动化：渲染 React/Vue 等 JS 动态页面、截图、点击/输入。
+#                               装库后还需执行 `playwright install chromium` 下载浏览器内核才能真正渲染；
+#                               未安装时 backend/core/browser_tool.py 会自动降级为 requests+正则抓取，
+#                               不影响其余功能，因此这里默认注释掉、不作为硬依赖。
 
 # 【多平台接入】装对应平台的库即启用
 # wechaty / itchat             # 微信
