@@ -10,9 +10,15 @@ logs/
 tmp/
 workspace/
 
-# ---- 内置插件运行时持久化数据（todo_manager / code_snippets 的 store.json）----
+# ---- 内置插件运行时持久化数据（todo_manager / code_snippets / note_taker / rss_reader）----
 plugins/builtin/*/store.json
 plugins/builtin/*/store.json.tmp
+plugins/builtin/*/notes.json
+plugins/builtin/*/notes.json.tmp
+plugins/builtin/*/feeds.json
+plugins/builtin/*/feeds.json.tmp
+# PluginManager 运行时开关状态
+plugins/builtin/state.json
 
 frontend/build/
 frontend/.dart_tool/
