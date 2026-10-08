@@ -1,0 +1,11 @@
+{
+  "name": "todo_manager",
+  "version": "0.0.1",
+  "description": "待办事项管理：添加 / 列出 / 完成 / 删除，数据持久化到本地 JSON",
+  "author": "xiaoling",
+  "category": "productivity",
+  "entry": "main.py",
+  "permissions": ["file:read", "file:write"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

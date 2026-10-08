@@ -1,0 +1,11 @@
+{
+  "name": "translator",
+  "version": "0.0.1",
+  "description": "文本翻译：真实调用免费翻译 API，支持中英互译及任意语言对",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["network"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

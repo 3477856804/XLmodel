@@ -1,0 +1,11 @@
+{
+  "name": "weather",
+  "version": "0.0.1",
+  "description": "天气查询：真实调用免费天气服务，返回温度/天气/湿度/风速",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["network"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

@@ -1,0 +1,11 @@
+{
+  "name": "code_snippets",
+  "version": "0.0.1",
+  "description": "代码片段管理：保存 / 搜索 / 取出 / 列出常用代码片段，本地 JSON 持久化",
+  "author": "xiaoling",
+  "category": "development",
+  "entry": "main.py",
+  "permissions": ["file:read", "file:write"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

@@ -10,6 +10,10 @@ logs/
 tmp/
 workspace/
 
+# ---- 内置插件运行时持久化数据（todo_manager / code_snippets 的 store.json）----
+plugins/builtin/*/store.json
+plugins/builtin/*/store.json.tmp
+
 frontend/build/
 frontend/.dart_tool/
 frontend/test/
