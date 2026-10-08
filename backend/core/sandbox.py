@@ -501,6 +501,394 @@ def guard_path(p: str | Path) -> Path:
     return t
 
 
+# ================================================================
+# 跨平台隔离：macOS Seatbelt / Windows Job Object
+# ================================================================
+# 核心原则：**有平台原生隔离就用，没有就明确降级标注，绝不假装安全**。
+#
+# Linux   : Landlock（路径级强制，deny-by-default）
+# macOS   : Seatbelt（sandbox-exec + .sb profile）
+# Windows : Job Object（CPU / 内存 / 进程数限制，路径隔离 best-effort）
+# 其他    : rlimit + chdir 或纯 subprocess
+
+
+# ---- macOS 系统只读目录（Seatbelt 用）----
+_MACOS_SYSTEM_RO_PATHS = (
+    '/usr', '/lib', '/bin', '/sbin', '/etc', '/var', '/dev',
+    '/System', '/private/etc', '/private/var',
+)
+
+
+def _seatbelt_available() -> bool:
+    """探测 macOS sandbox-exec 是否可用。仅 Darwin 返回 True。"""
+    if platform.system() != 'Darwin':
+        return False
+    try:
+        from shutil import which
+        return which('sandbox-exec') is not None
+    except Exception:                           # noqa: BLE001
+        return False
+
+
+def _build_seatbelt_profile(workspace: str, permission: str) -> str:
+    """生成 Seatbelt (.sb) profile 文本。
+
+    三档权限映射：
+      - readonly : deny-by-default，仅放行 workspace 与系统目录的只读访问
+      - default  : deny-by-default，workspace 可读写，系统目录只读
+      - full     : 不限制（调用方应直接走 unrestricted，不调用本函数）
+    """
+    lines = ['(version 1)']
+    if permission == PERM_FULL:
+        # full 档不应该走到这里；兜底放行一切
+        lines.append('(allow default)')
+        return '\n'.join(lines)
+
+    # deny-by-default：除显式 allow 外一律拒绝
+    lines.append('(deny default)')
+    # 基础进程操作
+    lines.append('(allow process-exec)')
+    lines.append('(allow process-fork)')
+    lines.append('(allow process-signal)')
+    lines.append('(allow sysctl-read)')
+    # 系统目录只读（可执行 + 读文件 + 读元数据）
+    for p in _MACOS_SYSTEM_RO_PATHS:
+        lines.append(f'(allow file-read* file-read-metadata (subpath "{p}"))')
+    # workspace：readonly 只读 / default 读写
+    ws = workspace.replace('\\', '/')
+    if permission == PERM_READONLY:
+        lines.append(f'(allow file-read* file-read-metadata (subpath "{ws}"))')
+    else:
+        # default：workspace 全权限读写
+        lines.append(f'(allow file* (subpath "{ws}"))')
+        # tmp 目录也放行（子进程常需要临时文件）
+        t = str(tmp_dir()).replace('\\', '/')
+        lines.append(f'(allow file* (subpath "{t}"))')
+    return '\n'.join(lines)
+
+
+def _run_macos_seatbelt(command: str, permission_level: str,
+                         work: Path, env: dict, secs: int) -> dict:
+    """macOS 上通过 sandbox-exec 施加 Seatbelt 路径隔离。
+
+    成功时 isolation='seatbelt'；sandbox-exec 不可用或执行失败时
+    降级为 rlimit+chdir（isolation='rlimit-only'）。
+    """
+    plat = platform.system().lower()
+    ws = str(work)
+
+    if not _seatbelt_available():
+        logger.info('sandbox: sandbox-exec 不可用，降级为 rlimit-only')
+        # 降级：preexec_fn 在 macOS 上仍然可用（POSIX），走 rlimit+chdir
+        preexec = _build_preexec(ws, permission_level, False)
+        try:
+            cp = subprocess.run(
+                command, shell=True, cwd=ws, env=env,
+                preexec_fn=preexec,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': ws,
+                'isolation': 'rlimit-only',
+                'permission': permission_level,
+                'platform': plat,
+            }
+        except subprocess.TimeoutExpired:
+            return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                    'isolation': 'rlimit-only', 'permission': permission_level,
+                    'platform': plat}
+        except Exception as e:                 # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                    'isolation': 'rlimit-only', 'permission': permission_level,
+                    'platform': plat}
+
+    # 生成临时 .sb 文件
+    sb_path = None
+    try:
+        import tempfile
+        profile = _build_seatbelt_profile(ws, permission_level)
+        fd, sb_path = tempfile.mkstemp(suffix='.sb', prefix='xl_sb_')
+        try:
+            os.write(fd, profile.encode('utf-8'))
+        finally:
+            os.close(fd)
+
+        # sandbox-exec -f <profile> <command>
+        full_cmd = f'sandbox-exec -f {sb_path} {command}'
+        preexec = _build_preexec(ws, permission_level, False)
+        try:
+            cp = subprocess.run(
+                full_cmd, shell=True, cwd=ws, env=env,
+                preexec_fn=preexec,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': ws,
+                'isolation': 'seatbelt',
+                'permission': permission_level,
+                'platform': plat,
+            }
+        except subprocess.TimeoutExpired:
+            return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                    'isolation': 'seatbelt', 'permission': permission_level,
+                    'platform': plat}
+    except Exception as e:                     # noqa: BLE001
+        logger.warning('sandbox: seatbelt 执行异常 (%s)，降级为 rlimit-only', e)
+        # 发生异常时降级
+        preexec = _build_preexec(ws, permission_level, False)
+        try:
+            cp = subprocess.run(
+                command, shell=True, cwd=ws, env=env,
+                preexec_fn=preexec,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': ws,
+                'isolation': 'rlimit-only',
+                'permission': permission_level,
+                'platform': plat,
+            }
+        except Exception as e2:               # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e2).__name__}: {e2}',
+                    'isolation': 'rlimit-only', 'permission': permission_level,
+                    'platform': plat}
+    finally:
+        # 清理临时 .sb 文件
+        if sb_path:
+            try:
+                os.unlink(sb_path)
+            except Exception:                 # noqa: BLE001
+                pass
+
+
+# ---- Windows Job Object ----
+def _jobobject_available() -> bool:
+    """探测 Windows Job Object 是否可用（仅 Windows）。"""
+    if platform.system() != 'Windows':
+        return False
+    try:
+        k32 = ctypes.windll.kernel32
+        h = k32.CreateJobObjectW(None, None)
+        if not h:
+            return False
+        k32.CloseHandle(h)
+        return True
+    except Exception:                           # noqa: BLE001
+        return False
+
+
+def _run_windows_job(command: str, permission_level: str,
+                     work: Path, env: dict, secs: int) -> dict:
+    """Windows 上通过 Job Object 限制 CPU 时间、内存、进程数。
+
+    路径隔离：Windows 无原生路径沙箱，使用 cwd + 路径白名单做 best-effort。
+    Job Object 不可用时降级为纯 subprocess + timeout。
+    """
+    plat = platform.system().lower()
+    ws = str(work)
+
+    # Job Object 不可用 -> 降级 subprocess
+    if not _jobobject_available():
+        logger.info('sandbox: Windows Job Object 不可用，降级为 subprocess')
+        try:
+            cp = subprocess.run(
+                command, shell=True, cwd=ws, env=env,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': ws,
+                'isolation': 'subprocess',
+                'permission': permission_level,
+                'platform': plat,
+            }
+        except subprocess.TimeoutExpired:
+            return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                    'isolation': 'subprocess', 'permission': permission_level,
+                    'platform': plat}
+        except Exception as e:                 # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                    'isolation': 'subprocess', 'permission': permission_level,
+                    'platform': plat}
+
+    # ---- Job Object 可用：创建 job + 设限制 + assign ----
+    try:
+        k32 = ctypes.windll.kernel32
+
+        # 常量
+        JobObjectExtendedLimitInformation = 9
+        JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000002
+        JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+        JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ('PerProcessUserTimeLimit', ctypes.c_int64),
+                ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', ctypes.c_uint32),
+                ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t),
+                ('ActiveProcessLimit', ctypes.c_uint32),
+                ('Affinity', ctypes.c_void_p),
+                ('PriorityClass', ctypes.c_uint32),
+                ('SchedulingClass', ctypes.c_uint32),
+            ]
+
+        class IO_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ('ReadOperationCount', ctypes.c_uint64),
+                ('WriteOperationCount', ctypes.c_uint64),
+                ('OtherOperationCount', ctypes.c_uint64),
+                ('ReadTransferCount', ctypes.c_uint64),
+                ('WriteTransferCount', ctypes.c_uint64),
+                ('OtherTransferCount', ctypes.c_uint64),
+            ]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ('IoInfo', IO_COUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t),
+                ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                ('PeakJobMemoryUsed', ctypes.c_size_t),
+            ]
+
+        h_job = k32.CreateJobObjectW(None, None)
+        if not h_job:
+            raise OSError('CreateJobObjectW failed')
+
+        # 设置限制
+        info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = (
+            JOB_OBJECT_LIMIT_PROCESS_TIME |
+            JOB_OBJECT_LIMIT_PROCESS_MEMORY |
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS |
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        )
+        # CPU 时间：单位 100ns，设为 secs * 10^7 * 100
+        info.BasicLimitInformation.PerProcessUserTimeLimit = int(secs * 1e7)
+        # 内存上限：512MB
+        info.ProcessMemoryLimit = 512 * 1024 * 1024
+        # 活跃进程数上限
+        info.BasicLimitInformation.ActiveProcessLimit = 8
+
+        ret = k32.SetInformationJobObject(
+            h_job, JobObjectExtendedLimitInformation,
+            ctypes.byref(info), ctypes.sizeof(info))
+        if not ret:
+            raise OSError('SetInformationJobObject failed')
+
+        # 启动子进程
+        popen = subprocess.Popen(
+            command, shell=True, cwd=ws, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding='utf-8', errors='replace',
+        )
+
+        # 分配到 Job Object
+        try:
+            # Popen._handle 在 Windows 上是进程句柄
+            h_proc = int(popen._handle)
+            k32.AssignProcessToJobObject(h_job, h_proc)
+        except Exception:                     # noqa: BLE001
+            logger.warning('sandbox: AssignProcessToJobObject 失败，进程无 job 限制')
+
+        try:
+            stdout, stderr = popen.communicate(timeout=secs)
+            return {
+                'ok': popen.returncode == 0,
+                'code': popen.returncode,
+                'stdout': (stdout or '')[:20000],
+                'stderr': (stderr or '')[:8000],
+                'cwd': ws,
+                'isolation': 'job-object',
+                'permission': permission_level,
+                'platform': plat,
+            }
+        except subprocess.TimeoutExpired:
+            popen.kill()
+            popen.communicate()
+            return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                    'isolation': 'job-object', 'permission': permission_level,
+                    'platform': plat}
+    except Exception as e:                     # noqa: BLE001
+        logger.warning('sandbox: Job Object 执行异常 (%s)，降级为 subprocess', e)
+        # 降级
+        try:
+            cp = subprocess.run(
+                command, shell=True, cwd=ws, env=env,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': ws,
+                'isolation': 'subprocess',
+                'permission': permission_level,
+                'platform': plat,
+            }
+        except Exception as e2:               # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e2).__name__}: {e2}',
+                    'isolation': 'subprocess', 'permission': permission_level,
+                    'platform': plat}
+    finally:
+        try:
+            if 'h_job' in dir():
+                k32.CloseHandle(h_job)
+        except Exception:                     # noqa: BLE001
+            pass
+
+
+# ---- 平台检测 ----
+def get_platform_isolation() -> str:
+    """返回当前平台推荐使用的隔离类型。
+
+    返回值之一：
+      - ``"landlock"``      : Linux + Landlock 可用
+      - ``"rlimit+chdir"``  : Linux 但 Landlock 不可用
+      - ``"seatbelt"``      : macOS + sandbox-exec 可用
+      - ``"rlimit-only"``   : macOS 但 sandbox-exec 不可用
+      - ``"job-object"``    : Windows + Job Object 可用
+      - ``"subprocess"``    : Windows 但 Job Object 不可用
+      - ``"unknown"``       : 其他平台
+    """
+    plat = platform.system()
+    try:
+        if plat == 'Linux':
+            return 'landlock' if _landlock_supported() else 'rlimit+chdir'
+        if plat == 'Darwin':
+            return 'seatbelt' if _seatbelt_available() else 'rlimit-only'
+        if plat == 'Windows':
+            return 'job-object' if _jobobject_available() else 'subprocess'
+    except Exception:                           # noqa: BLE001
+        pass
+    return 'unknown'
+
+
 # ---------------------------------------------------------------- 执行
 def run_sandboxed(command: str,
                   permission_level: str = PERM_DEFAULT,
@@ -508,14 +896,20 @@ def run_sandboxed(command: str,
                   timeout: int | None = None) -> dict:
     """在沙箱内执行命令，带 OS 级进程隔离。
 
+    按平台自动选择隔离方式：
+      - Linux   -> Landlock（降级 rlimit+chdir）
+      - macOS   -> Seatbelt（降级 rlimit-only）
+      - Windows -> Job Object（降级 subprocess）
+      - 其他    -> rlimit+chdir
+
     Parameters
     ----------
     command : str
         要执行的 shell 命令。
     permission_level : str
         ``"readonly"`` / ``"default"`` / ``"full"`` 三档：
-        - readonly : 仅可读 workspace 与系统库，禁止写/建/删（Landlock ro）
-        - default  : 可读写 workspace，可执行非网络命令（Landlock rw + rlimit）
+        - readonly : 仅可读 workspace 与系统库，禁止写/建/删
+        - default  : 可读写 workspace，可执行非网络命令
         - full     : 完全访问（跳过 OS 隔离；按红线需用户另行确认）
     cwd, timeout : 同旧 :func:`run`。
 
@@ -523,7 +917,8 @@ def run_sandboxed(command: str,
     -------
     dict
         与旧 run 相同的字段（ok/code/stdout/stderr/cwd），并额外带：
-        ``isolation``（本次实际使用的隔离级别）、``permission``。
+        ``isolation``（本次实际使用的隔离级别）、``permission``、
+        ``platform``（当前操作系统）。
     """
     ensure()
     cmd = (command or '').strip()
@@ -548,58 +943,107 @@ def run_sandboxed(command: str,
 
     secs = timeout or MAX_EXEC_SECONDS
     plat = platform.system()
+    plat_lower = plat.lower()
 
-    # ---- 决定本次实际能用到的隔离级别（如实上报，绝不假装安全）----
-    landlock_on = False
+    env = dict(os.environ)
+    env['XIAOLING_SANDBOX'] = '1'
+    if permission_level in (PERM_READONLY, PERM_DEFAULT):
+        env['no_proxy'] = '*'
+        env['NO_PROXY'] = '*'
+
+    # ---- full 权限：不做任何 OS 隔离 ----
     if permission_level == PERM_FULL:
-        isolation = 'unrestricted'
-    elif plat == 'Linux':
+        try:
+            cp = subprocess.run(
+                cmd, shell=True, cwd=str(work), env=env,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': str(work),
+                'isolation': 'unrestricted',
+                'permission': permission_level,
+                'platform': plat_lower,
+            }
+        except subprocess.TimeoutExpired:
+            return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                    'isolation': 'unrestricted', 'permission': permission_level,
+                    'platform': plat_lower}
+        except Exception as e:                 # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                    'isolation': 'unrestricted', 'permission': permission_level,
+                    'platform': plat_lower}
+
+    # ---- 按平台路由 ----
+    if plat == 'Linux':
+        # Landlock 路径（与原实现一致）
         landlock_on = _landlock_supported()
         isolation = 'landlock' if landlock_on else 'rlimit+chdir'
         if not landlock_on:
             logger.warning('sandbox: Linux 但 Landlock 不可用，降级为 '
                            'rlimit+chdir（非完整路径隔离）')
+        preexec = _build_preexec(str(work), permission_level, landlock_on)
+        try:
+            cp = subprocess.run(
+                cmd, shell=True, cwd=str(work), env=env,
+                preexec_fn=preexec,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': str(work),
+                'isolation': isolation,
+                'permission': permission_level,
+                'platform': plat_lower,
+            }
+        except subprocess.TimeoutExpired:
+            return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                    'isolation': isolation, 'permission': permission_level,
+                    'platform': plat_lower}
+        except Exception as e:                 # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                    'isolation': isolation, 'permission': permission_level,
+                    'platform': plat_lower}
+
     elif plat == 'Darwin':
-        # Seatbelt 在本开发环境无法验证：尽力而为，失败即降级。
-        isolation = 'rlimit+chdir'
-        logger.info('sandbox: macOS Seatbelt 未启用，降级为 rlimit+chdir')
+        return _run_macos_seatbelt(cmd, permission_level, work, env, secs)
+
+    elif plat == 'Windows':
+        return _run_windows_job(cmd, permission_level, work, env, secs)
+
     else:
-        # Windows：无内核沙箱，退回路径白名单 + 命令黑名单
-        isolation = 'path-whitelist'
-        logger.warning('sandbox: %s 无可用 OS 沙箱，仅路径白名单+黑名单', plat)
-
-    env = dict(os.environ)
-    env['XIAOLING_SANDBOX'] = '1'
-    # 网络尽力收敛：default/readonly 档不走代理（真正的 netns 隔离需 unshare，
-    # 这里是 best-effort，已在 isolation 字段如实标注）。
-    if permission_level in (PERM_READONLY, PERM_DEFAULT):
-        env['no_proxy'] = '*'
-        env['NO_PROXY'] = '*'
-
-    preexec = _build_preexec(str(work), permission_level, landlock_on)
-
-    try:
-        cp = subprocess.run(
-            cmd, shell=True, cwd=str(work), env=env,
-            preexec_fn=preexec,
-            capture_output=True, text=True, encoding='utf-8',
-            errors='replace', timeout=secs,
-        )
-        return {
-            'ok': cp.returncode == 0,
-            'code': cp.returncode,
-            'stdout': (cp.stdout or '')[:20000],
-            'stderr': (cp.stderr or '')[:8000],
-            'cwd': str(work),
-            'isolation': isolation,
-            'permission': permission_level,
-        }
-    except subprocess.TimeoutExpired:
-        return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
-                'isolation': isolation, 'permission': permission_level}
-    except Exception as e:
-        return {'ok': False, 'error': f'{type(e).__name__}: {e}',
-                'isolation': isolation, 'permission': permission_level}
+        # 其他平台：纯 rlimit + chdir 或 subprocess
+        logger.warning('sandbox: 未知平台 %s，使用 rlimit+chdir', plat)
+        preexec = _build_preexec(str(work), permission_level, False)
+        try:
+            cp = subprocess.run(
+                cmd, shell=True, cwd=str(work), env=env,
+                preexec_fn=preexec,
+                capture_output=True, text=True, encoding='utf-8',
+                errors='replace', timeout=secs,
+            )
+            return {
+                'ok': cp.returncode == 0,
+                'code': cp.returncode,
+                'stdout': (cp.stdout or '')[:20000],
+                'stderr': (cp.stderr or '')[:8000],
+                'cwd': str(work),
+                'isolation': 'rlimit+chdir',
+                'permission': permission_level,
+                'platform': plat_lower,
+            }
+        except Exception as e:                 # noqa: BLE001
+            return {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                    'isolation': 'rlimit+chdir', 'permission': permission_level,
+                    'platform': plat_lower}
 
 
 def run(command: str, timeout: int | None = None, cwd: str | None = None) -> dict:

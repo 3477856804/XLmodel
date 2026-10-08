@@ -105,8 +105,70 @@ def test_sandbox_rejects_empty_command(sb):
 def test_sandbox_isolation_fields_present(sb):
     r = sb.run_sandboxed("echo field")
     assert "isolation" in r and "permission" in r
-    assert r["isolation"] in ("landlock", "rlimit+chdir", "path-whitelist",
-                              "unrestricted")
+    assert r["isolation"] in (
+        "landlock", "rlimit+chdir", "rlimit-only",
+        "seatbelt", "job-object", "subprocess",
+        "path-whitelist", "unrestricted",
+    )
+
+
+def test_sandbox_platform_field_present(sb):
+    """返回值必须包含 platform 字段。"""
+    r = sb.run_sandboxed("echo platform")
+    assert "platform" in r
+    assert r["platform"]  # 非空字符串
+
+
+def test_get_platform_isolation_returns_valid(sb):
+    """get_platform_isolation 返回合法的隔离类型。"""
+    iso = sb.get_platform_isolation()
+    valid = (
+        "landlock", "rlimit+chdir",
+        "seatbelt", "rlimit-only",
+        "job-object", "subprocess",
+        "unknown",
+    )
+    assert iso in valid, f"未知隔离类型: {iso}"
+
+
+def test_seatbelt_profile_builder_readonly(sb, tmp_path):
+    """Seatbelt profile 生成：readonly 档应 deny default + 仅读。"""
+    ws = str(tmp_path / "workspace")
+    profile = sb._build_seatbelt_profile(ws, sb.PERM_READONLY)
+    assert "(deny default)" in profile
+    assert "(version 1)" in profile
+    # 不应出现 file* 全权限放行（readonly）
+    assert f'(allow file* (subpath "{ws}"))' not in profile
+    # 应出现只读放行
+    assert f'(allow file-read* file-read-metadata (subpath "{ws}"))' in profile
+
+
+def test_seatbelt_profile_builder_default(sb, tmp_path):
+    """Seatbelt profile 生成：default 档 workspace 可读写。"""
+    ws = str(tmp_path / "workspace")
+    profile = sb._build_seatbelt_profile(ws, sb.PERM_DEFAULT)
+    assert "(deny default)" in profile
+    # default 档 workspace 全权限
+    assert f'(allow file* (subpath "{ws}"))' in profile
+
+
+def test_seatbelt_profile_builder_full(sb, tmp_path):
+    """Seatbelt profile 生成：full 档应 allow default。"""
+    ws = str(tmp_path / "workspace")
+    profile = sb._build_seatbelt_profile(ws, sb.PERM_FULL)
+    assert "(allow default)" in profile
+
+
+def test_seatbelt_available_returns_bool(sb):
+    """_seatbelt_available 返回布尔值（非 macOS 上为 False）。"""
+    result = sb._seatbelt_available()
+    assert isinstance(result, bool)
+
+
+def test_jobobject_available_returns_bool(sb):
+    """_jobobject_available 返回布尔值（非 Windows 上为 False）。"""
+    result = sb._jobobject_available()
+    assert isinstance(result, bool)
 
 
 def test_sandbox_path_whitelist_allows_workspace(sb):
