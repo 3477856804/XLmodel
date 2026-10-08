@@ -35,6 +35,10 @@ SPEC = PROJECT / 'packaging' / 'backend.spec'
 DIST = PROJECT / 'dist'
 WORK = PROJECT / 'build' / 'pyinstaller'
 
+# 全工程版本号唯一来源（与 backend/core/config.py、frontend/pubspec.yaml 对齐）。
+# 发布期固定为 0.0.1，禁止在各脚本里再写死数字。
+VERSION = '0.0.1'
+
 # Windows CI 控制台默认 cp1252，打印中文会 UnicodeEncodeError —— 强制 UTF-8 输出。
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -193,7 +197,7 @@ def make_deb(app: Path) -> Path | None:
     _copy_app(app, root / 'opt')
     arch = 'arm64' if platform.machine() in ('aarch64', 'arm64') else 'amd64'
     (root / 'DEBIAN/control').write_text(
-        'Package: xiaoling\nVersion: 0.0.1\nSection: utils\nPriority: optional\n'
+        f'Package: xiaoling\nVersion: {VERSION}\nSection: utils\nPriority: optional\n'
         f'Architecture: {arch}\nMaintainer: XIAOLING <xiaoling@local>\n'
         'Depends: libosmesa6 | libgl1, libgl1-mesa-dri | libglx-mesa0\n'
         'Description: 小凌 XIAOLING - 3D digital companion (pure Python)\n',
@@ -206,7 +210,7 @@ def make_deb(app: Path) -> Path | None:
     launcher = root / 'usr/bin/xiaoling'
     launcher.write_text(f'#!/bin/sh\nexec /opt/{app.name}/{app.name} "$@"\n', encoding='utf-8')
     launcher.chmod(0o755)
-    out = DIST / f'xiaoling_0.0.1_{arch}.deb'
+    out = DIST / f'xiaoling_{VERSION}_{arch}.deb'
     subprocess.run(['dpkg-deb', '--build', str(root), str(out)], check=True)
     log(f'Debian 包：{out}（{human(out.stat().st_size)}）')
     return out
@@ -236,7 +240,7 @@ def make_dmg(app: Path) -> Path | None:
     if not shutil.which('hdiutil'):
         log('跳过 dmg：仅 macOS 支持')
         return None
-    out = DIST / 'xiaoling-0.0.1.dmg'
+    out = DIST / f'xiaoling-{VERSION}.dmg'
     subprocess.run(['hdiutil', 'create', '-volname', '小凌 XIAOLING', '-srcfolder', str(app),
                     '-ov', '-format', 'UDZO', str(out)], check=True)
     log(f'DMG：{out}（{human(out.stat().st_size)}）')
@@ -295,7 +299,7 @@ def main(argv=None):
         if p:
             artifacts.append(str(p))
 
-    manifest = {'name': '小凌 XIAOLING', 'version': '0.0.1', 'target': target_name(),
+    manifest = {'name': '小凌 XIAOLING', 'version': VERSION, 'target': target_name(),
                 'mode': 'lite' if a.lite else 'full', 'onefile': a.onefile,
                 'built_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'python': sys.version.split()[0],
                 'artifacts': []}

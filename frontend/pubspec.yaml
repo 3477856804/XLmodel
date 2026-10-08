@@ -9,6 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
   grpc: ^4.0.1
   protobuf: ^4.0.0
   fixnum: ^1.1.0

@@ -13,9 +13,11 @@ pkg install -y python-numpy python-pillow || pip install --no-build-isolation nu
 pkg install -y python-torch || echo "（无预编译 torch，将只启用轻量模式）"
 pip install --no-build-isolation pyttsx3 sounddevice 2>/dev/null || true
 echo "== 3/3 收尾 =="
-python -m core.selftest || true
+# 自检入口已统一为 main.py --selftest（旧架构的 python -m core.selftest 已删除）
+python main.py --selftest || true
 echo
-echo "启动："
-echo "  python xl.py --no-pet          # 命令行对话（3D/2D 桌宠都不支持）"
-echo "  python xl.py --platform telegram   # 接消息平台当机器人用"
-echo "  python -m renderer.app --showcase preview   # 离线渲染形象图"
+echo "启动（Termux 无 X11/WebView，3D 窗口不可显示，自动退化为轻量模式）："
+echo "  python main.py --no-web            # 命令行对话（gRPC 端口默认 50051）"
+echo "  python main.py --status            # 打印引擎状态后退出"
+echo "  消息平台机器人请在应用内「设置 → 通道」配置 Telegram/Discord 等，"
+echo "  无需额外命令行参数；成长闭环与离线出图在轻量模式下仍可用。"

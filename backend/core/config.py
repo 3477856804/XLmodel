@@ -454,6 +454,7 @@ from .plugin_system import (  # noqa: E402,F401
     HOOKS,
 )
 from .updater import (  # noqa: E402,F401
+    CURRENT_VERSION,
     UpdateInfo,
     UpdateAsset,
     UpdateChecker,

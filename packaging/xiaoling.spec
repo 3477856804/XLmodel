@@ -1,111 +1,30 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""小凌 XIAOLING · 统一 PyInstaller 打包配置（全平台）
+"""小凌 XIAOLING · PyInstaller 打包配置（兼容入口，转交 backend.spec）。
 
-用法（一般不用直接调它，用 packaging/build.py）：
-    pyinstaller packaging/xiaoling.spec --noconfirm --distpath dist --workpath build/pyi
+历史说明
+========
+本文件曾是独立配置，指向旧架构：入口 xl.py，源码目录 core/ renderer/ assets/，
+以及中文目录 技能/ 数据/ 脚本/ 打包/，模型在项目根 models/、动作在根 animations/。
+新架构（Flutter UI + Python gRPC 后端）落地后，这些目录与 xl.py 已全部删除，
+旧 spec 一旦运行就会报 "Hidden import / 找不到 xl.py" 而失败，且无法产出可用包。
 
-环境变量开关：
-    XIAOLING_ONEFILE=1     打成单文件（适合 --lite；含 VRM/大依赖时不推荐）
-    XIAOLING_LITE=1        精简版：不带 torch/PySide6/全量资源（软件渲染 + 联网/平台功能）
-    XIAOLING_ICON=path     自定义图标（.ico/.icns/.png）
+现状
+====
+统一打包配置为 packaging/backend.spec：入口 main.py，onedir（或 XIAOLING_ONEFILE=1
+单文件），contents_directory='.'，显式登记 backend.core.* / backend.rpc.* /
+backend.renderer.* 与 llama_cct 运行时，并收集 resources/web、VRM 模型、动作、
+插件与 proto 契约。
+
+本文件保留为兼容入口：任何旧文档 / 旧脚本里写的
+    pyinstaller packaging/xiaoling.spec
+都直接转交 backend.spec，避免两份配置漂移。版本号统一由后端 0.0.1 决定，
+不在此硬编码。
 """
 import os
-import sys
-from pathlib import Path
 
-PROJECT = Path(SPECPATH).parent                      # 项目根（packaging/ 的上一级）
-ONEFILE = os.environ.get('XIAOLING_ONEFILE') == '1'
-LITE = os.environ.get('XIAOLING_LITE') == '1'
-ICON = os.environ.get('XIAOLING_ICON', '')
-
-# ---------------------------------------------------------------- 打包资源
-datas = [(str(PROJECT / d), d) for d in
-         ('core', 'renderer', 'assets', 'sounds', '技能', '数据', '脚本',
-          'tools', 'docs', '打包') if (PROJECT / d).exists()]
-model_dir = PROJECT / 'models'
-action_dir = PROJECT / 'animations'
-if LITE:                                             # 精简版只带小凌本体 + 少量动作
-    keep_models = ['小凌.vrm']
-    keep_actions = ['待机站立.vrma', '待机，原地晃动.vrma', '打招呼.vrma', '比耶.vrma',
-                    'dance_舞蹈5.vrma', 'dance_舞蹈12.vrma']
-else:
-    keep_models = [p.name for p in sorted(model_dir.glob('*.vrm'))]
-    keep_actions = [p.name for p in sorted(action_dir.glob('*.vrma'))]
-
-# 把筛选后的模型/动作加入打包资源（只读资源，跟随程序）
-for _n in keep_models:
-    if (model_dir / _n).exists():
-        datas.append((str(model_dir / _n), 'models'))
-for _n in keep_actions:
-    if (action_dir / _n).exists():
-        datas.append((str(action_dir / _n), 'animations'))
-
-# ---------------------------------------------------------------- 隐藏导入
-hidden = [
-    'core.config', 'core.paths', 'core.growth', 'core.peft_train', 'core.avatar',
-    'core.fusion', 'core.rag', 'core.search', 'core.vision', 'core.tts', 'core.asr',
-    'core.perception', 'core.proactive', 'core.reminder', 'core.imagen', 'core.filebox',
-    'core.selftest',
-    # 成长/评估链路上的模块：多由 core.growth 在函数体内延迟 import，
-    # 显式列出以免打包版在跑成长流程时才报 ModuleNotFoundError。
-    'core.device', 'core.eval', 'core.growth_store', 'core.lifecycle',
-    'core.rank', 'core.throttle', 'core.voices', 'core.launcher_ui',
-    'renderer.app', 'renderer.renderer', 'renderer.gl', 'renderer.soft', 'renderer.model',
-    'renderer.pose', 'renderer.gltf', 'renderer.vrma', 'renderer.camera', 'renderer.window',
-    'renderer.settings', 'renderer.lipsync',
-    # 延迟导入的 UI 模块：它们只在函数体内 / __main__ 分支里 import，
-    # 静态分析通常能找到，但这类"运行时才用"的模块必须显式列出，
-    # 否则打包版可能直到打开向导 / 对话窗口 / 工作台时才报 ModuleNotFoundError。
-    'renderer.wizard', 'renderer.chat_ui', 'renderer.startup_ui',
-    'renderer.i18n', 'renderer.dashboard',
-    # v0.0.3 新增：粉色少女风主题 + FBX 模型桥接
-    'renderer.theme', 'renderer.fbx_loader',
-]
-if not LITE:
-    hidden += ['OpenGL', 'OpenGL.GL', 'OpenGL.osmesa', 'OpenGL.raw.osmesa.mesa',
-               'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets', 'PySide6.QtOpenGLWidgets']
-excludes = ['matplotlib', 'tkinter.test', 'test', 'unittest.test', 'PySide6.QtWebEngineCore',
-            'PySide6.Qt3DCore', 'PySide6.QtQuick', 'PySide6.QtDesigner', 'PySide6.QtMultimedia',
-            'tkinter', 'IPython', 'jupyter', 'notebook', 'tensorboard', 'onnxruntime',
-            'PyQt5', 'PyQt6']
-if LITE:
-    excludes += ['torch', 'transformers', 'peft', 'accelerate', 'PySide6', 'PyOpenGL',
-                 'numpy.f2py', 'cv2', 'sounddevice', 'pyttsx3']
-
-block_cipher = None
-a = Analysis([str(PROJECT / 'xl.py')],
-             pathex=[str(PROJECT)],
-             binaries=[],
-             datas=datas,
-             hiddenimports=hidden,
-             hookspath=[],
-             runtime_hooks=[str(PROJECT / '打包' / 'runtime_hook.py')],
-             excludes=excludes,
-             noarchive=False)
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-exe_kwargs = dict(name='xiaoling', debug=False, bootloader_ignore_signals=False, strip=False,
-                  upx=False, console=True, disable_windowed_traceback=False)
-if ICON and Path(ICON).exists():
-    exe_kwargs['icon'] = ICON
-
-if ONEFILE:
-    exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], runtime_tmpdir=None, **exe_kwargs)
-    COLLECT = None
-else:
-    exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **exe_kwargs)
-    # contents_directory='.' → 依赖与资源平铺在程序目录（PyInstaller 6 默认放进 _internal/，
-    # 会让 xl.py 的 BASE_DIR=可执行文件目录 找不到 skills/data/models）
-    coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='xiaoling',
-                   contents_directory='.')
-
-# macOS：打包成 .app
-if sys.platform == 'darwin' and not ONEFILE:
-    app = BUNDLE(coll, name='小凌.app', icon=exe_kwargs.get('icon'),
-                 bundle_identifier='app.xiaoling.desktop',
-                 info_plist={'CFBundleDisplayName': '小凌 XIAOLING',
-                             'CFBundleShortVersionString': '0.0.2',
-                             'NSHighResolutionCapable': True,
-                             'LSBackgroundOnly': False,
-                             'NSMicrophoneUsageDescription': '语音输入需要麦克风',
-                             'NSScreenCaptureUsageDescription': '视觉感知（看屏幕）需要屏幕录制权限'})
+# SPECPATH 由 PyInstaller 运行本 spec 时注入，恒为 packaging/ 目录。
+# backend.spec 内部同样使用 SPECPATH 定位项目根与 runtime_hook.py，
+# 因此直接在同一命名空间 exec 其内容即可，路径解析完全一致。
+_BACKEND_SPEC = os.path.join(SPECPATH, 'backend.spec')
+with open(_BACKEND_SPEC, 'r', encoding='utf-8') as _fh:
+    exec(compile(_fh.read(), _BACKEND_SPEC, 'exec'))

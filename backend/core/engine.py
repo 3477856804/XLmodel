@@ -25,11 +25,25 @@ from .tools import Guard, OfflineGuard
 from .config import UpdateChecker
 from .tools import MultiAgentSystem
 from .multimodal import VisionHub
-from .channels import ChannelManager
+# 注意：`channels`（ChannelManager）在本引擎里并未实例化，但其顶层
+# `import aiohttp / requests` 会在冷启动时白拉 ~110ms（占整个 engine 导入链
+# 的约 65%）。这里改为 PEP 562 惰性属性：仅当外部真的访问
+# `engine.ChannelManager` 时才导入，保留公开 API 但零启动开销。
 from . import search as search_agent
 
 VERSION = "0.0.1"
 NAME = "小凌"
+
+
+def __getattr__(name: str):
+    """PEP 562 模块级惰性导入：只为延迟加载的重模块提供公开名。"""
+    if name == "ChannelManager":
+        try:
+            from .channels import ChannelManager
+            return ChannelManager
+        except Exception:
+            return None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 import logging as _logging
 _logger = _logging.getLogger("xiaoling.engine")

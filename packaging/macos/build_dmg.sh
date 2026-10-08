@@ -18,9 +18,17 @@ echo "=== 打包小凌 macOS DMG v${VERSION} ==="
 echo "[1/4] 构建 Flutter macOS 应用..."
 (cd frontend && flutter pub get && flutter build macos --release)
 
-# 2. 构建 Python 后端（onefile，入口 main.py）
-echo "[2/4] 构建 Python 后端..."
-pyinstaller --onefile --name backend --clean main.py
+# 2. 构建 Python 后端（单文件 onefile，入口 main.py）
+#    关键：走 packaging/backend.spec，否则会缺 VRM/查看器/插件/proto/llama_cpp 资源。
+echo "[2/4] 构建 Python 后端（backend.spec, onefile）..."
+XIAOLING_ONEFILE=1 python -m PyInstaller packaging/backend.spec --noconfirm \
+    --distpath dist --workpath build/pyi
+# onedir 产物在 dist/backend/backend；onefile 产物直接是 dist/backend。
+if [ -f "$ROOT/dist/backend/backend" ]; then
+  BACKEND_BIN="$ROOT/dist/backend/backend"
+else
+  BACKEND_BIN="$ROOT/dist/backend"
+fi
 
 # 3. 把后端塞进 .app 的 Contents/MacOS
 echo "[3/4] 组装 .app..."
@@ -28,7 +36,7 @@ APP_PATH="$(find frontend/build/macos/Build/Products/Release -maxdepth 1 -name '
 if [ -z "$APP_PATH" ]; then
   echo "找不到 .app，Flutter 构建可能失败"; exit 1
 fi
-cp dist/backend "$APP_PATH/Contents/MacOS/backend"
+cp "$BACKEND_BIN" "$APP_PATH/Contents/MacOS/backend"
 chmod +x "$APP_PATH/Contents/MacOS/backend"
 
 # 4. 打 DMG（产物名与官网一致：xiaoling-macos.dmg）

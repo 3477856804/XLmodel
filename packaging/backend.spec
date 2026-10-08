@@ -21,6 +21,11 @@ import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
+# 与 packaging/build.py 的环境变量开关保持一致：
+#   XIAOLING_ONEFILE=1  → 单文件（本地 Linux/macOS 复现脚本与 CI 用，便于塞进 bundle）
+#   默认               → onedir（build.py 正式产物，冷启动快、资源平铺）
+ONEFILE = os.environ.get('XIAOLING_ONEFILE') == '1'
+
 # ---------------------------------------------------------------- 路径
 # spec 位于 packaging/，项目根在其上一层
 PROJECT_ROOT = os.path.abspath(os.path.join(SPECPATH, '..'))
@@ -177,36 +182,62 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 #   PyInstaller 6.x 默认把依赖塞进 _internal/ 子目录，但 sys._MEIPASS 仍指向
 #   exe 所在目录 → resource_dir() 会指空，resources/web、models 全部找不到，
 #   3D 直接黑屏。平铺（'.'）才能让 _MEIPASS 与资源真实位置一致。
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='backend',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,              # 不依赖 UPX：本机未必装，压缩也拖慢冷启动
-    runtime_tmpdir=None,
-    # 无控制台窗口：由 packaging/launcher.py 以 CREATE_NO_WINDOW 拉起，
-    # 用户全程看不到黑窗口。输出会被重定向到 <用户根>/logs/backend.log，
-    # 排障时仍然有据可查（见 launcher.py 的 _backend_log）。
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
+if ONEFILE:
+    # 单文件模式（XIAOLING_ONEFILE=1）：后端打成单个 dist/backend 可执行文件，
+    # 便于本地 Linux/macOS 复现脚本与 CI 直接 `cp dist/backend $BUNDLE/backend`。
+    # 资源（VRM/动作/插件/proto/llama_cpp 运行时）全部由 datas/binaries 收进 exe。
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        [],
+        exclude_binaries=False,
+        name='backend',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        runtime_tmpdir=None,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name='backend',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,              # 不依赖 UPX：本机未必装，压缩也拖慢冷启动
+        runtime_tmpdir=None,
+        # 无控制台窗口：由 packaging/launcher.py 以 CREATE_NO_WINDOW 拉起，
+        # 用户全程看不到黑窗口。输出会被重定向到 <用户根>/logs/backend.log，
+        # 排障时仍然有据可查（见 launcher.py 的 _backend_log）。
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='backend',
-    contents_directory='.',
-)
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        name='backend',
+        contents_directory='.',
+    )

@@ -32,6 +32,15 @@ sys.path.insert(0, _ROOT)
 # 内部模块统一用 `from core.xxx` 导入，需把 backend/ 也加入路径。
 sys.path.insert(0, os.path.join(_ROOT, 'backend'))
 
+# 环境自愈：修复某些环境里 dry_attr 把标准 attrs 遮蔽成残缺 attr.py 的问题
+# （否则 aiohttp 内部 @attr.s 直接 AttributeError，channels 等模块全挂）。
+# 必须在任何会 import aiohttp / channels 的代码之前执行；干净环境下本调用零开销。
+try:
+    from backend.core._env_shim import fix_attr_shadow as _fix_attr_shadow
+    _fix_attr_shadow()
+except Exception:
+    pass
+
 
 def _install_core_alias():
     """让 `import core.xxx` 在打包态也能解析到 `backend.core.xxx`。

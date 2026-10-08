@@ -22,6 +22,14 @@ for p in (ROOT, BACKEND):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+# 环境自愈：修复 dry_attr 遮蔽标准 attrs 的问题（详见 backend/core/_env_shim.py）。
+# 必须在收集到任何会 import aiohttp/channels 的用例之前执行。
+try:
+    from backend.core._env_shim import fix_attr_shadow as _fix_attr_shadow
+    _fix_attr_shadow()
+except Exception:
+    pass
+
 
 def _install_core_alias():
     """复用 main.py 里的 _install_core_alias()。

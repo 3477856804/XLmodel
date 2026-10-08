@@ -20,9 +20,13 @@ echo "[1/4] 构建 Flutter Linux 应用..."
 (cd frontend && flutter pub get && flutter build linux --release)
 BUNDLE="$ROOT/frontend/build/linux/x64/release/bundle"
 
-# 2. 构建 Python 后端（onefile，入口 main.py；与 CI 一致）
-echo "[2/4] 构建 Python 后端..."
-pyinstaller --onefile --name backend --clean main.py
+# 2. 构建 Python 后端（单文件 onefile，入口 main.py；与 CI 一致）
+#    关键：必须走 packaging/backend.spec，它才会显式收集 VRM 模型、动作库、
+#    resources/web 查看器、内置插件、proto 契约与 llama_cpp(GGUF) 运行时。
+#    裸 `pyinstaller main.py` 会让后端缺资源：3D 黑屏、插件全废、GGUF 加载即崩。
+echo "[2/4] 构建 Python 后端（backend.spec, onefile）..."
+XIAOLING_ONEFILE=1 python -m PyInstaller packaging/backend.spec --noconfirm \
+    --distpath dist --workpath build/pyi
 
 # 3. 组装 AppDir（AppRun 约定主程序在 usr/bin/xiaoling/xiaoling）
 echo "[3/4] 组装 AppDir..."
@@ -31,7 +35,12 @@ rm -rf "$APPDIR"
 APPDIR_BIN="$APPDIR/usr/bin/xiaoling"
 mkdir -p "$APPDIR_BIN"
 cp -r "$BUNDLE/"* "$APPDIR_BIN/"
-cp "$ROOT/dist/backend" "$APPDIR_BIN/backend"
+# onedir 产物在 dist/backend/backend；onefile 产物直接是 dist/backend。
+if [ -f "$ROOT/dist/backend/backend" ]; then
+  cp "$ROOT/dist/backend/backend" "$APPDIR_BIN/backend"
+else
+  cp "$ROOT/dist/backend" "$APPDIR_BIN/backend"
+fi
 chmod +x "$APPDIR_BIN/backend"
 
 cp "$HERE/xiaoling.desktop" "$APPDIR/xiaoling.desktop" 2>/dev/null || true

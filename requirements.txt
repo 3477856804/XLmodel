@@ -1,60 +1,50 @@
-# 小凌 v1.0 融合版 · 依赖清单（业务逻辑与 3D 渲染层全部为 Python）
+# 小凌 XIAOLING v0.0.1 · 依赖清单
 # =============================================
 # 一键安装：pip install -r requirements.txt
+#
+# 架构说明：UI 由 Flutter 前端提供（frontend/），Python 后端只跑 gRPC 服务、
+# 3D 查看器(HTTP)、模型推理与成长闭环。因此本清单不再包含 PySide6/PyOpenGL
+# 等原生桌面 GUI 依赖（旧架构遗留，后端已无引用）。
 
-# 【核心必需】形象素材处理 + 数学
-Pillow>=9.0.0
-numpy>=1.24.0
+# ------------------------------ 核心必需（缺一不可启动） ------------------------------
+Pillow>=9.0.0                 # 形象贴图 / 多模态图像处理
+numpy>=1.24.0                 # 数学与渲染兜底
+grpcio>=1.60.0                # gRPC 通信（Flutter 前端 ↔ Python 后端，端口 50051）
+grpcio-tools>=1.60.0          # 重新生成 xiaoling_pb2 / xiaoling_pb2_grpc（改 proto 时用）
+protobuf>=4.25.0              # protobuf 运行时（grpc 消息编解码）
+requests>=2.31.0              # HTTP 抓取 / 模型商店 / 镜像下载
+aiohttp>=3.9.0                # 异步 HTTP（浏览器工具、平台通道、查看器）
+llama-cpp-python>=0.2.75      # GGUF 本地模型推理运行时（backend/core/model.py 懒加载）
 
-# 【3D 渲染层】纯 Python 渲染：OpenGL 后端（真实 GPU；无 GPU 时自动用 Mesa 软件 GL）
-PyOpenGL>=3.1.6                # 渲染内核（GLSL 蒙皮/贴图/卡通光照）
-PySide6>=6.5.0                 # 桌面宠物窗口（透明置顶窗 + 气泡/菜单/设置页）
-# 说明：两者都装不上也能跑——渲染会自动退化为 numpy 软件光栅（renderer/soft.py），
-#       窗口退化为 2D 视频桌宠（pet.py）或纯命令行（python3 xl.py --no-pet）
-
-# 【本地模型推理 + 成长训练】蒸馏/合并/晋升必需（也是选Python 作唯一语言的原因）
+# ------------------------------ 本地模型推理 + 成长闭环（体积大，打包版默认排除） ------------------------------
+# 说明：torch/transformers/peft/accelerate 合计数 GB，packaging/backend.spec 刻意
+# 排除它们以控制产物体积；它们负责 safetensors 模型加载与 LoRA 蒸馏/合并/晋升。
+# 需要"成长闭环训练"能力时再安装；仅用 GGUF 聊天可不装。
 torch>=2.0.0
 transformers>=4.30.0
-peft>=0.4.0
+peft>=0.10.0
 accelerate>=0.20.0
-#
-# ⚠️ 重要：torch 默认装的是 **CPU 版**（`torch.__version__` 带 `+cpu` 后缀），
-#    即使机器有 NVIDIA 独显，`torch.cuda.is_available()` 也会是 False，
-#    成长训练会静默退回 CPU（0.5B 模型 2 steps 约 3 分钟）。
-#
-#    要用GPU，装 CUDA 版（版本号需与你的 CUDA 匹配，下面以 13.0 为例）：
-#        pip install torch==2.14.1+cu130 \
-#            --index-url https://download.pytorch.org/whl/cu130
-#        # 国内网络不稳时用断点续传下到本地再装（pip 不支持续传，断了要重来）：
-#        curl -L -C - --retry 20 --retry-all-errors \
-#          -o torch-2.14.1+cu130-cp3xx-cp3xx-win_amd64.whl \
-#          "https://download.pytorch.org/whl/cu130/torch-2.14.1%2Bcu130-cp3xx-cp3xx-win_amd64.whl"
-#        pip install --no-index --no-deps .\torch-2.14.1+cu130-cp3xx-cp3xx-win_amd64.whl
-#
-#    CUDA 版本索引对照：cu126 / cu128 / cu130，RTX 50 系（Blackwell, sm_120）需 cu130。
-#    装完自查：python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 
-# 【gRPC 后端通信】必装（Flutter/Web 前端通过它连后端；原 requirements 漏了，已补）
-grpcio>=1.60.0
-grpcio-tools>=1.60.0
+# ------------------------------ 可选能力（装了即自动启用，不装自动降级） ------------------------------
+opencv-python>=4.8.0          # 2D 兜底视频动画（无 WebView 时）
+pyttsx3>=2.90                 # 离线语音朗读
+sounddevice>=0.4.6            # 麦克风语音输入
+edge-tts>=6.1.0               # 联网情感语音（multimodal.py 懒加载）
+# 以下默认注释掉：体积/系统依赖较大，按需取消注释并按注释完成额外步骤
+# playwright>=1.40.0           # 【可选】真实浏览器自动化：渲染 JS 动态页面/截图/点击。
+#                               装库后须执行 `playwright install chromium` 下载内核；
+#                               未装时 browser_tool.py 自动降级为 requests+正则抓取。
+# sentence-transformers>=2.2.0 # 【可选】语义检索/记忆向量化（knowledge_base.py、memory.py 懒加载）。
+#                               未装时知识库退化为关键词匹配。
+# tree-sitter>=0.20.0          # 【可选】代码结构解析（tools.py 代码工具懒加载）。
+#                               未装时代码工具退化为纯文本处理。
 
-# 【可选能力】装了即自动启用
-opencv-python>=4.8.0           # 2D 兜底桌宠的 WEBM 视频动画
-pyttsx3>=2.90                  # 离线语音朗读
-sounddevice>=0.4.6             # 语音输入（麦克风）
-edge-tts>=6.1.0                # 联网高质量情感语音（语音朗读 ReadAloud 依赖；multimodal.py 懒加载）
-# playwright>=1.40.0           # 【可选】真实浏览器自动化：渲染 React/Vue 等 JS 动态页面、截图、点击/输入。
-#                               装库后还需执行 `playwright install chromium` 下载浏览器内核才能真正渲染；
-#                               未安装时 backend/core/browser_tool.py 会自动降级为 requests+正则抓取，
-#                               不影响其余功能，因此这里默认注释掉、不作为硬依赖。
+# ------------------------------ 消息平台接入（按需安装对应库，未列平台走 Bot API/Webhook） ------------------------------
+# websocket-client>=1.6.0      # QQ（OneBot/go-cqhttp）
+# lark-oapi>=1.0.0             # 飞书事件回调（轮询/REST 可不装）
+# 微信 / 企业微信 / 钉钉 / Telegram / Discord 走 Webhook 或官方 Bot API，无需额外库。
 
-# 【多平台接入】装对应平台的库即启用
-# wechaty / itchat             # 微信
-# lark-oapi                    # 飞书
-# websocket-client             # QQ（OneBot/go-cqhttp）
-# （企业微信/钉钉用 Webhook，Telegram/Discord 用 Bot API，无需额外库）
-
-# 【系统依赖提示】
-# Win/macOS 一般开箱可用；Linux 无 GPU 时建议装 Mesa 软件光栅：
-#   sudo apt install libosmesa6 libgl1-mesa-dri     （或 libgl1 + libglx-mesa0）
-# tkinter 仅 2D 兜底桌宠需要：sudo apt install python3-tk
+# ------------------------------ 系统依赖（非 pip，仅 Linux 需要） ------------------------------
+# Win/macOS 开箱可用；Linux 无 GPU 时装 Mesa 软件光栅与 WPE WebKit：
+#   sudo bash packaging/linux/install_deps.sh
+#   （含 libgl1 / libosmesa6 / libwebkit2gtk-4.1-0 / libwpe 等）

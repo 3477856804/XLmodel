@@ -25,16 +25,11 @@ Unicode true
 !insertmacro MUI_UNPAGE_INSTFILES
 
 Section "Install"
-    ; 复制 Flutter 前端
+    ; 使用 assemble_windows.py 产出的已合并目录（dist/小凌-Windows-x64）：
+    ; 里面前端已重命名为 小凌.exe，与 backend.exe 同目录，前端才能自动拉起后端。
+    ; 先跑：python packaging/assemble_windows.py
     SetOutPath "$INSTDIR"
-    File /r "..\..\frontend\build\windows\x64\runner\Release\*.*"
-
-    ; 复制 Python 后端（PyInstaller onedir：dist/backend/）
-    File /r "..\..\dist\backend\*.*"
-
-    ; 复制模型资源
-    SetOutPath "$INSTDIR\resources"
-    File /r "..\..\resources\*.*"
+    File /r "..\..\dist\小凌-Windows-x64\*.*"
 
     ; 创建快捷方式
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"

@@ -7,7 +7,7 @@
 #define MyAppExeName "小凌.exe"
 
 [Setup]
-AppId={{8E4C1B52-9F31-4E3B-9C5A-XIAOLING0001}
+AppId={{8E4C1B52-9F31-4E3B-9C5A-8F2D4B6E0A17}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}

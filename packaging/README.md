@@ -1,50 +1,46 @@
-# 打包说明（三平台）
+# 打包说明（四平台）
 
-> ## ⚠️ 本文件大部分内容已过期，请先读这一节
+> 本文件描述当前架构：Flutter 桌面前端 + Python gRPC 后端，入口在根目录 `main.py`，
+> 后端代码在 `backend/`。版本固定为 0.0.1（tag `v0.0.1`）。
 >
-> 下面正文描述的是**旧架构**：Python 单语言 + PySide6 窗口，入口 `xl.py`，
-> 目录是 `打包/`、`core/`、`models/`、`animations/` 平铺在根。这些都**已经不存在**了。
->
-> **当前架构（以此为准）**：Flutter 桌面前端 + Python gRPC 后端，入口在根目录 `main.py`，
-> 后端代码在 `backend/`。因此：
-> - `packaging/build.py`、`packaging/xiaoling.spec` 均已失效（它们仍指向 `xl.py` 等旧路径，
->   直接运行会报找不到文件）。**保留仅为历史参考，请勿使用。**
-> - Windows 打包请走新脚本，见 **`docs/PACKAGING.md`**：
->   1. `flutter build windows --release`
->   2. `python -m PyInstaller packaging/backend.spec ...`
->   3. `python packaging/assemble_windows.py --zip`
->
-> 正文以下内容（旧三平台矩阵、精简版、目录结构）仅作历史留档。
+> - 统一后端打包配置是 **`packaging/backend.spec`**（onedir，`contents_directory='.'`，
+>   显式收集 VRM/动作/resources/web/插件/proto 与 llama_cpp 运行时）。
+> - **`packaging/xiaoling.spec`** 是兼容入口，直接转交 `backend.spec`（不再指向旧的
+>   xl.py / core / 中文目录）。
+> - **`packaging/build.py`** 是一键打包器（自动按平台产出 zip/tar.gz/deb/AppImage/dmg）。
+> - Windows 目录合并：`python packaging/assemble_windows.py --zip`；
+>   单文件 exe：`python packaging/build_single_exe.py`。
 
 ---
 
-> 小凌的唯一语言是 Python，所以打包只需要 PyInstaller，**不需要 Node/Electron**。
+> 小凌的 Python 后端用 PyInstaller 打包，UI 由 Flutter 提供，**不需要 Node/Electron**。
 
 ## 一、先看环境体检
 ```bash
 python3 packaging/build.py --check          # 标准版依赖检查
-python3 packaging/build.py --check --lite    # 精简版依赖检查
+python3 packaging/build.py --check --lite  # 精简版依赖检查
 ```
 
 ## 二、一条命令出包（在对应平台上执行）
 
 | 平台 | 命令 | 产物 |
 |---|---|---|
-| **Windows** | `python 打包\build.py --zip` | `dist\xiaoling\xiaoling.exe` + `dist\xiaoling-windows-x64.zip` |
-| **Linux** | `python3 packaging/build.py --zip --deb --appimage` | `dist/xiaoling/xiaoling` + `.tar.gz` + `.deb` + `.AppImage` |
-| **macOS** | `python3 packaging/build.py --zip`（或 `bash packaging/macos/make_dmg.sh`） | `dist/小凌.app` + `.dmg` |
-| **Android/Termux** | `bash packaging/termux/install.sh` | 命令行 + 平台机器人 + 离线出图（无 3D 窗口） |
+| **Windows** | `python packaging/build.py --zip`，再 `python packaging/assemble_windows.py --zip` | `dist/小凌-Windows-x64/` + `.zip` |
+| **Linux** | `python3 packaging/build.py --zip --deb --appimage` | `dist/` 下 onedir + `.tar.gz` + `.deb` + `.AppImage` |
+| **macOS** | `python3 packaging/build.py --dmg`（或 `bash packaging/macos/build_dmg.sh`） | `dist/xiaoling-0.0.1.dmg` |
+| **Android/Termux** | `bash packaging/termux/install.sh` | 命令行 + 平台机器人（无 3D 窗口，自动降级轻量模式） |
 
 > **PyInstaller 不能交叉编译**：Windows 包必须在 Windows 上打，macOS 包必须在 macOS 上打。
-> 想一次出三平台 → 用下面的 GitHub Actions。
+> 想一次出四平台 → 用 GitHub Actions `.github/workflows/build-all.yml`。
 
-## 三、三平台矩阵构建（推荐）
-推一个 tag 即可：
-```bash
-git tag v0.0.2 && git push origin v0.0.2
+## 三、四平台矩阵构建（CI）
+`.github/workflows/build-all.yml` 在 push 到 main 或手动触发后，于
+ubuntu / windows / macos 矩阵上分别构建，并把产物挂到 GitHub Release `v0.0.1`：
 ```
-`.github/workflows/release.yml` 会在 windows-latest / macos-latest / ubuntu-latest 上分别打包，
-跑完 6 套回归测试，并把产物挂到 GitHub Release（含 sha256）。
+xiaoling-linux-0.0.1.tar.gz / xiaoling-windows-0.0.1.zip /
+xiaoling-macos-0.0.1.dmg / xiaoling-android-0.0.1.apk
+```
+
 
 ## 四、两种构建模式
 

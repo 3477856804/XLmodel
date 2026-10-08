@@ -25,7 +25,7 @@ jobs:
           curl -s -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"XiaoLing $RELEASE_TAG\",\"body\":\"XiaoLing AI Companion $RELEASE_TAG\n\n全平台构建产物（Flutter UI + Python gRPC 后端）\n- Linux x64 (tar.gz)\n- Windows x64 (zip)\n- macOS (dmg)\n- Android (apk, 含 Chaquopy Python 沙箱)\n\n后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。\",\"draft\":false}" \
+            -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"XiaoLing $RELEASE_TAG\",\"body\":\"XiaoLing AI Companion $RELEASE_TAG\n\n全平台构建产物（Flutter UI + Python gRPC 后端）\n- Linux x64 (tar.gz)\n- Windows x64 (zip)\n- macOS (dmg)\n- Android (apk, Flutter 前端壳；后端经 gRPC 连接 localhost:50051)\n\n后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。\",\"draft\":false}" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Release created: id={r.get(\"id\")} url={r.get(\"html_url\")}')"
 
   build-linux:
