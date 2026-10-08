@@ -66,7 +66,6 @@ class XlLocaleController extends ChangeNotifier {
       case 'zh':
       case 'zh-cn':
       case 'zh_cn':
-      case 'zh-cn':
         return 'zh';
       default:
         return 'system';

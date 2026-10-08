@@ -304,6 +304,86 @@ class SensitiveFilter:
 _SENSITIVE_FILTER = SensitiveFilter()
 
 
+class _ReplyCache:
+    """短 TTL 精确回复缓存：跳过重复问题的（昂贵）模型推理。
+
+    设计约束（不改功能行为）：
+    * 仅缓存**纯文本、无工具调用**的回复；命中时返回与首次完全一致的文本；
+    * 对话记录 / 记忆 / 情绪 / 后处理照常执行，只是省去一次模型调用；
+    * key 为归一化输入（去多余空白 + 小写），短 TTL，容量有界；
+    * 线程安全，任何异常都不影响主流程。
+    """
+
+    def __init__(self, ttl: float = 60.0, maxsize: int = 64):
+        self._ttl = max(5.0, float(ttl))
+        self._maxsize = max(8, int(maxsize))
+        self._lock = threading.RLock()
+        self._store: dict[str, tuple] = {}
+        self.hits = 0
+        self.misses = 0
+
+    @staticmethod
+    def _key(text: str) -> str:
+        try:
+            return " ".join((text or "").split()).lower()
+        except Exception:
+            return ""
+
+    def get(self, text: str):
+        try:
+            k = self._key(text)
+            if not k:
+                return None
+            now = time.time()
+            with self._lock:
+                item = self._store.get(k)
+                if not item:
+                    return None
+                reply, ts = item
+                if now - ts > self._ttl:
+                    self._store.pop(k, None)
+                    return None
+                self.hits += 1
+                return reply
+        except Exception:
+            return None
+
+    def put(self, text: str, reply: str) -> None:
+        try:
+            if not reply:
+                return
+            k = self._key(text)
+            if not k:
+                return
+            with self._lock:
+                self.misses += 1
+                if len(self._store) >= self._maxsize:
+                    try:
+                        oldest = min(self._store,
+                                     key=lambda kk: self._store[kk][1])
+                        self._store.pop(oldest, None)
+                    except Exception:
+                        self._store.clear()
+                self._store[k] = (reply, time.time())
+        except Exception:
+            pass
+
+    def stats(self) -> dict:
+        try:
+            with self._lock:
+                return {"entries": len(self._store), "hits": self.hits,
+                        "misses": self.misses}
+        except Exception:
+            return {}
+
+    def clear(self) -> None:
+        try:
+            with self._lock:
+                self._store.clear()
+        except Exception:
+            pass
+
+
 class SessionManager:
     """多会话管理：把当前对话上下文快照存成命名会话，可切换/列表/删除。
 
@@ -469,6 +549,9 @@ class XiaoLing:
         self.last_active = time.time()
         self._model_loading = False
         self._model_lock = threading.RLock()
+        # 回复缓存 + 首字/模型调用延迟监控（纯统计，不改行为）
+        self._reply_cache = _ReplyCache(ttl=60.0, maxsize=64)
+        self._last_model_ms = 0.0
         self._load_history()
         self._register_default_hooks()
 
@@ -1002,7 +1085,15 @@ class XiaoLing:
         if self.model_replace is not None:
             try:
                 history = self.conversation[-20:]
-                reply = self.model_replace.chat(text, history)
+                # 短 TTL 精确缓存：重复问题直接命中，跳过昂贵的模型推理。
+                cached = self._reply_cache.get(text)
+                if cached is not None:
+                    reply = cached
+                else:
+                    _mt0 = time.perf_counter()
+                    reply = self.model_replace.chat(text, history)
+                    self._last_model_ms = round(
+                        (time.perf_counter() - _mt0) * 1000, 1)
             except Exception as e:
                 self.log(f"  [模型] 推理失败：{e}")
                 reply = None
@@ -1011,6 +1102,7 @@ class XiaoLing:
             source = "fallback"
         clean, calls = extract_tool_calls(reply)
         if calls:
+            # 含工具调用：有副作用，不写缓存。
             tool_calls = calls
             results = []
             for c in calls:
@@ -1021,6 +1113,13 @@ class XiaoLing:
                 except Exception as e:
                     results.append(f"[{c['name']}] 出错：{e}")
             reply = clean + ("\n" + "\n".join(results) if results else "")
+        else:
+            # 纯文本回复才写入缓存（无副作用，可安全命中）。
+            if reply and source in ("model", "fallback"):
+                try:
+                    self._reply_cache.put(text, reply)
+                except Exception:
+                    pass
         if self.toolkit is not None:
             try:
                 matched = self.toolkit.match_skills(text)
@@ -1194,6 +1293,8 @@ class XiaoLing:
             "network": self._safe(lambda: self.offline.status_text(), "未知") if self.offline else "未知",
             "queue": self._safe(lambda: self.rq.stats(), {}),
             "bus_events": self._safe(lambda: self.bus.events(), []),
+            "reply_cache": self._safe(lambda: self._reply_cache.stats(), {}),
+            "last_model_ms": self._safe(lambda: self._last_model_ms, 0.0),
             "paths": self._safe(lambda: describe_paths(), {}),
         }
 

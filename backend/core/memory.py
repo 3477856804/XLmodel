@@ -99,6 +99,14 @@ class LongTermMemory:
         self._vector_model = ""
         self._lock = threading.RLock()
         self._dirty = False
+        # 去抖落盘：原 add() 每加一条就全量重写 memory.json + vectors sidecar，
+        # 一次对话会触发 2 次以上全量写。改为限频合并（≈2s 窗口）+ 后台兜底。
+        try:
+            from ._persist import DebouncedSaver
+            self._saver = DebouncedSaver(self._save, interval=2.0,
+                                         key=f"ltm:{id(self)}")
+        except Exception:  # noqa: BLE001
+            self._saver = None
         self._load()
         self._load_vectors()
 
@@ -194,7 +202,11 @@ class LongTermMemory:
                 self._ensure_vectors_aligned()
                 self._vectors = self._vectors[-keep:]
             self._dirty = True
-            self._save()
+            # 去抖：多条新增合并为一次落盘，避免每句话都全量重写。
+            if self._saver is not None:
+                self._saver.mark_dirty()
+            else:
+                self._save()
 
     def forget(self):
         now = time.time()
@@ -294,6 +306,9 @@ class LongTermMemory:
 
     def flush(self):
         with self._lock:
+            # 先让去抖保存器把合并期的脏数据落盘，再兜底处理裸 _dirty。
+            if self._saver is not None and self._saver.is_dirty:
+                self._saver.flush()
             if self._dirty:
                 self._save()
 

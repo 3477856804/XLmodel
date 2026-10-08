@@ -40,6 +40,22 @@ class ActivityLog:
         self._next_id = 1
         self._retention_days = DEFAULT_RETENTION_DAYS
         self._load()
+        # 去抖落盘：原实现每条记录都全量重写整个 JSON（最多 5000 条）。
+        # 改为内存即时可读、磁盘写入限频合并（≈2s 窗口），由后台兜底 flush。
+        try:
+            from ._persist import DebouncedSaver
+            self._saver = DebouncedSaver(self._flush, interval=2.0,
+                                         key=f"activity_log:{id(self)}")
+        except Exception:  # noqa: BLE001
+            self._saver = None
+
+    def flush(self) -> None:
+        """强制把脏记录落盘（关闭/导出/测试时调用）。异常不外抛。"""
+        try:
+            if self._saver is not None:
+                self._saver.flush()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _load(self) -> None:
         try:
@@ -102,7 +118,11 @@ class ActivityLog:
                 self._next_id += 1
                 self._records.append(record)
                 self._prune_locked()
-                self._flush()
+                # 去抖：不再每条都全量重写；由 _saver 限频合并落盘。
+                if self._saver is not None:
+                    self._saver.mark_dirty()
+                else:
+                    self._flush()
             return record
         except Exception:  # noqa: BLE001
             return None

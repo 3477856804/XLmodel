@@ -3,8 +3,11 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'theme/theme.dart';
 import 'theme/theme_controller.dart';
+import 'theme/locale_controller.dart';
+import 'l10n/app_localizations.dart';
 import 'pages/splash_page.dart';
 import 'pages/chat_page.dart';
 import 'pages/dashboard_page.dart';
@@ -281,6 +284,7 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
   /// 主题模式统一由 XlThemeController 持有：设置页、侧边栏按钮都改它，
   /// 这样「设置 → 主题模式」和左下角那个按钮不再是两套互不相干的状态。
   final _themeCtl = XlThemeController.instance;
+  final _localeCtl = XlLocaleController.instance;
   int _bootIndex = 0;
 
   @override
@@ -292,6 +296,9 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
     } catch (e) { debugPrint('操作失败: $e'); }
     // 读本地主题偏好（不等后端，避免启动瞬间闪一下深色再切浅色）
     _themeCtl.load().then((_) {
+      if (mounted) setState(() => _bootIndex++);
+    });
+    _localeCtl.load().then((_) {
       if (mounted) setState(() => _bootIndex++);
     });
   }
@@ -322,31 +329,53 @@ class _XiaoLingAppState extends State<XiaoLingApp> with WidgetsBindingObserver {
     final routeBuilders = <String, WidgetBuilder>{
       '/home': (_) => HomeShell(onToggleTheme: toggleTheme, isDark: isDark),
     };
-    return MaterialApp(
-      title: '晓灵 v0.0.1',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: _themeCtl.mode,
-      themeAnimationDuration: XlDuration.slow,
-      themeAnimationCurve: XlCurve.standard,
-      home: SplashPage(onToggleTheme: toggleTheme),
-      routes: routeBuilders,
-      onGenerateRoute: (settings) {
-        final builder = routeBuilders[settings.name];
-        if (builder != null) {
-          return _FadeScaleRoute(builder: builder, settings: settings);
-        }
-        return null;
-      },
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(
-              MediaQuery.of(context).textScaler.scale(1.0).clamp(0.9, 1.3),
-            ),
-          ),
-          child: child ?? const SizedBox.shrink(),
+    return ListenableBuilder(
+      listenable: Listenable.merge([_themeCtl, _localeCtl]),
+      builder: (context, _) {
+        return MaterialApp(
+          title: '晓灵 v0.0.1',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: _themeCtl.mode,
+          locale: _localeCtl.locale,
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          localeResolutionCallback: (device, supported) {
+            final forced = _localeCtl.locale;
+            if (forced != null) return forced;
+            if (device != null &&
+                supported.any((s) => s.languageCode == device.languageCode)) {
+              return device;
+            }
+            return const Locale('zh');
+          },
+          themeAnimationDuration: XlDuration.slow,
+          themeAnimationCurve: XlCurve.standard,
+          home: SplashPage(onToggleTheme: toggleTheme),
+          routes: routeBuilders,
+          onGenerateRoute: (settings) {
+            final builder = routeBuilders[settings.name];
+            if (builder != null) {
+              return _FadeScaleRoute(builder: builder, settings: settings);
+            }
+            return null;
+          },
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(
+                  MediaQuery.of(context).textScaler.scale(1.0).clamp(0.9, 1.3),
+                ),
+              ),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
         );
       },
     );
@@ -378,17 +407,17 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   late Animation<double> _sidebarAnim;
   final List<int> _history = [];
 
-  static const _titles = ['聊天', '工作台', '训练', '成长', '设置'];
-  static const _allTitles = ['聊天', '工作台', '训练', '成长', '设置', '模型商店', '插件管理'];
-  static const _allSubtitles = [
-    '和小凌说说话',
-    '一眼看全所有状态',
-    'LoRA 微调面板',
-    '她的成长轨迹',
-    '一切都可以调',
-    '挑选适合的模型',
-    '扩展能力边界',
-  ];
+  List<String> _titles(AppLocalizations l) => [
+        l.navChat, l.navDashboard, l.navTraining, l.navGrowth, l.navSettings,
+      ];
+  List<String> _allTitles(AppLocalizations l) => [
+        l.navChat, l.navDashboard, l.navTraining, l.navGrowth, l.navSettings,
+        l.navModelStore, l.navPlugins,
+      ];
+  List<String> _allSubtitles(AppLocalizations l) => [
+        l.subChat, l.subDashboard, l.subTraining, l.subGrowth, l.subSettings,
+        l.subModelStore, l.subPlugins,
+      ];
   static const _icons = [
     Icons.chat_bubble_outline_rounded,
     Icons.grid_view_outlined,
@@ -701,23 +730,25 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   Widget _sidebarNav(XlPalette p) {
+    final l = AppLocalizations.of(context);
     final collapsed = _sidebarAnim.value < 0.5;
+    final titles = _titles(l);
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       children: [
-        for (int i = 0; i < _titles.length; i++) _navItem(p, i, collapsed),
+        for (int i = 0; i < titles.length; i++) _navItem(p, i, collapsed, titles),
         const SizedBox(height: 8),
         if (!collapsed) Padding(
           padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
-          child: Text('MORE', style: TextStyle(fontSize: XlFont.micro, fontWeight: FontWeight.w800, color: p.decor, letterSpacing: XlLetterSpacing.ultra)),
+          child: Text(l.more, style: TextStyle(fontSize: XlFont.micro, fontWeight: FontWeight.w800, color: p.decor, letterSpacing: XlLetterSpacing.ultra)),
         ),
-        _extraNavItem(p, 5, Icons.shopping_bag_outlined, '模型商店', p.gold, collapsed),
-        _extraNavItem(p, 6, Icons.extension_outlined, '插件管理', p.green, collapsed),
+        _extraNavItem(p, 5, Icons.shopping_bag_outlined, l.navModelStore, p.gold, collapsed),
+        _extraNavItem(p, 6, Icons.extension_outlined, l.navPlugins, p.green, collapsed),
       ],
     );
   }
 
-  Widget _navItem(XlPalette p, int i, bool collapsed) {
+  Widget _navItem(XlPalette p, int i, bool collapsed, List<String> titles) {
     final selected = _index == i;
     final color = _colorOf(p, _iconColors[i]);
     return Padding(
@@ -751,7 +782,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          _titles[i],
+                          titles[i],
                           style: TextStyle(
                             fontSize: XlFont.bodySm,
                             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
@@ -896,7 +927,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  widget.isDark ? '浅色主题' : '深色主题',
+                  widget.isDark ? AppLocalizations.of(context).lightTheme : AppLocalizations.of(context).darkTheme,
                   style: TextStyle(fontSize: XlFont.captionSm, color: p.text2, fontWeight: FontWeight.w600),
                 ),
               ),
@@ -999,15 +1030,16 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   Widget _breadcrumb(XlPalette p, {bool isMobile = false}) {
-    final idx = _index.clamp(0, _allTitles.length - 1);
+    final l = AppLocalizations.of(context);
+    final idx = _index.clamp(0, _allTitles(l).length - 1);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(_allTitles[idx], style: TextStyle(fontSize: isMobile ? XlFont.h5 : XlFont.h4, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
+        Text(_allTitles(l)[idx], style: TextStyle(fontSize: isMobile ? XlFont.h5 : XlFont.h4, fontWeight: FontWeight.w800, color: p.text1, letterSpacing: XlLetterSpacing.normal)),
         if (!isMobile) ...[
           const SizedBox(height: 2),
-          Text(_allSubtitles[idx], style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wider)),
+          Text(_allSubtitles(l)[idx], style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500, letterSpacing: XlLetterSpacing.wider)),
         ],
       ],
     );
@@ -1124,6 +1156,8 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   Widget _mobileBottomNav(XlPalette p) {
+    final l = AppLocalizations.of(context);
+    final titles = _titles(l);
     return Container(
       decoration: BoxDecoration(
         color: p.surfaceLo,
@@ -1135,8 +1169,8 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
           height: 64,
           child: Row(
             children: [
-              for (int i = 0; i < _titles.length; i++)
-                Expanded(child: _mobileNavItem(p, i)),
+              for (int i = 0; i < titles.length; i++)
+                Expanded(child: _mobileNavItem(p, i, titles)),
             ],
           ),
         ),
@@ -1144,7 +1178,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     );
   }
 
-  Widget _mobileNavItem(XlPalette p, int i) {
+  Widget _mobileNavItem(XlPalette p, int i, List<String> titles) {
     final selected = _index == i;
     final color = selected ? _colorOf(p, _iconColors[i]) : p.text3;
     return Material(
@@ -1159,7 +1193,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               Icon(selected ? _iconsActive[i] : _icons[i], size: 22, color: color),
               const SizedBox(height: 3),
               Text(
-                _titles[i],
+                titles[i],
                 style: TextStyle(
                   fontSize: XlFont.labelSm,
                   color: color,
@@ -1174,16 +1208,17 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   Widget _searchOverlay(XlPalette p) {
+    final l = AppLocalizations.of(context);
     final items = <_SearchItem>[
-      _SearchItem('聊天', '和小凌说话', Icons.chat_bubble_outline_rounded, () => _navigate(0)),
-      _SearchItem('工作台', '状态总览', Icons.grid_view_outlined, () => _navigate(1)),
-      _SearchItem('训练', 'LoRA 微调', Icons.auto_graph_rounded, () => _navigate(2)),
-      _SearchItem('成长', '成长轨迹', Icons.favorite_outline_rounded, () => _navigate(3)),
-      _SearchItem('设置', '偏好调整', Icons.tune_rounded, () => _navigate(4)),
-      _SearchItem('模型商店', '推荐模型', Icons.shopping_bag_outlined, () => _navigate(5)),
-      _SearchItem('插件管理', '扩展功能', Icons.extension_outlined, () => _navigate(6)),
-      _SearchItem('切换主题', '深色 / 浅色', Icons.brightness_6_outlined, widget.onToggleTheme),
-      _SearchItem('折叠侧边栏', 'Ctrl + B', Icons.view_sidebar_outlined, _toggleSidebar),
+      _SearchItem(l.navChat, l.subChat, Icons.chat_bubble_outline_rounded, () => _navigate(0)),
+      _SearchItem(l.navDashboard, l.subDashboard, Icons.grid_view_outlined, () => _navigate(1)),
+      _SearchItem(l.navTraining, l.subTraining, Icons.auto_graph_rounded, () => _navigate(2)),
+      _SearchItem(l.navGrowth, l.subGrowth, Icons.favorite_outline_rounded, () => _navigate(3)),
+      _SearchItem(l.navSettings, l.subSettings, Icons.tune_rounded, () => _navigate(4)),
+      _SearchItem(l.navModelStore, l.subModelStore, Icons.shopping_bag_outlined, () => _navigate(5)),
+      _SearchItem(l.navPlugins, l.subPlugins, Icons.extension_outlined, () => _navigate(6)),
+      _SearchItem(l.searchSwitchTheme, l.searchThemeDesc, Icons.brightness_6_outlined, widget.onToggleTheme),
+      _SearchItem(l.searchCollapseSidebar, 'Ctrl + B', Icons.view_sidebar_outlined, _toggleSidebar),
     ];
     final q = _searchCtrl.text.trim().toLowerCase();
     final filtered = q.isEmpty
@@ -1211,7 +1246,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                       child: filtered.isEmpty
                           ? Padding(
                               padding: const EdgeInsets.all(32),
-                              child: Text('没有匹配项', style: TextStyle(color: p.text3, fontSize: XlFont.caption)),
+                              child: Text(AppLocalizations.of(context).noMatch, style: TextStyle(color: p.text3, fontSize: XlFont.caption)),
                             )
                           : ListView.builder(
                               shrinkWrap: true,
@@ -1246,7 +1281,7 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               onChanged: (_) => setState(() {}),
               style: TextStyle(fontSize: XlFont.body, color: p.text1),
               decoration: InputDecoration(
-                hintText: '搜索页面、功能或操作…',
+                hintText: AppLocalizations.of(context).searchHint,
                 hintStyle: TextStyle(color: p.decor, fontSize: XlFont.bodySm),
                 border: InputBorder.none,
                 isDense: true,
@@ -1318,11 +1353,11 @@ class _HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
           const SizedBox(width: 4),
           _kbd(p, '↓'),
           const SizedBox(width: 8),
-          Text('选择', style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
+          Text(AppLocalizations.of(context).select, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
           const SizedBox(width: 16),
           _kbd(p, '↵'),
           const SizedBox(width: 8),
-          Text('执行', style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
+          Text(AppLocalizations.of(context).run, style: TextStyle(fontSize: XlFont.label, color: p.text3, fontWeight: FontWeight.w500)),
           const Spacer(),
           Text('小凌 · v0.0.1', style: TextStyle(fontSize: XlFont.micro, color: p.decor, letterSpacing: XlLetterSpacing.wider)),
         ],

@@ -20,11 +20,6 @@ class AppLocalizations {
 
   bool get isZh => locale.languageCode != 'en';
 
-  static const Map<String, Map<String, String>> _tables = {
-    'zh': _zh,
-    'en': _en,
-  };
-
   String _t(String key) {
     final table = isZh ? _zh : _en;
     return table[key] ?? _zh[key] ?? key;
