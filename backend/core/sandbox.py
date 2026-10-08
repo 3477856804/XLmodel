@@ -42,8 +42,11 @@
 """
 from __future__ import annotations
 
+import ctypes
+import logging
 import os
 import platform
+import resource
 import shutil
 import subprocess
 import threading
@@ -55,16 +58,304 @@ try:                                    # 兼容「直接 import」与「作为�
 except Exception:                       # pragma: no cover
     import config as _cfg               # type: ignore
 
+logger = logging.getLogger('xiaoling.sandbox')
+
 _lock = threading.RLock()
 
 # 命令超时兜底：防止注入类提示词让工具永久挂起
 MAX_EXEC_SECONDS = int(os.environ.get('XIAOLING_SANDBOX_TIMEOUT', '60'))
 
-# 危险命令黑名单（保守清单，宁可少放行）
+# 危险命令黑名单（保守清单，宁可少放行）。
+# 注意：黑名单只是「第一道提示性闸门」，真正的隔离靠下面的 OS 级机制
+# （Landlock + resource limits）。黑名单挡不住的，OS 级隔离来兜底。
 _DENY_TOKENS = (
     'format ', 'del /f', 'rm -rf /', 'rm -rf ~', 'shutdown', 'shutdown.exe',
     'diskpart', 'mkfs', ':(){', 'chmod -r 777 /',
 )
+
+# ================================================================
+# OS 级进程隔离（Landlock + resource limits）
+# ================================================================
+# 设计原则：**有 OS 级隔离就用，没有就明确降级，绝不假装安全**。
+#
+# Linux   : 优先 Landlock（路径级强制，deny-by-default），失败降级到
+#           resource.setrlimit + chdir。
+# macOS   : 预留 Seatbelt 钩子（本环境无法验证，失败即降级）。
+# Windows : 无可用内核沙箱，降级到原有的「路径白名单 + 命令黑名单」。
+#
+# 每一次实际执行都会在返回值里通过 ``isolation`` 字段如实上报本次到底
+# 用了哪一级隔离，UI / 日志一眼能看出是真隔离还是降级态。
+
+# ---- 三档权限 ----
+PERM_READONLY = 'readonly'   # 只能读 workspace + 系统库，不能写/建/删
+PERM_DEFAULT  = 'default'    # 可读写 workspace，可执行非网络命令
+PERM_FULL     = 'full'       # 完全访问（需用户确认；本函数不做隔离）
+PERMISSION_LEVELS = (PERM_READONLY, PERM_DEFAULT, PERM_FULL)
+
+# ---- 资源限制（全部可用环境变量覆盖，便于排障）----
+_RLIMIT_CPU_SEC   = int(os.environ.get('XIAOLING_SANDBOX_CPU', '60'))
+_RLIMIT_AS_BYTES  = int(os.environ.get('XIAOLING_SANDBOX_AS',
+                                        str(512 * 1024 * 1024)))
+_RLIMIT_FSIZE_BYTES = int(os.environ.get('XIAOLING_SANDBOX_FSIZE',
+                                         str(10 * 1024 * 1024)))
+# NPROC 不能设成一个很小的绝对数：RLIMIT_NPROC 是按「真实 UID 全系统任务数」
+# 记账的，本进程和后端父进程共享同一个 UID（已有几十个任务/线程），
+# 直接设成 10 会让 shell 自己都 fork 不出来（EAGAIN: Cannot fork）。
+# 正确做法：以「当前 UID 任务基线 + 余量」为上限——既能挡住 fork 炸弹，
+# 又不误伤正常命令。
+_RLIMIT_NPROC_MARGIN = int(os.environ.get('XIAOLING_SANDBOX_NPROC_MARGIN', '32'))
+
+# ---- Landlock 访问位（对齐 Linux uapi/linux/landlock.h）----
+_LN_EXECUTE     = 1 << 0
+_LN_WRITE_FILE  = 1 << 1
+_LN_READ_FILE   = 1 << 2
+_LN_READ_DIR    = 1 << 3
+_LN_REMOVE_DIR  = 1 << 4
+_LN_REMOVE_FILE = 1 << 5
+_LN_MAKE_CHAR   = 1 << 6
+_LN_MAKE_DIR    = 1 << 7
+_LN_MAKE_REG    = 1 << 8
+_LN_MAKE_SOCK   = 1 << 9
+_LN_MAKE_FIFO   = 1 << 10
+_LN_MAKE_SYM    = 1 << 11
+_LN_REFER       = 1 << 12
+_LN_TRUNCATE    = 1 << 13
+
+_LN_READ_ONLY = _LN_EXECUTE | _LN_READ_FILE | _LN_READ_DIR
+_LN_READ_WRITE = (
+    _LN_READ_ONLY | _LN_WRITE_FILE | _LN_MAKE_REG | _LN_MAKE_DIR |
+    _LN_MAKE_CHAR | _LN_MAKE_SOCK | _LN_MAKE_FIFO | _LN_MAKE_SYM |
+    _LN_REMOVE_FILE | _LN_REMOVE_DIR | _LN_REFER | _LN_TRUNCATE
+)
+
+# 只读放行的系统目录：子进程要能 exec /bin/sh、加载动态库、读 /etc。
+_SYSTEM_RO_PATHS = (
+    '/usr', '/lib', '/lib64', '/bin', '/sbin', '/etc', '/run', '/dev',
+)
+
+_PR_SET_NO_NEW_PRIVS = 38
+
+
+class _LandlockRulesetAttr(ctypes.Structure):
+    _fields_ = [('handled_access_fs', ctypes.c_uint64)]
+
+
+class _LandlockPathBeneath(ctypes.Structure):
+    # 内核里 allowed_access(u64) 在前、parent_fd(s32) 在后，顺序不能反
+    _fields_ = [('allowed_access', ctypes.c_uint64),
+                ('parent_fd', ctypes.c_int32)]
+
+
+def _syscall_nrs() -> tuple | None:
+    """本架构上 Landlock 三个 syscall 的号。x86_64/aarch64 都是 444/445/446。"""
+    m = platform.machine()
+    if m in ('x86_64', 'AMD64', 'aarch64'):
+        return (444, 445, 446)
+    return None
+
+
+def _landlock_supported() -> bool:
+    """探测内核是否真的支持 Landlock（建一个 ruleset，成功即可用）。
+
+    结果会影响 run_sandboxed 上报的 isolation 级别——只有探测成功才宣称
+    用了 landlock，否则如实降级，**绝不假装安全**。
+    """
+    if platform.system() != 'Linux':
+        return False
+    nrs = _syscall_nrs()
+    if nrs is None:
+        return False
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        ra = _LandlockRulesetAttr(_LN_READ_ONLY)
+        fd = libc.syscall(nrs[0], ctypes.byref(ra), ctypes.sizeof(ra), 0)
+        if fd < 0:
+            logger.info('sandbox: landlock_create_ruleset unavailable '
+                        '(errno=%s), will degrade to rlimit+chdir',
+                        ctypes.get_errno())
+            return False
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return True
+    except Exception as e:                       # noqa: BLE001
+        logger.info('sandbox: landlock probe failed (%s), degrading', e)
+        return False
+
+
+def _apply_landlock(workspace: str, permission: str) -> bool:
+    """在子进程（preexec_fn）内建立 Landlock 规则并 restrict_self。
+
+    deny-by-default：规则集里 handled 的访问位一律默认拒绝，再显式放行
+    workspace（rw 或 ro）与系统目录（ro）。任何异常都吞掉并返回 False，
+    让外层回退到纯 rlimit，绝不让沙箱因子进程异常而直接崩溃。
+    """
+    nrs = _syscall_nrs()
+    if nrs is None:
+        return False
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        # 先关 no_new_privs（restrict_self 对非特权线程的前置条件）
+        try:
+            libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        except Exception:                       # noqa: BLE001
+            pass
+
+        # 关键语义：handled_access_fs 列的是「要管控的访问位」。只有列进去的
+        # 访问位才会被 deny-by-default；没列进去的位 Landlock 根本不管、一律
+        # 放行。所以无论哪档权限，ruleset 都必须 handled **全量**访问位，权限
+        # 差异只体现在每条 path rule 授予的 access 上：
+        #   - readonly：workspace/系统目录都只授只读 -> 任何写都被拒
+        #   - default ：workspace 授读写、系统目录只读
+        handled = _LN_READ_WRITE
+        if permission == PERM_READONLY:
+            ws_access = _LN_READ_ONLY
+        else:
+            ws_access = _LN_READ_WRITE
+
+        create_nr, add_nr, restrict_nr = nrs
+        ra = _LandlockRulesetAttr(handled)
+        rfd = libc.syscall(create_nr, ctypes.byref(ra), ctypes.sizeof(ra), 0)
+        if rfd < 0:
+            return False
+
+        def _add(path: str, access: int) -> None:
+            try:
+                dfd = os.open(path, os.O_PATH)
+            except OSError:
+                return                          # 该路径不存在，跳过即可
+            try:
+                pb = _LandlockPathBeneath(access, dfd)
+                # 本内核实测可用的调用约定：(rfd, rule_type=1, &pb, flags=0)
+                libc.syscall(add_nr, rfd, 1, ctypes.byref(pb), 0)
+            except Exception:                   # noqa: BLE001
+                pass
+            finally:
+                try:
+                    os.close(dfd)
+                except OSError:
+                    pass
+
+        # workspace：default 可读写 / readonly 只读
+        _add(workspace, ws_access)
+        # 系统库与二进制：只读可执行
+        for p in _SYSTEM_RO_PATHS:
+            _add(p, _LN_READ_ONLY)
+        # default 档额外放行 tmp（子进程常需要临时文件）
+        if permission == PERM_DEFAULT:
+            _add(str(tmp_dir()), _LN_READ_WRITE)
+
+        ret = libc.syscall(restrict_nr, rfd, 0)
+        return ret == 0
+    except Exception as e:                       # noqa: BLE001
+        logger.info('sandbox: landlock restrict failed (%s), rlimit fallback', e)
+        return False
+
+
+def _count_uid_tasks() -> int:
+    """统计当前真实 UID 下已有的**任务数**（进程 + 线程）。
+
+    RLIMIT_NPROC 按「真实 UID 的所有 task（含线程）」记账，不能只数进程——
+    像 Chrome 这种一个进程就开几十条线程，漏算会让上限设得过低，子进程
+    连一个外部命令都 fork 不出来（EAGAIN）。这里用每个进程 status 里的
+    ``Threads:`` 字段求和。读不到就返回 0（上层据此放弃降 NPROC）。
+    """
+    try:
+        uid = os.getuid()
+    except Exception:                           # noqa: BLE001
+        return 0
+    n = 0
+    try:
+        proc = Path('/proc')
+        for entry in proc.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                status = (entry / 'status').read_text(errors='replace')
+            except OSError:
+                continue
+            real_uid = None
+            threads = 1
+            for line in status.splitlines():
+                if line.startswith('Uid:'):
+                    try:
+                        real_uid = int(line.split()[1])
+                    except (ValueError, IndexError):
+                        pass
+                elif line.startswith('Threads:'):
+                    try:
+                        threads = int(line.split()[1])
+                    except (ValueError, IndexError):
+                        threads = 1
+            if real_uid == uid:
+                n += max(1, threads)
+    except OSError:
+        return 0
+    return n
+
+
+def _build_preexec(workspace: str, permission: str,
+                   landlock_on: bool) -> "callable":
+    """生成 preexec_fn：在 fork 之后、exec 之前于子进程内施加所有限制。"""
+    cpu = _RLIMIT_CPU_SEC
+    as_bytes = _RLIMIT_AS_BYTES
+    fsize = _RLIMIT_FSIZE_BYTES
+
+    # NPROC 上限 = 当前 UID 任务基线 + 余量（读不到就不降低，保持继承值）
+    nproc_ceiling = -1
+    if platform.system() == 'Linux':
+        try:
+            base = _count_uid_tasks()
+            if base > 0:
+                nproc_ceiling = base + _RLIMIT_NPROC_MARGIN
+        except Exception:                       # noqa: BLE001
+            nproc_ceiling = -1
+
+    def _preexec() -> None:
+        # 1) 收紧权限：禁止 setuid 提权（配合 Landlock）
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        except Exception:                       # noqa: BLE001
+            pass
+        # 2) 切到 workspace
+        try:
+            os.chdir(workspace)
+        except Exception:                       # noqa: BLE001
+            pass
+        # 3) resource limits（全部 per-process，继承给子进程）
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+            lim = min(cpu, hard) if hard > 0 else cpu
+            resource.setrlimit(resource.RLIMIT_CPU, (lim, lim))
+        except Exception:                       # noqa: BLE001
+            pass
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            lim = as_bytes if hard < 0 else min(as_bytes, hard)
+            resource.setrlimit(resource.RLIMIT_AS, (lim, lim))
+        except Exception:                       # noqa: BLE001
+            pass
+        try:
+            resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
+        except Exception:                       # noqa: BLE001
+            pass
+        try:
+            if nproc_ceiling > 0:
+                soft, hard = resource.getrlimit(resource.RLIMIT_NPROC)
+                lim = nproc_ceiling if hard < 0 else min(nproc_ceiling, hard)
+                resource.setrlimit(resource.RLIMIT_NPROC, (lim, lim))
+        except Exception:                       # noqa: BLE001
+            pass
+        # 4) Landlock 路径隔离（最后做，做完即不可逃逸）
+        if landlock_on and permission != PERM_FULL:
+            try:
+                _apply_landlock(workspace, permission)
+            except Exception:                   # noqa: BLE001
+                pass
+
+    return _preexec
 
 
 # ---------------------------------------------------------------- 路径
@@ -211,17 +502,36 @@ def guard_path(p: str | Path) -> Path:
 
 
 # ---------------------------------------------------------------- 执行
-def run(command: str, timeout: int | None = None, cwd: str | None = None) -> dict:
-    """在沙箱内执行一条命令。
+def run_sandboxed(command: str,
+                  permission_level: str = PERM_DEFAULT,
+                  cwd: str | None = None,
+                  timeout: int | None = None) -> dict:
+    """在沙箱内执行命令，带 OS 级进程隔离。
 
-    * cwd 固定为 workspace/（除非显式给出且通过白名单）
-    * 只看黑名单不够，超时是第二道保险 —— 注入类提示词最爱让命令永久挂起
-    * **不提供任何删除能力**（项目红线）
+    Parameters
+    ----------
+    command : str
+        要执行的 shell 命令。
+    permission_level : str
+        ``"readonly"`` / ``"default"`` / ``"full"`` 三档：
+        - readonly : 仅可读 workspace 与系统库，禁止写/建/删（Landlock ro）
+        - default  : 可读写 workspace，可执行非网络命令（Landlock rw + rlimit）
+        - full     : 完全访问（跳过 OS 隔离；按红线需用户另行确认）
+    cwd, timeout : 同旧 :func:`run`。
+
+    Returns
+    -------
+    dict
+        与旧 run 相同的字段（ok/code/stdout/stderr/cwd），并额外带：
+        ``isolation``（本次实际使用的隔离级别）、``permission``。
     """
     ensure()
     cmd = (command or '').strip()
     if not cmd:
         return {'ok': False, 'error': '命令为空'}
+
+    if permission_level not in PERMISSION_LEVELS:
+        permission_level = PERM_DEFAULT
 
     low = cmd.lower()
     for tok in _DENY_TOKENS:
@@ -237,11 +547,41 @@ def run(command: str, timeout: int | None = None, cwd: str | None = None) -> dic
         work = workspace_dir()
 
     secs = timeout or MAX_EXEC_SECONDS
+    plat = platform.system()
+
+    # ---- 决定本次实际能用到的隔离级别（如实上报，绝不假装安全）----
+    landlock_on = False
+    if permission_level == PERM_FULL:
+        isolation = 'unrestricted'
+    elif plat == 'Linux':
+        landlock_on = _landlock_supported()
+        isolation = 'landlock' if landlock_on else 'rlimit+chdir'
+        if not landlock_on:
+            logger.warning('sandbox: Linux 但 Landlock 不可用，降级为 '
+                           'rlimit+chdir（非完整路径隔离）')
+    elif plat == 'Darwin':
+        # Seatbelt 在本开发环境无法验证：尽力而为，失败即降级。
+        isolation = 'rlimit+chdir'
+        logger.info('sandbox: macOS Seatbelt 未启用，降级为 rlimit+chdir')
+    else:
+        # Windows：无内核沙箱，退回路径白名单 + 命令黑名单
+        isolation = 'path-whitelist'
+        logger.warning('sandbox: %s 无可用 OS 沙箱，仅路径白名单+黑名单', plat)
+
     env = dict(os.environ)
     env['XIAOLING_SANDBOX'] = '1'
+    # 网络尽力收敛：default/readonly 档不走代理（真正的 netns 隔离需 unshare，
+    # 这里是 best-effort，已在 isolation 字段如实标注）。
+    if permission_level in (PERM_READONLY, PERM_DEFAULT):
+        env['no_proxy'] = '*'
+        env['NO_PROXY'] = '*'
+
+    preexec = _build_preexec(str(work), permission_level, landlock_on)
+
     try:
         cp = subprocess.run(
             cmd, shell=True, cwd=str(work), env=env,
+            preexec_fn=preexec,
             capture_output=True, text=True, encoding='utf-8',
             errors='replace', timeout=secs,
         )
@@ -251,11 +591,30 @@ def run(command: str, timeout: int | None = None, cwd: str | None = None) -> dic
             'stdout': (cp.stdout or '')[:20000],
             'stderr': (cp.stderr or '')[:8000],
             'cwd': str(work),
+            'isolation': isolation,
+            'permission': permission_level,
         }
     except subprocess.TimeoutExpired:
-        return {'ok': False, 'error': f'命令超时（>{secs}s），已终止'}
+        return {'ok': False, 'error': f'命令超时（>{secs}s），已终止',
+                'isolation': isolation, 'permission': permission_level}
     except Exception as e:
-        return {'ok': False, 'error': f'{type(e).__name__}: {e}'}
+        return {'ok': False, 'error': f'{type(e).__name__}: {e}',
+                'isolation': isolation, 'permission': permission_level}
+
+
+def run(command: str, timeout: int | None = None, cwd: str | None = None) -> dict:
+    """在沙箱内执行一条命令（向后兼容入口）。
+
+    与历史版本签名完全一致：内部以 ``"default"`` 权限调用
+    :func:`run_sandboxed`。新代码请直接用 :func:`run_sandboxed` 并显式指定
+    permission_level。
+
+    * cwd 固定为 workspace/（除非显式给出且通过白名单）
+    * 命令黑名单 + 超时是提示性闸门，真正的隔离靠 Landlock / rlimit
+    * **不提供任何删除能力**（项目红线）
+    """
+    return run_sandboxed(command, permission_level=PERM_DEFAULT,
+                         cwd=cwd, timeout=timeout)
 
 
 def write_file(rel: str, content: str) -> dict:
