@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
 import '../rpc/client.dart';
@@ -16,6 +17,7 @@ class PluginsPage extends StatefulWidget {
 class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin {
   List<pb.PluginInfo> _remote = [];
   final List<_Plugin> _local = [];
+  final List<Map<String, dynamic>> _market = [];
   bool _loading = true;
   String? _error;
   String _category = 'all';
@@ -105,6 +107,23 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
         _local.clear();
         _loading = false;
       });
+    }
+    _loadMarket();
+  }
+
+  Future<void> _loadMarket() async {
+    try {
+      final reply = await XlClient.stub.command('plugin:market');
+      final decoded = jsonDecode(reply.output);
+      final list = (decoded['plugins'] as List?) ?? [];
+      if (!mounted) return;
+      setState(() {
+        _market
+          ..clear()
+          ..addAll(list.map((e) => Map<String, dynamic>.from(e as Map)));
+      });
+    } catch (_) {
+      return;
     }
   }
 
@@ -280,8 +299,8 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
   }
 
   Widget _buildCommunityTab(XlPalette p) {
-    final totalDl = kCommunityPlugins.fold<int>(0, (s, e) => s + e.downloads);
-    final dshCount = kCommunityPlugins.where((e) => e.dshCompatible).length;
+    final localCount = _market.length;
+    final builtinCount = _market.where((e) => e['builtin'] == true).length;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(26, 6, 26, 30),
       child: Container(
@@ -307,7 +326,7 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
                   )),
             ),
             const SizedBox(height: 8),
-            Text('精选插件 · 分类浏览 · DSH 兼容生态',
+            Text('本地插件市场 · 浏览磁盘真实清单',
                 style: TextStyle(
                   fontSize: XlFont.caption,
                   color: p.text2,
@@ -318,11 +337,9 @@ class _PluginsPageState extends State<PluginsPage> with TickerProviderStateMixin
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _communityStat(p, '${kCommunityPlugins.length}+', '插件'),
+                _communityStat(p, '$localCount', '本地插件'),
                 _communityDivider(p),
-                _communityStat(p, '${formatDownloads(totalDl)}+', '累计下载'),
-                _communityDivider(p),
-                _communityStat(p, '$dshCount', 'DSH 兼容'),
+                _communityStat(p, '$builtinCount', '内置'),
               ],
             ),
             const SizedBox(height: 26),
