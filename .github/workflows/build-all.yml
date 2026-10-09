@@ -55,7 +55,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev
       - name: Install Python deps
         run: |
           pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
@@ -181,7 +181,7 @@ jobs:
           [Tasks]
           Name: "desktopicon"; Description: "Create desktop icon"; GroupDescription: "Additional icons:"
           [Files]
-          Source: "..\\..\\..\\dist\\win-pkg\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+          Source: "..\\dist\\win-pkg\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
           [Icons]
           Name: "{group}\{#MyAppName}"; Filename: "{app}\xiaoling.exe"
           Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\xiaoling.exe"; Tasks: desktopicon
