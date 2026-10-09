@@ -70,10 +70,13 @@ jobs:
       - name: Build Flutter Linux
         run: |
           cd frontend && flutter pub get
-      - name: Remove flutter_inappwebview_linux (browser uses backend Playwright)
+      - name: Remove flutter_inappwebview_linux from build
         run: |
+          # 从生成的插件注册和CMake中移除flutter_inappwebview_linux
+          sed -i '/flutter_inappwebview_linux/d' frontend/linux/flutter/ephemeral/generated_plugin_registrant.cc 2>/dev/null || true
+          sed -i '/flutter_inappwebview_linux/d' frontend/linux/flutter/ephemeral/CMakeLists.txt 2>/dev/null || true
           rm -rf frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux 2>/dev/null || true
-          echo "Removed flutter_inappwebview_linux native impl"
+          echo "Removed flutter_inappwebview_linux"
       - name: Compile Linux
         run: |
           cd frontend && flutter build linux --release
@@ -239,15 +242,17 @@ jobs:
       - name: Build Flutter macOS
         run: |
           cd frontend && flutter pub get
-      - name: Patch flutter_inappwebview_macos deployment target
+      - name: Patch flutter_inappwebview_macos Swift
         run: |
-          PODSPEC="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos.podspec"
-          if [ -f "$PODSPEC" ]; then
-            sed -i '' "s/platform :osx, '[0-9.]*'/platform :osx, '10.14'/" "$PODSPEC"
-            grep "platform" "$PODSPEC"
-            echo "Patched podspec"
+          SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
+          if [ -f "$SWIFT" ]; then
+            awk '/ASWebAuthenticationPresentationContextProviding/ && !/available/ {print "@available(macOS 10.14, *)"} {print}' "$SWIFT" > /tmp/patched.swift
+            mv /tmp/patched.swift "$SWIFT"
+            grep -n "available\|ASWebAuthentication" "$SWIFT" | head -5
+            echo "Patched"
           else
-            echo "Podspec not found"
+            echo "Swift file not found"
+            find "$HOME/.pub-cache" -name "WebAuthenticationSession.swift" 2>/dev/null || true
           fi
       - name: Compile macOS
         run: |
