@@ -46,7 +46,7 @@ jobs:
 
   build-linux:
     needs: prepare-release
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -249,8 +249,9 @@ jobs:
         run: |
           SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
           if [ -f "$SWIFT" ]; then
-            perl -0pi -e 's/(^|\n)([^\n]*ASWebAuthenticationPresentationContextProviding[^\n]*)/\1\@available(macOS 10.14, *)\n\2/g' "$SWIFT"
-            echo "Patched with perl"
+            sed -i '' 's/^extension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding/@available(macOS 10.14, *) extension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding/' "$SWIFT"
+            grep -n "available\|ASWebAuthentication" "$SWIFT" | head -5
+            echo "Patched"
           else
             echo "Swift file not found"
           fi
