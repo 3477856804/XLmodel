@@ -15,8 +15,10 @@ env:
   RELEASE_REPO: "3477856804/XLmodel-release"
   # 与官网下载路径 /releases/download/flutter-v0.0.1/ 保持一致。
   RELEASE_TAG: "flutter-v0.0.1"
-  # 跨仓库上传到 XLmodel-release 所需的 PAT（私有仓库内可见，不对外暴露）。
-  RELEASE_TOKEN: "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"
+  # 跨仓库上传到 XLmodel-release 所需的 PAT。
+  # 必须在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置 RELEASE_TOKEN，
+  # 切勿将令牌硬编码在此文件中（公开仓库会被扫描并自动吊销）。
+  RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
 jobs:
   prepare-release:
