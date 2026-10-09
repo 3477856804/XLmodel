@@ -55,7 +55,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev libwpewebkit-1.0-dev
+          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev libwpewebkit-1.0-dev libwpebackend-fdo-1.0-dev
       - name: Install Python deps
         run: |
           pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
@@ -236,10 +236,16 @@ jobs:
         run: |
           SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
           if [ -f "$SWIFT" ]; then
-            sed -i '' 's/^extension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding/@available(macOS 10.14, *)\nextension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding/' "$SWIFT"
-            echo "Patched $SWIFT"
+            python3 -c "
+import re
+with open('$SWIFT','r') as f: c=f.read()
+c=c.replace('extension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding','@available(macOS 10.14, *)\nextension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding')
+with open('$SWIFT','w') as f: f.write(c)
+print('Patched successfully')
+"
           else
-            echo "Swift file not found, skipping patch"
+            echo "Swift file not found at $SWIFT"
+            find "$HOME/.pub-cache" -name "WebAuthenticationSession.swift" 2>/dev/null || true
           fi
       - name: Compile macOS
         run: |
