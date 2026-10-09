@@ -8,31 +8,43 @@ on:
 env:
   # 不能低于 3.32：flutter_inappwebview 6.2.0-beta.x（含 Linux 实现）
   # 要求 Flutter >= 3.32 / Dart SDK ^3.8，用 3.24 会在 pub get 阶段直接失败。
-  # 与本地开发机保持一致，避免"本地能过、CI 挂了"。
   FLUTTER_VERSION: "3.47.6"
   APP_VERSION: "0.0.1"
-  RELEASE_TAG: "v0.0.1"
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # 公开发布仓库（官网下载链接指向此处）。
+  # 注意：私有主仓库 XLmodel 的 release 匿名访问 404，必须上传到公开仓库 XLmodel-release。
+  RELEASE_REPO: "3477856804/XLmodel-release"
+  # 与官网下载路径 /releases/download/flutter-v0.0.1/ 保持一致。
+  RELEASE_TAG: "flutter-v0.0.1"
+  # 跨仓库上传到 XLmodel-release 所需的 PAT（私有仓库内可见，不对外暴露）。
+  RELEASE_TOKEN: "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"
 
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      release_id: ${{ steps.rid.outputs.id }}
     steps:
-      - name: Create release
+      - name: Resolve (or create) public release
+        id: rid
         run: |
-          curl -s -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"XiaoLing $RELEASE_TAG\",\"body\":\"XiaoLing AI Companion $RELEASE_TAG\n\n全平台构建产物（Flutter UI + Python gRPC 后端）\n- Linux x64 (tar.gz)\n- Windows x64 (zip)\n- macOS (dmg)\n- Android (apk, Flutter 前端壳；后端经 gRPC 连接 localhost:50051)\n\n后端已内置 --no-web 启动参数，gRPC 服务监听 localhost:50051。\",\"draft\":false}" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Release created: id={r.get(\"id\")} url={r.get(\"html_url\")}')"
+          set -e
+          RID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/tags/$RELEASE_TAG" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id',''))")
+          if [ -z "$RID" ]; then
+            echo "Release $RELEASE_TAG not found in $RELEASE_REPO, creating..."
+            RID=$(curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"XiaoLing $RELEASE_TAG\",\"body\":\"XiaoLing AI Companion $RELEASE_TAG (Flutter UI + Python gRPC backend)\",\"draft\":false,\"prerelease\":false}" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+          fi
+          echo "id=$RID" >> $GITHUB_OUTPUT
+          echo "Using release id=$RID in $RELEASE_REPO @ $RELEASE_TAG"
 
   build-linux:
     needs: prepare-release
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,25 +68,56 @@ jobs:
       - name: Build Flutter Linux
         run: |
           cd frontend && flutter pub get && flutter build linux --release
-      - name: Package
+      - name: Package AppImage
         run: |
+          set -e
           BUNDLE=frontend/build/linux/x64/release/bundle
           cp dist/backend $BUNDLE/backend && chmod +x $BUNDLE/backend
-          mkdir -p release
-          tar -czf release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz -C $(dirname $BUNDLE) $(basename $BUNDLE)
-          ls -lh release/
+          # 组装 AppDir（产物名与官网一致：XiaoLing-x86_64.AppImage）
+          APPDIR="$GITHUB_WORKSPACE/build/AppDir"
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin/xiaoling"
+          cp -r "$BUNDLE/"* "$APPDIR/usr/bin/xiaoling/"
+          cp packaging/linux/xiaoling.desktop "$APPDIR/xiaoling.desktop"
+          cp packaging/linux/AppRun "$APPDIR/AppRun" && chmod +x "$APPDIR/AppRun"
+          cp packaging/linux/xiaoling.png "$APPDIR/xiaoling.png"
+          # 下载 linuxdeploy（CI 无 FUSE，加 --appimage-extract-and-run）
+          curl -L -o /tmp/linuxdeploy.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x /tmp/linuxdeploy.AppImage
+          cd "$GITHUB_WORKSPACE"
+          /tmp/linuxdeploy.AppImage --appimage-extract-and-run \
+            --appdir "$APPDIR" --output appimage \
+            --desktop-file "$APPDIR/xiaoling.desktop" \
+            --icon-file "$APPDIR/xiaoling.png" || true
+          ls -lh *.AppImage || true
+          mv "$(ls *.AppImage | head -1)" XiaoLing-x86_64.AppImage
+          ls -lh XiaoLing-x86_64.AppImage
       - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
         run: |
-          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
-            --data-binary @release/xiaoling-linux-${{ env.APP_VERSION }}.tar.gz \
-            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-linux-${{ env.APP_VERSION }}.tar.gz" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+          set -e
+          FILE="$GITHUB_WORKSPACE/XiaoLing-x86_64.AppImage"
+          NAME="XiaoLing-x86_64.AppImage"
+          # 删除同名旧资产（避免 422）
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
 
   build-windows:
     needs: prepare-release
     runs-on: windows-2022
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -100,26 +143,75 @@ jobs:
           cd frontend
           flutter pub get
           flutter build windows --release
-      - name: Package
+      - name: Assemble installer source
         run: |
           $releaseDir = "frontend\build\windows\x64\runner\Release"
           Copy-Item "dist\backend.exe" "$releaseDir\backend.exe"
-          if (!(Test-Path "release")) { New-Item -ItemType Directory -Path "release" }
-          Compress-Archive -Path "$releaseDir\*" -DestinationPath "release\xiaoling-windows-${{ env.APP_VERSION }}.zip" -Force
-          dir release
-      - name: Upload to release
+          New-Item -ItemType Directory -Force -Path "dist\win-pkg" | Out-Null
+          Copy-Item "$releaseDir\*" "dist\win-pkg\" -Recurse -Force
+          dir dist\win-pkg
+      - name: Build Inno Setup installer
         shell: bash
         run: |
-          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
-            --data-binary @release/xiaoling-windows-${{ env.APP_VERSION }}.zip \
-            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-windows-${{ env.APP_VERSION }}.zip" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+          set -e
+          choco install innosetup -y --no-progress
+          ISS="$GITHUB_WORKSPACE/build/win-setup.iss"
+          cat > "$ISS" <<'EOF'
+          #define MyAppName "XiaoLing"
+          #define MyAppVersion "0.0.1"
+          [Setup]
+          AppId={{8E4C1B52-9F31-4E3B-9C5A-8F2D4B6E0A17}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          DefaultDirName={autopf}\XiaoLing
+          DefaultGroupName={#MyAppName}
+          DisableProgramGroupPage=yes
+          OutputBaseFilename=xiaoling-setup-0.0.1
+          OutputDir=out
+          Compression=lzma2/max
+          SolidCompression=yes
+          WizardStyle=modern
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          PrivilegesRequired=lowest
+          [Languages]
+          Name: "chinese"; MessagesFile: "compiler:Default.isl"
+          [Tasks]
+          Name: "desktopicon"; Description: "Create desktop icon"; GroupDescription: "Additional icons:"
+          [Files]
+          Source: "..\\..\\..\\dist\\win-pkg\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+          [Icons]
+          Name: "{group}\{#MyAppName}"; Filename: "{app}\xiaoling.exe"
+          Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\xiaoling.exe"; Tasks: desktopicon
+          [Run]
+          Filename: "{app}\xiaoling.exe"; Description: "Launch XiaoLing"; Flags: nowait postinstall skipifsilent
+          EOF
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "$ISS"
+          ls -lh build/out/
+      - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -e
+          FILE="$GITHUB_WORKSPACE/build/out/xiaoling-setup-0.0.1.exe"
+          NAME="xiaoling-setup-0.0.1.exe"
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
 
   build-macos:
     needs: prepare-release
     runs-on: macos-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -138,25 +230,38 @@ jobs:
       - name: Build Flutter macOS
         run: |
           cd frontend && flutter pub get && flutter build macos --release
-      - name: Package
+      - name: Package DMG
         run: |
+          set -e
           APP=$(find frontend/build/macos/Build/Products/Release -name "*.app" -maxdepth 1 | head -1)
           cp dist/backend "$APP/Contents/MacOS/backend" && chmod +x "$APP/Contents/MacOS/backend"
-          mkdir -p release
-          hdiutil create -volname "XiaoLing" -srcfolder "$(dirname $APP)" -ov -format UDZO release/xiaoling-macos-${{ env.APP_VERSION }}.dmg
-          ls -lh release/
+          # 产物名与官网一致：xiaoling-macos.dmg
+          hdiutil create -volname "XiaoLing" -srcfolder "$(dirname $APP)" -ov -format UDZO xiaoling-macos.dmg
+          ls -lh xiaoling-macos.dmg
       - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
         run: |
-          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
-            --data-binary @release/xiaoling-macos-${{ env.APP_VERSION }}.dmg \
-            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-macos-${{ env.APP_VERSION }}.dmg" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+          set -e
+          FILE="$GITHUB_WORKSPACE/xiaoling-macos.dmg"
+          NAME="xiaoling-macos.dmg"
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
 
   build-android:
     needs: prepare-release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -170,13 +275,28 @@ jobs:
       - name: Build Android APK
         run: |
           cd frontend && flutter pub get && flutter build apk --release
-      - name: Rename
+      - name: Rename APK
         run: |
-          cp frontend/build/app/outputs/flutter-apk/app-release.apk xiaoling-android-${{ env.APP_VERSION }}.apk
-          ls -lh xiaoling-android-${{ env.APP_VERSION }}.apk
+          # 产物名与官网一致：xiaoling-android-v0.0.1.apk
+          cp frontend/build/app/outputs/flutter-apk/app-release.apk xiaoling-android-v0.0.1.apk
+          ls -lh xiaoling-android-v0.0.1.apk
       - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
         run: |
-          RID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
-            --data-binary @xiaoling-android-${{ env.APP_VERSION }}.apk \
-            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=xiaoling-android-${{ env.APP_VERSION }}.apk" | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")}')"
+          set -e
+          FILE="$GITHUB_WORKSPACE/xiaoling-android-v0.0.1.apk"
+          NAME="xiaoling-android-v0.0.1.apk"
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
