@@ -236,16 +236,9 @@ jobs:
         run: |
           SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
           if [ -f "$SWIFT" ]; then
-            python3 -c "
-import re
-with open('$SWIFT','r') as f: c=f.read()
-c=c.replace('extension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding','@available(macOS 10.14, *)\nextension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding')
-with open('$SWIFT','w') as f: f.write(c)
-print('Patched successfully')
-"
+            python3 -c "import sys; p=sys.argv[1]; c=open(p).read(); old='extension WebAuthenticationSession: ASWebAuthenticationPresentationContextProviding'; new='@available(macOS 10.14, *)\n'+old; c=c.replace(old,new) if old in c and '@available(macOS 10.14, *)' not in c else c; open(p,'w').write(c); print('Patched' if old in c else 'No change')" "$SWIFT"
           else
-            echo "Swift file not found at $SWIFT"
-            find "$HOME/.pub-cache" -name "WebAuthenticationSession.swift" 2>/dev/null || true
+            echo "Swift file not found"
           fi
       - name: Compile macOS
         run: |
