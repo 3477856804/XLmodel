@@ -58,29 +58,44 @@ def _install_core_alias():
     """
     import importlib
     import importlib.machinery
+    import importlib.util
     from importlib.abc import MetaPathFinder, Loader
 
     class _AliasLoader(Loader):
-        def __init__(self, module):
-            self._module = module
+        """把 `core.xxx` 别名模块指向真实 `backend.core.xxx` 模块对象，
+        两者共用同一对象（单例一致）。关键：不在 find_spec 阶段执行任何
+        模块，否则会在 import 锁持有期间再次 import_module 造成重入死锁——
+        那正是 gRPC handler 线程并发 `from core.xxx import` 时整个后端卡死、
+        RPC 全部超时、前端 runApp 永不执行的「打不开」根因。"""
+        def __init__(self, realname):
+            self._real = realname
 
         def create_module(self, spec):
-            return self._module
+            return None              # 让默认机制先建一个占位模块
 
         def exec_module(self, module):
-            pass                       # 真实模块已经执行过，这里只需挂别名
+            # 此时由正常 import 机制加载真实模块（可重入安全，非 find_spec 重入）
+            real = importlib.import_module(self._real)
+            module.__dict__.update(real.__dict__)
+            module.__path__ = getattr(real, '__path__', None)
+            sys.modules[module.__name__] = real   # 别名与真实共用同一对象
 
     class _CoreAliasFinder(MetaPathFinder):
         def find_spec(self, fullname, path=None, target=None):
             if fullname != 'core' and not fullname.startswith('core.'):
                 return None
+            real = 'backend.' + fullname
+            # 只读式查找真实模块规格，绝不在此执行模块（避免 import 锁重入死锁）
             try:
-                mod = importlib.import_module('backend.' + fullname)
-            except Exception:
+                spec = importlib.util.find_spec(real)
+            except (ImportError, ValueError, ModuleNotFoundError):
                 return None
-            return importlib.machinery.ModuleSpec(
-                fullname, _AliasLoader(mod),
-                is_package=hasattr(mod, '__path__'))
+            if spec is None or spec.origin in (None, 'namespace'):
+                return None
+            spec.name = fullname          # 以别名名登记
+            spec.loader = _AliasLoader(real)
+            spec.has_location = True
+            return spec
 
     try:
         import backend.core                      # 真实包名存在才装别名
@@ -228,7 +243,13 @@ def main():
                     _ready.set()      # 失败了也要放行主线程，否则它一直等
                     log.exception('gRPC server failed to start')
 
-            threading.Thread(target=_grpc_worker, daemon=True).start()
+            # 注意：gRPC 服务必须在「非 daemon」线程（或主线程）里跑。
+            # 经验证，grpcio 的 server 若由 daemon 线程 start()，会出现
+            # 「端口在监听、TCP 已 ESTABLISHED，但任何 RPC 全部 DEADLINE_EXCEEDED
+            # 永久死锁」的现象——前端 commandOutput('sandbox:status') 等 await 永远
+            # 不返回，runApp() 永不执行 → 主窗口永远不创建（用户视角的「打不开」）。
+            # 改为 daemon=False 后，服务端正常 dispatch（0.02s 响应）。
+            threading.Thread(target=_grpc_worker, daemon=False).start()
             # 等**真实**的绑定结果再宣布启动 —— 以前是线程一 spawn 就打印
             # 「后端已启动」，可端口被旧进程占住时线程里抛的是 RuntimeError，
             # 用户看到的却是启动成功，然后前端永远连不上（表现为「后端连接
@@ -269,6 +290,10 @@ def main():
     except KeyboardInterrupt:
         log.info('Received interrupt, shutting down')
         print("\n已退出。")
+        # gRPC worker 已改为非 daemon 线程（避免 grpcio 在 daemon 线程下不 dispatch
+        # 导致前端永久卡在初始化）。非 daemon 线程会阻止 Python 在解释器退出时自动
+        # 回收，故这里强制退出，确保 Ctrl+C 能干净结束整个进程。
+        os._exit(0)
     except Exception as e:
         log.exception('Fatal error in main')
         print(f"\n错误：{e}")
