@@ -1,0 +1,69 @@
+模块,接口,类型,说明
+core.growth,GrowthEngine.status(),方法,成长状态字典
+core.growth,"GrowthEngine.should_train(manual, force)",方法,触发条件判定（force 显式跳过校验）
+core.growth,"GrowthEngine.train_round(epochs, batch_size, lr, corpus, min_quality)",方法,训练前先蒸馏再组语料
+core.growth,"GrowthEngine.after_training_round(manual, force)",方法,触发+训练+检查（聊天里同步调用）
+core.growth,GrowthEngine.check_and_promote(force),方法,体积门槛→磁盘上限→可选生成式验收→晋升
+core.growth,GrowthEngine.pause(reason) / resume(),方法,暂停/恢复成长（仅 Python API，未接 RPC/UI）
+core.growth,GrowthEngine.rollback(gen),方法,回滚到指定代（仅 Python API）
+core.growth,"GrowthEngine.gc(keep, force)",方法,清理旧代（仅 Python API）
+core.growth,GrowthEngine.export(dest),方法,导出模型 zip（仅 Python API；RPC 侧走 training:export/gguf）
+core.growth,"GrowthEngine.register_for_distill(record_id, prompt)",方法,对话路径登记蒸馏队列（只写本地）
+core.growth,"GrowthEngine.distill_round(limit, max_attempts, time_budget)",方法,批量问老师（受时间预算与每日配额约束）
+core.growth,GrowthEngine.samples_report(),方法,样本/蒸馏/损失曲线摘要（未配置老师端时直说）
+core.growth,"GrowthStore.add(user_input, base_output, teacher_output, ...)",方法,写入对话记录（含去重 dup_of）
+core.growth,"GrowthStore.set_feedback(id, fb, corrected)",方法,点赞点踩纠正（点踩补 DPO）
+core.growth,"GrowthStore.set_teacher_output(id, text, source)",方法,写回老师答案并重算质量分（不覆盖已有答案）
+core.growth,"GrowthStore.sample_for_training(limit, min_quality, ...)",方法,取样+防遗忘混入（corrected>teacher>base）
+core.growth,"GrowthStore.export_jsonl / import_jsonl(path, encrypt_key)",方法,可选 xor 加密导出导入
+core.growth,GrowthStore.purge(scope),方法,清空数据仓库（仅 Python API）
+core.growth,"DistillThrottle.check(prompt, model)",方法,缓存命中/配额判定（distill_round 每条都真的调它）
+core.growth,DistillThrottle.record(...) / cached(...),方法,记一次调用与费用、查 hash 缓存
+core.growth,DistillThrottle.usage_report(),方法,今日用量/缓存条数/费用估算
+core.growth,teacher_config(),函数,老师端是否真配置（只回显 key_tail，不回显 Key）
+core.growth,adapter_weight_bytes(path),函数,LoRA 权重大小（不含 checkpoints/ 与 optimizer.pt）
+core.trainer,LoRATrainerCore.train(...),方法,真 LoRA/QLoRA/DPO 训练 + 断点续训
+core.trainer,checkpoint_cfg(),函数,读 config.growth 的续训开关（interval/resume/keep）
+core.eval_probe,"run_probes(model_dir, teacher_dir=..., pass_rate=...)",函数,晋升前生成式验收（4 条探针真跑推理）
+core.model,best_device() / train_plan(tier) / HardwareInfo.tier(),函数,算力分档与训练参数自适应
+core.export,"merge_adapter() / convert_to_gguf(model_dir, quant=...)",函数,LoRA 合并导出 HF / 转 GGUF
+core.memory,"RAG.search_semantic(query, top_k)",方法,向量余弦召回（无嵌入模型时降级关键词）
+renderer.stage,Stage.list_models() / switch_model() / play_action(),方法,3D 资源与状态（画面在 Flutter）
+rpc.server,ExecuteCommand('growth:persona' / 'timeline' / 'daily' / 'goal <n>' / 'first' / 'report'),RPC,成长页元数据：档位序号、按天活动量、今日进度（proto 已冻结，一律走 JSON）
+rpc.server,ExecuteCommand('growth:promotecheck' / 'promote [强制]'),RPC,晋升门槛只读快照 + 手动晋升后台任务
+rpc.server,ExecuteCommand('growth:distill' / 'run [n]' / 'on' / 'off' / 'limit <n>'),RPC,蒸馏状态只读 + 真发请求 + 开关/每轮上限写配置
+rpc.server,ExecuteCommand('growth:status' / 'pause [原因]' / 'resume'),RPC,成长真值快照（只读不写 journal）与暂停/恢复，此前仅 Python API
+rpc.server,ExecuteCommand('growth:rollback [代] [confirm]'),RPC,裸调用列回收区、带代数是演练，只有 confirm 才真回滚（后台任务）
+rpc.server,ExecuteCommand('growth:gc [保留数]' / 'gc run [force]'),RPC,默认演练且刻意绕开会写 journal 的 GrowthEngine.gc()，run 才真删
+rpc.server,ExecuteCommand('growth:purge <范围> [confirm]'),RPC,范围 all/trained/disliked/dpo；不带 confirm 只数条数，不执行 DELETE
+rpc.server,ExecuteCommand('agent:task status|result <id>'),RPC,轮询上面这些后台任务
+rpc.server,"_bg_start(name, job)",函数,长任务返回 task_id/poll/poll_result，agent:task status/result 轮询
+rpc.server,ExecuteCommand('model:search <词> [页]'),RPC,真连魔搭 /openapi/v1/models?search= 搜索；失败 ok:false+error，空关键词直接拒绝，绝不回全量清单冒充结果
+rpc.server,ExecuteCommand('model:files <ns/name>'),RPC,列远端仓库文件与 .gguf 清单（大小写敏感 Data.Files）
+rpc.server,ExecuteCommand('model:recommend'),RPC,按本机硬件算适配/推荐，真调 fit_models_for_hardware；RAM 探测失败时 available:false 且强制全部 recommended=false
+rpc.server,ExecuteCommand('model:downloadremote <ns/name> [量化档]'),RPC,后台下载远端 GGUF（复用同一套断点续传），返回 task_id+poll；仓库名必须 namespace/name，含 .. / 反斜杠 / 盘符一律拒绝
+rpc.server,ExecuteCommand('sandbox:status'),RPC,progress.<repo> 是远端下载进度的唯一真源（读 core.model.TASKS）
+rpc.server,ExecuteCommand('system:ports'),RPC,gRPC 与 3D 查看器的真实监听端口；前端不再盲扫 8765~8785（顺延出窗口就永远找不到）
+core.webpanel,"_serve_file(handler, path, cache, head)",函数,静态文件服务：支持 Range（206+Content-Range，字节精确对齐可续传）、后缀/开区间范围、越界 416、多段范围如实退回 200 整文件、HEAD 只回头不回头体
+core.webpanel,"_parse_range(header, size)",函数,Range 头解析；返回 None=整文件 / False=越界应回 416
+core.webpanel,"web_state() / _record_state(port, host, error)",函数,记录查看器真实端口并落 web_port.json；全端口被占时 port=0+error，不假装已启动
+core.sandbox,"lexical_escape_check(command, work, permission_level)",函数,仅当无 OS 级路径隔离时启用的词法守卫，返回 guard:'lexical'；只镜像 Landlock 放行面，明确不是安全边界
+core.sandbox,capability(),函数,降级时 path_isolation 仍 False，新增 lexical_guard:True 并写明原因
+rpc.server,"serve(port, ready_event)",函数,绑定失败捕获 RuntimeError 记录 grpc:0 并重抛；成功才记录真实端口，main.py 等 ready_event 才打印已启动
+frontend.model_store,ModelRemotePanel,组件,魔搭搜索/硬件推荐/远端下载面板（model:search|recommend|files|downloadremote + sandbox:status 轮询进度 + agent:task cancel）
+rpc.server,ExecuteCommand('api:cfg'),RPC,统一外部 API 配置快照（key 打码）；config.api.*，收敛原 training.api_* 与 deepseek_* 两套互不相通的存储
+rpc.server,"ExecuteCommand('api:set [enabled|base|key|model|provider] <值>')",RPC,写单项并回打码快照；base 校验 http/https，key 空串=清除，provider 限定白名单
+rpc.server,ExecuteCommand('api:test'),RPC,对配置端点发真实最小 /chat/completions 请求验证连通性；失败如实带 error
+rpc.server,"ExecuteCommand('api:chat <messagesJson>')",RPC,"真连外部 /chat/completions（Agent/蒸馏共用）；接受消息数组或裸字符串（自动包 user）；未启用时 ok:false+disabled:true，绝不假装在用 API"
+core.api_config,"chat(messages, model, temperature, max_tokens, timeout)",函数,"OpenAI 兼容对话调用（纯 stdlib urllib）；返回 {ok,text,model,elapsed_ms} 或 {ok:false,error,disabled?}"
+core.api_config,"transcribe(audio_bytes, filename, model, language, timeout)",函数,stdlib 手拼 multipart 调 /audio/transcriptions；whisper 缺席时的云端兜底；空识别结果如实 ok:false
+core.trainer,api_cfg(),函数,训练侧读 API：training.api_* 优先（source:training），未配时回落统一 api.*（source:unified）——修掉「配了等于没配」
+core.agent,_llm_think(prompt),方法,优先级 外部 API（启用时）→ 本地 engine.chat → 空串降级规则规划；API 失败记日志回退本地不静默冒充
+core.multimodal,ASR.available() / transcribe(path),方法,whisper 未装但 API 已配（enabled+base）时 available=True 并走云端识别；录音仍需 pyaudio（环境缺依赖如实报错）
+core.sandbox,"_posix_run_args(cmd, plat)",函数,Windows 路由 Git Bash（bash.exe -c，shell=False，shell:'bash'）；无 bash 如实降级 cmd（shell:'cmd'）；POSIX 不变（shell:'sh'）——修「ls 都用不了」的真根因
+core.sandbox,Job Object ActiveProcessLimit,常量,8→64：bash 管道 a|b|c 要 fork bash 本体+每个管道成员，8 会杀掉正常管道
+rpc.server,SwitchModel(path),RPC,"同时写 model.path 与 avatar.model（basename）；此前只写前者而无人读它，「切换成功」是假象、重启必回默认形象"
+frontend.settings,API 配置选项卡（_apiSection）,组件,设置页 violet 选项卡：开关（诚实降级文案）/供应商/端点/密钥（打码+清除）/模型名/测试连接+结果横幅
+frontend.chat,_agentMode + _sendAgent,组件,聊天内置 Agent 模式（用户要求「agent 是自带功能不是独立接口」）：流式订阅 AgentEvent 逐行渲染，可中断（Completer resolve 防卡死）
+frontend.chat,_showEmojiPicker,组件,真表情面板：Dart \u{...} 码点 4 组（常用/表情/手势/符号）+ VS16；零第三方依赖；Dart 不支持相邻字符串字面量拼接的坑已记录
+frontend.dashboard,_avatarSwitcher,组件,多形象芯片切换器（此前无任何切换入口）；乐观更新+失败回滚+toast

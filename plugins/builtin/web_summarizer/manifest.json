@@ -1,0 +1,11 @@
+{
+  "name": "web_summarizer",
+  "version": "0.0.1",
+  "description": "网页摘要：抓取 URL、提取正文、生成摘要",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["network"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

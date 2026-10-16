@@ -1,0 +1,11 @@
+{
+  "name": "rss_reader",
+  "version": "0.0.1",
+  "description": "RSS/Atom 订阅阅读：添加订阅源 / 实时拉取文章 / 标记已读",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["network", "file:read", "file:write"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

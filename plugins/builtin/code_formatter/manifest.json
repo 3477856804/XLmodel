@@ -1,0 +1,11 @@
+{
+  "name": "code_formatter",
+  "version": "0.0.1",
+  "description": "代码格式化：Python(black/autopep8)、Dart(dart format)、JS/TS(prettier)",
+  "author": "xiaoling",
+  "category": "development",
+  "entry": "main.py",
+  "permissions": ["file:read", "file:write"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

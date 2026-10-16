@@ -1,0 +1,18 @@
+{
+ "generated_at": "2026-10-12T14:02:44",
+ "method": "git ls-files + 逐行实测（排除 gRPC/Dart 生成桩代码）",
+ "tracked_files": 353,
+ "python_lines": 46463,
+ "python_files": 105,
+ "dart_lines": 47230,
+ "dart_files": 58,
+ "markdown_files": 18,
+ "markdown_lines": 2997,
+ "core_modules": 43,
+ "tests_collected": 314,
+ "test_files": 18,
+ "distill_tests": 40,
+ "resume_tests": 32,
+ "growth_ops_tests": 29,
+ "notes": "python_files 只数手写源码：backend/rpc/xiaoling_pb2*.py 等生成文件已排除；dart 同理排除 .pb*.dart。历史版本写的是「含 gRPC 桩代码」的口径，两个数字不可直接比较。tests_collected 来自 pytest --collect-only（313 passed + 1 skipped，skip 的是需要真实 llama.cpp 的用例）。"
+}

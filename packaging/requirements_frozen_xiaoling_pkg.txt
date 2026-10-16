@@ -1,0 +1,45 @@
+# 小凌 / XLmodel Windows 打包专用环境「冻结清单」
+# 用途：固化打包环境。若 C:\Users\MVP\.workbuddy\binaries\python\envs\xiaoling_pkg 丢失，
+#       可凭此文件重建：
+#         python -m venv <新路径>\xiaoling_pkg
+#         <新路径>\xiaoling_pkg\Scripts\pip install -r requirements_frozen_xiaoling_pkg.txt
+# 注意：这些是为「后端 PyInstaller 构建 + 单文件启动器构建」而安装的依赖，
+#       已剔除 torch/transformers（4.2GB，打包版有意排除，见 skill 坑#5）。
+aiohttp==3.14.4
+aiohappyeyeballs==2.7.1
+aiosignal==1.4.0
+altgraph==0.17.5
+attrs==26.1.0
+certifi==2026.7.22
+charset-normalizer==3.5.2
+comtypes==1.4.17
+diskcache==5.6.3
+edge-tts==7.3.1
+frozenlist==1.8.0
+grpcio==1.84.0
+grpcio-tools==1.84.0
+idna==3.20
+jieba==0.42.1
+Jinja2==3.1.6
+llama_cpp_python==0.3.36
+MarkupSafe==3.0.4
+multidict==6.9.1
+numpy==2.5.3
+packaging==26.3
+pefile==2024.8.26
+pillow==12.3.0
+propcache==0.5.4
+protobuf==7.36.2
+psutil==7.2.2
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pypiwin32==223
+pyttsx3==2.99
+pywin32==312
+pywin32-ctypes==0.2.3
+requests==2.34.2
+setuptools==84.0.0
+tabulate==0.10.0
+typing_extensions==4.16.0
+urllib3==2.8.0
+yarl==1.25.1

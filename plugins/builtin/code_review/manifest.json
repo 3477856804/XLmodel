@@ -1,0 +1,11 @@
+{
+  "name": "code_review",
+  "version": "0.0.1",
+  "description": "代码审查：检出硬编码密钥、SQL 注入风险、吞异常、可变默认参数等常见问题",
+  "author": "xiaoling",
+  "category": "development",
+  "entry": "main.py",
+  "permissions": ["file:read"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

@@ -1,0 +1,2541 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import '../theme/theme.dart';
+import '../rpc/client.dart';
+import '../rpc/xiaoling_client_ext.dart';
+import '../rpc/xiaoling_ext.dart';
+import '../rpc/xiaoling.pb.dart' as pb;
+import '../services/local_store.dart';
+import '../services/model_state.dart';
+import '../l10n/app_localizations.dart';
+import '../widgets/model_showcase.dart';
+import 'model_store_page.dart';
+import 'agent_page.dart';
+
+class ChatPage extends StatefulWidget {
+  const ChatPage({super.key});
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> with TickerProviderStateMixin {
+  final _input = TextEditingController();
+  final _scroll = ScrollController();
+  final _inputFocus = FocusNode();
+  final _player = AudioPlayer();
+  final List<_Msg> _msgs = [];
+  final Set<String> _speaking = {};
+  bool _busy = false;
+  bool _ttsOn = true;
+  /// Agent 内置模式：打开后，聊天发送走 AgentStart（LLM 自主规划 + 工具执行），
+  /// 而不是普通 chatSession。用户明确说「agent 是自带功能，不是独立接口」，
+  /// 所以入口从「跳到单独 Agent 页」改成「在聊天里就地开关」。
+  bool _agentMode = false;
+  StreamSubscription<pb.AgentEvent>? _agentSub;
+  /// Agent 流的收尾信号：正常 done / error / 被中断都要 complete 它，
+  /// 否则 _sendAgent 里的 await 会永久挂起。
+  Completer<void>? _agentCompleter;
+  bool _autoScroll = true;
+  bool _showScrollDown = false;
+  bool _connected = false;
+  bool _playing = false;
+  bool _inputFocused = false;
+  bool _listening = false;
+  int _charCount = 0;
+  String _stage = '';
+  String _version = '';
+  String? _playingId;
+  Duration _playPos = Duration.zero;
+  Duration _playDur = Duration.zero;
+  int _msgSeq = 0;
+  int _chatCount = 0;
+  int _totalChars = 0;
+  /// 当前使用的模型（后端磁盘事实的唯一真源）。为 null 表示还没查到。
+  XlModelState? _model;
+  StreamSubscription<XlModelState>? _modelSub;
+  late AnimationController _pulseCtrl;
+  late AnimationController _enterCtrl;
+  late AnimationController _typingCtrl;
+  late AnimationController _waveCtrl;
+  late Animation<double> _enterAnim;
+  StreamSubscription? _posSub;
+  StreamSubscription? _durSub;
+  StreamSubscription? _completeSub;
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _searchOpen = false;
+  String _query = '';
+  final List<String> _inputHistory = [];
+  int _historyIdx = -1;
+  bool _interruptRequested = false;
+  XlChatSession? _activeSession;
+  bool _showTimestamp = false;
+  String? _quotedText;
+  int _matchCount = 0;
+
+  static const _quickReplies = <String>[
+    '你好呀',
+    '你叫什么名字',
+    '你会一直成长吗',
+    '你是什么模型',
+    '讲个笑话',
+    '你的声音是什么样的',
+    '你记得我们聊过什么吗',
+    '今天心情怎么样',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = XlEffects.bindAmbient(AnimationController(duration: const Duration(seconds: 3), vsync: this));
+    _enterCtrl = AnimationController(duration: const Duration(milliseconds: 800), vsync: this);
+    _enterAnim = CurvedAnimation(parent: _enterCtrl, curve: XlCurve.easeOut);
+    _typingCtrl = XlEffects.bindAmbient(AnimationController(duration: const Duration(milliseconds: 1200), vsync: this));
+    _waveCtrl = XlEffects.bindAmbient(AnimationController(duration: const Duration(milliseconds: 1400), vsync: this));
+    _enterCtrl.forward();
+    _inputFocus.addListener(_onFocusChange);
+    _input.addListener(() {
+      if (mounted) setState(() => _charCount = _input.text.length);
+    });
+    _scroll.addListener(_onScroll);
+    _posSub = _player.onPositionChanged.listen((d) {
+      if (mounted) setState(() => _playPos = d);
+    });
+    _durSub = _player.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _playDur = d);
+    });
+    _completeSub = _player.onPlayerComplete.listen((_) {
+      AvatarBridge.instance.stopSpeak();
+      if (mounted) {
+        setState(() {
+          _playing = false;
+          _playingId = null;
+          _playPos = Duration.zero;
+        });
+      }
+    });
+    _searchCtrl.addListener(() {
+      if (!mounted) return;
+      final q = _searchCtrl.text.trim();
+      setState(() {
+        _query = q;
+        _matchCount = q.isEmpty
+            ? 0
+            : _msgs.where((m) => m.text.toLowerCase().contains(q.toLowerCase())).length;
+      });
+    });
+    _bootstrap();
+    // 订阅模型状态变化：切模型、下载完成都会自动刷新聊天页顶部，
+    // 不需要各页面自己轮询 GetStatus。
+    _modelSub = ModelStateService.instance.changes.listen((s) {
+      if (mounted) setState(() => _model = s);
+    });
+  }
+
+  Future<void> _bootstrap() async {
+    await _loadHistory();
+    if (!mounted) return;
+    _hello();
+  }
+
+  static const int _historyLimit = 100;
+
+  Future<void> _loadHistory() async {
+    final data = await LocalStore.readJson('chat_history.json');
+    if (!mounted) return;
+    final raw = data['messages'];
+    if (raw is List) {
+      final loaded = <_Msg>[];
+      var maxSeq = 0;
+      for (final m in raw) {
+        if (m is! Map) continue;
+        final msg = _Msg.fromJson(Map<String, dynamic>.from(m));
+        if (msg.text.trim().isEmpty) continue;
+        loaded.add(msg);
+        if (msg.id.startsWith('m')) {
+          final n = int.tryParse(msg.id.substring(1));
+          if (n != null && n > maxSeq) maxSeq = n;
+        }
+      }
+      setState(() {
+        _msgs
+          ..clear()
+          ..addAll(loaded);
+        if (maxSeq >= _msgSeq) _msgSeq = maxSeq + 1;
+      });
+    }
+  }
+
+  Future<void> _persistHistory() async {
+    final list = _msgs.where((m) => m.text.trim().isNotEmpty).toList();
+    final recent = list.length > _historyLimit
+        ? list.sublist(list.length - _historyLimit)
+        : list;
+    await LocalStore.writeJson('chat_history.json', {
+      'messages': recent.map((m) => m.toJson()).toList(),
+    });
+  }
+
+  void _onFocusChange() {
+    if (mounted) setState(() => _inputFocused = _inputFocus.hasFocus);
+    if (_inputFocus.hasFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollBottom());
+    }
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    _scroll.dispose();
+    _inputFocus.removeListener(_onFocusChange);
+    _inputFocus.dispose();
+    _pulseCtrl.dispose();
+    _enterCtrl.dispose();
+    _typingCtrl.dispose();
+    _waveCtrl.dispose();
+    _posSub?.cancel();
+    _durSub?.cancel();
+    _completeSub?.cancel();
+    _modelSub?.cancel();
+    _agentSub?.cancel();
+    _searchCtrl.dispose();
+    _player.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final max = _scroll.position.maxScrollExtent;
+    final cur = _scroll.position.pixels;
+    final atBottom = (max - cur) < 40;
+    if (atBottom != _autoScroll) setState(() => _autoScroll = atBottom);
+    final show = !atBottom && max > 200;
+    if (show != _showScrollDown) setState(() => _showScrollDown = show);
+  }
+
+  Future<void> _hello() async {
+    try {
+      final s = await XlClient.stub.status();
+      if (!mounted) return;
+      setState(() {
+        _connected = true;
+        _version = s.displayVersion;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _connected = false;
+        _stage = '未连接后端';
+      });
+    }
+    // 顶部显示的模型走独立的实时查询（model:active），而不是 GetStatus 里的
+    // 静态字符串 —— 后者只是给状态栏一行字用的，无法表达"已加载/未加载/未安装"。
+    unawaited(_refreshModel());
+    if (!mounted) return;
+    if (_msgs.isEmpty) {
+      setState(() {
+        _msgs.add(_Msg(
+          id: 'm${_msgSeq++}',
+          who: 'xl',
+          text: '你好呀，我是小凌。今天想聊点什么？',
+          time: DateTime.now(),
+          status: _MsgStatus.done,
+          system: true,
+        ));
+      });
+      _persistHistory();
+    }
+    _scrollBottom();
+  }
+
+  /// 刷新「当前使用的模型」。聊天页顶部与无模型引导都依赖它。
+  Future<void> _refreshModel({bool force = false}) async {
+    try {
+      final s = await ModelStateService.instance.fetch(force: force);
+      if (mounted) setState(() => _model = s);
+    } catch (_) {
+      // 后端还没起来时保持 _model 为 null，UI 显示"正在识别…"
+    }
+  }
+
+  /// 跳到模型商店（没装模型时的引导出口）。
+  void _gotoModelStore() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ModelStorePage()),
+    ).then((_) => _refreshModel(force: true));
+  }
+
+  Future<void> _send([String? preset]) async {
+    final text = (preset ?? _input.text).trim();
+    if (text.isEmpty || _busy) return;
+    if (preset == null) _input.clear();
+    _interruptRequested = false;
+    final myId = 'm${_msgSeq++}';
+    final replyId = 'm${_msgSeq++}';
+    setState(() {
+      _msgs.add(_Msg(
+        id: myId,
+        who: 'me',
+        text: text,
+        time: DateTime.now(),
+        status: _MsgStatus.done,
+      ));
+      _msgs.add(_Msg(
+        id: replyId,
+        who: 'xl',
+        text: '',
+        time: DateTime.now(),
+        status: _MsgStatus.streaming,
+      ));
+      _busy = true;
+      _chatCount++;
+      _totalChars += text.length;
+    });
+    _scrollBottom(force: true);
+    if (_agentMode) {
+      await _sendAgent(text, replyId);
+      return;
+    }
+    try {
+      final session = await XlClient.stub.chatSession(
+        text,
+        onAttached: (s) => _activeSession = s,
+        onDelta: (delta) {
+          if (!mounted || _interruptRequested) return;
+          final idx = _msgs.indexWhere((m) => m.id == replyId);
+          if (idx < 0) return;
+          if (_msgs[idx].status != _MsgStatus.streaming) return;
+          setState(() {
+            _msgs[idx] = _msgs[idx].copyWith(text: _msgs[idx].text + delta);
+          });
+          _scrollBottom();
+        },
+      );
+      _activeSession = null;
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == replyId);
+      if (idx < 0) return;
+      if (session.cancelled) {
+        return;
+      } else if (session.hasError) {
+        setState(() {
+          _msgs[idx] = _msgs[idx].copyWith(
+            text: session.error ?? '出错了',
+            status: _MsgStatus.error,
+          );
+        });
+      } else {
+        setState(() {
+          _msgs[idx] = _msgs[idx].copyWith(status: _MsgStatus.done);
+        });
+        if (_ttsOn) {
+          final reply = _msgs[idx].text;
+          if (reply.isNotEmpty) _speak(reply, replyId);
+        }
+      }
+    } catch (e) {
+      _activeSession = null;
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == replyId);
+      if (idx >= 0) {
+        setState(() {
+          _msgs[idx] = _msgs[idx].copyWith(
+            text: '出错了：$e',
+            status: _MsgStatus.error,
+          );
+        });
+      }
+    } finally {
+      _activeSession = null;
+      if (mounted) setState(() => _busy = false);
+      _persistHistory();
+      _scrollBottom();
+    }
+  }
+
+  /// Agent 内置执行：把任务交给 AgentStart，边收事件边把「思考 / 调用工具 /
+  /// 工具结果 / 最终回复」渲染进气泡。与普通聊天的区别只是走哪条后端流，
+  /// 界面完全一致 —— 这正是「agent 是自带功能，不是独立接口」的落点。
+  Future<void> _sendAgent(String text, String replyId) async {
+    final buf = StringBuffer();
+    String? finalText;
+    void append(String line) {
+      if (line.isEmpty) return;
+      buf.write(line);
+      buf.write('\n');
+      final idx = _msgs.indexWhere((m) => m.id == replyId);
+      if (idx < 0) return;
+      setState(() {
+        _msgs[idx] = _msgs[idx].copyWith(
+            text: buf.toString().trimRight(), status: _MsgStatus.streaming);
+      });
+      _scrollBottom();
+    }
+
+    try {
+      final stream = XlClient.stub.agentStart(pb.AgentRequest(
+        task: text,
+        autonomous: true,
+        maxSteps: 10,
+      ));
+      final completer = Completer<void>();
+      _agentCompleter = completer;
+      _agentSub = stream.listen(
+        (ev) {
+          if (!mounted) return;
+          switch (ev.type) {
+            case 'plan':
+              append('🧭 计划：共 ${ev.totalSteps} 步');
+              break;
+            case 'thought':
+              if (ev.content.isNotEmpty) append('💭 ${ev.content}');
+              break;
+            case 'tool_call':
+              append('🔧 调用 ${ev.toolName} ${ev.toolArgs}');
+              break;
+            case 'tool_result':
+              final r = ev.toolResult;
+              append('   ↳ ${r.length > 400 ? '${r.substring(0, 400)}…' : r}');
+              break;
+            case 'message':
+              if (ev.content.isNotEmpty) append(ev.content);
+              break;
+            case 'error':
+              append('⚠️ ${ev.error}');
+              break;
+            case 'done':
+              if (ev.content.isNotEmpty) finalText = ev.content;
+              break;
+          }
+          if (ev.done) {
+            if (!completer.isCompleted) completer.complete();
+          }
+        },
+        onError: (e) {
+          append('⚠️ Agent 流中断：$e');
+          if (!completer.isCompleted) completer.complete();
+        },
+        onDone: () {
+          if (!completer.isCompleted) completer.complete();
+        },
+      );
+      await completer.future;
+      await _agentSub?.cancel();
+      _agentSub = null;
+      _agentCompleter = null;
+      if (!mounted) return;
+      // 被用户中断时，interrupt 处理器已把气泡标成「已中断」，这里别再覆盖。
+      if (_interruptRequested) return;
+      final idx = _msgs.indexWhere((m) => m.id == replyId);
+      if (idx < 0) return;
+      // 有最终回复就以最终回复收尾；否则保留过程日志（如实呈现，不伪造结论）。
+      if (finalText != null && finalText!.isNotEmpty) {
+        setState(() {
+          _msgs[idx] =
+              _msgs[idx].copyWith(text: finalText, status: _MsgStatus.done);
+        });
+        if (_ttsOn && finalText!.isNotEmpty) _speak(finalText!, replyId);
+      } else {
+        setState(() {
+          _msgs[idx] = _msgs[idx].copyWith(status: _MsgStatus.done);
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == replyId);
+      if (idx >= 0) {
+        setState(() {
+          _msgs[idx] = _msgs[idx].copyWith(
+              text: 'Agent 执行失败：$e', status: _MsgStatus.error);
+        });
+      }
+    } finally {
+      _agentSub = null;
+      if (mounted) setState(() => _busy = false);
+      _persistHistory();
+      _scrollBottom();
+    }
+  }
+
+  Future<void> _retryError(int errorIdx) async {
+    if (_busy || errorIdx < 0 || errorIdx >= _msgs.length) return;
+    String? prompt;
+    for (int i = errorIdx - 1; i >= 0; i--) {
+      if (_msgs[i].who == 'me') {
+        prompt = _msgs[i].text;
+        break;
+      }
+    }
+    if (prompt == null || prompt.isEmpty) return;
+    final targetId = _msgs[errorIdx].id;
+    _interruptRequested = false;
+    setState(() {
+      _msgs[errorIdx] = _msgs[errorIdx].copyWith(text: '', status: _MsgStatus.streaming);
+      _busy = true;
+    });
+    _scrollBottom(force: true);
+    try {
+      final session = await XlClient.stub.chatSession(prompt,
+          onAttached: (s) => _activeSession = s,
+          onDelta: (delta) {
+        if (!mounted || _interruptRequested) return;
+        final idx = _msgs.indexWhere((m) => m.id == targetId);
+        if (idx < 0) return;
+        if (_msgs[idx].status != _MsgStatus.streaming) return;
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(text: _msgs[idx].text + delta));
+        _scrollBottom();
+      });
+      _activeSession = null;
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == targetId);
+      if (idx < 0) return;
+      if (session.cancelled) {
+        return;
+      } else if (session.hasError) {
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(text: session.error ?? '出错了', status: _MsgStatus.error));
+      } else {
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(status: _MsgStatus.done));
+        final reply = _msgs[idx].text;
+        if (_ttsOn && reply.isNotEmpty) _speak(reply, targetId);
+      }
+    } catch (e) {
+      _activeSession = null;
+      if (!mounted) return;
+      final idx = _msgs.indexWhere((m) => m.id == targetId);
+      if (idx >= 0) {
+        setState(() => _msgs[idx] = _msgs[idx].copyWith(text: '出错了：$e', status: _MsgStatus.error));
+      }
+    } finally {
+      _activeSession = null;
+      if (mounted) setState(() => _busy = false);
+      _persistHistory();
+      _scrollBottom();
+    }
+  }
+
+  Future<void> _speak(String text, String msgId) async {
+    if (_speaking.contains(msgId)) return;
+    setState(() => _speaking.add(msgId));
+    try {
+      final rate = await _ttsRateLabel();
+      final vol = await _ttsVolumeLabel();
+      final result = await XlClient.stub.readAloudBytes(text, rate: rate, volume: vol);
+      if (!mounted || !result.success || result.bytes.isEmpty) return;
+      final dir = await getTemporaryDirectory();
+      final f = File('${dir.path}/xl_tts_$msgId.mp3');
+      await f.writeAsBytes(result.bytes);
+      await _player.play(DeviceFileSource(f.path));
+      if (mounted) {
+        setState(() {
+          _playing = true;
+          _playingId = msgId;
+        });
+      }
+      final estDur = (text.length / 4.5).clamp(1.2, 12.0);
+      AvatarBridge.instance.speakEnvelope(estDur);
+      AvatarBridge.instance.playAnimation('wave');
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _speaking.remove(msgId));
+    }
+  }
+
+  Future<void> _togglePlay(String text, String msgId) async {
+    if (_playing && _playingId == msgId) {
+      await _player.pause();
+      AvatarBridge.instance.stopSpeak();
+      if (mounted) setState(() => _playing = false);
+      return;
+    }
+    if (_playingId == msgId && _playPos > Duration.zero) {
+      await _player.resume();
+      if (mounted) setState(() => _playing = true);
+      final estDur = (text.length / 4.5).clamp(1.2, 12.0);
+      AvatarBridge.instance.speakEnvelope(estDur);
+      return;
+    }
+    await _speak(text, msgId);
+  }
+
+  Future<String> _ttsRateLabel() async {
+    try {
+      final data = await LocalStore.readJson('channels.json');
+      final sliders = data['sliders'];
+      double speed = 0.55;
+      if (sliders is Map && sliders['speed'] is num) {
+        speed = (sliders['speed'] as num).toDouble().clamp(0.0, 1.0);
+      }
+      final pct = ((speed - 0.5) * 100).round().clamp(-40, 50);
+      return pct == 0 ? '+0%' : (pct > 0 ? '+${pct}%' : '${pct}%');
+    } catch (_) {
+      return '+0%';
+    }
+  }
+
+  /// 音量（BUG-C）：把设置页 0..1 的音量滑块映射成 edge-tts 百分比字符串。
+  /// 0.5→+0%（原始音量），1.0→+100%，0.0→-100%。与后端 ReadAloud 一致。
+  Future<String> _ttsVolumeLabel() async {
+    try {
+      final data = await LocalStore.readJson('channels.json');
+      final sliders = data['sliders'];
+      double volume = 0.80;
+      if (sliders is Map && sliders['volume'] is num) {
+        volume = (sliders['volume'] as num).toDouble().clamp(0.0, 1.0);
+      }
+      final pct = ((volume * 2.0 - 1.0) * 100).round().clamp(-100, 100);
+      return pct == 0 ? '+0%' : (pct > 0 ? '+${pct}%' : '${pct}%');
+    } catch (_) {
+      return '+0%';
+    }
+  }
+
+  Future<void> _startListening() async {
+    if (_listening || _busy) return;
+    setState(() => _listening = true);
+    final p = XlPalette.of(context);
+    try {
+      final r = await XlClient.stub.transcribeAudio(null, seconds: 6);
+      if (!mounted) return;
+      if (r.ok && r.text.trim().isNotEmpty) {
+        final existing = _input.text;
+        _input.text = existing.isEmpty
+            ? r.text.trim()
+            : '${existing.trimRight()} ${r.text.trim()}';
+        _input.selection = TextSelection.fromPosition(
+            TextPosition(offset: _input.text.length));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: p.surface,
+          elevation: 0,
+          duration: const Duration(milliseconds: 1400),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+          content: Row(children: [
+            Icon(Icons.mic_rounded, color: p.green, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text('已识别语音内容',
+                style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700))),
+          ]),
+        ));
+        _inputFocus.requestFocus();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: p.surface,
+          elevation: 0,
+          duration: const Duration(milliseconds: 2200),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+          content: Row(children: [
+            Icon(Icons.mic_off_rounded, color: p.red, size: 16),
+            const SizedBox(width: 8),
+            Expanded(child: Text(r.error.isEmpty ? '语音识别未配置' : r.error,
+                style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700))),
+          ]),
+        ));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        content: Text('语音识别未配置',
+            style: TextStyle(color: p.text1, fontSize: XlFont.captionSm)),
+      ));
+    } finally {
+      if (mounted) setState(() => _listening = false);
+    }
+  }
+
+  void _scrollBottom({bool force = false}) {
+    if (!force && !_autoScroll) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 260),
+        curve: XlCurve.easeOut,
+      );
+    });
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) {
+        _searchCtrl.clear();
+        _query = '';
+        _matchCount = 0;
+      }
+    });
+    if (_searchOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _inputFocus.requestFocus());
+    }
+  }
+
+  Future<void> _exportChat() async {
+    final p = XlPalette.of(context);
+    if (_msgs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        content: Text('暂无对话可导出', style: TextStyle(color: p.text1, fontSize: XlFont.captionSm)),
+      ));
+      return;
+    }
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final txtPath = '${dir.path}/xiaoling_chat_$stamp.txt';
+      final jsonPath = '${dir.path}/xiaoling_chat_$stamp.json';
+      final buf = StringBuffer();
+      for (final m in _msgs) {
+        final who = m.who == 'me' ? '我' : '小凌';
+        buf.writeln('[$who] ${m.time.toIso8601String()}');
+        buf.writeln(m.text);
+        buf.writeln('');
+      }
+      await File(txtPath).writeAsString(buf.toString());
+      final payload = _msgs
+          .map((m) => {
+                'who': m.who,
+                'text': m.text,
+                'time': m.time.toIso8601String(),
+                'status': m.status.name,
+              })
+          .toList();
+      await File(jsonPath).writeAsString(const JsonEncoder.withIndent('  ').convert(payload));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+        content: Row(children: [
+          Icon(Icons.check_circle_rounded, color: p.green, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text('已导出 ${_msgs.length} 条对话',
+              style: TextStyle(color: p.text1, fontSize: XlFont.captionSm, fontWeight: FontWeight.w700))),
+        ]),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.surface,
+        content: Text('导出失败: $e', style: TextStyle(color: p.red, fontSize: XlFont.captionSm)),
+      ));
+    }
+  }
+
+  void _interruptGeneration() {
+    if (!_busy || _interruptRequested) return;
+    _activeSession?.cancel();
+    // Agent 模式下走的是 agentStart 流，interrupt 也要把它关掉，
+    // 否则用户点了「停止」，后台还在一步步跑工具。
+    _agentSub?.cancel();
+    _agentSub = null;
+    if (_agentCompleter != null && !_agentCompleter!.isCompleted) {
+      _agentCompleter!.complete();
+    }
+    _agentCompleter = null;
+    setState(() {
+      _interruptRequested = true;
+      final idx = _msgs.indexWhere((m) => m.status == _MsgStatus.streaming);
+      if (idx >= 0) {
+        _msgs[idx] = _msgs[idx].copyWith(
+          text: _msgs[idx].text.isEmpty ? '已中断' : '${_msgs[idx].text}\n已中断',
+          status: _MsgStatus.interrupted,
+        );
+      }
+      _busy = false;
+    });
+    _persistHistory();
+  }
+
+  void _navigateHistory(bool up) {
+    if (_inputHistory.isEmpty) return;
+    setState(() {
+      if (up) {
+        if (_historyIdx == -1) {
+          _historyIdx = _inputHistory.length - 1;
+        } else if (_historyIdx > 0) {
+          _historyIdx--;
+        }
+      } else {
+        if (_historyIdx < 0) return;
+        _historyIdx++;
+        if (_historyIdx >= _inputHistory.length) {
+          _historyIdx = -1;
+          _input.clear();
+          return;
+        }
+      }
+      _input.value = TextEditingValue(
+        text: _inputHistory[_historyIdx],
+        selection: TextSelection.collapsed(offset: _inputHistory[_historyIdx].length),
+      );
+    });
+  }
+
+  void _pushHistory(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return;
+    if (_inputHistory.isNotEmpty && _inputHistory.last == t) return;
+    _inputHistory.add(t);
+    if (_inputHistory.length > 30) _inputHistory.removeAt(0);
+    _historyIdx = -1;
+  }
+
+  void _requestQuote(String text) {
+    setState(() => _quotedText = text);
+    _inputFocus.requestFocus();
+  }
+
+  List<InlineSpan> _highlightSpans(String source, TextStyle base, Color hit) {
+    if (_query.isEmpty) return [TextSpan(text: source, style: base)];
+    final spans = <InlineSpan>[];
+    final q = _query.toLowerCase();
+    final lower = source.toLowerCase();
+    int i = 0;
+    while (i < source.length) {
+      final pos = lower.indexOf(q, i);
+      if (pos < 0) {
+        spans.add(TextSpan(text: source.substring(i), style: base));
+        break;
+      }
+      if (pos > i) spans.add(TextSpan(text: source.substring(i, pos), style: base));
+      spans.add(TextSpan(
+        text: source.substring(pos, pos + q.length),
+        style: base.copyWith(
+          backgroundColor: hit.withOpacity(0.32),
+          color: hit,
+          fontWeight: FontWeight.w800,
+        ),
+      ));
+      i = pos + q.length;
+    }
+    return spans;
+  }
+
+  Widget _searchBar(XlPalette p) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(26, 0, 26, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: AppTheme.screen(context, r: XlRadius.xl),
+      child: Row(children: [
+        Icon(Icons.search_rounded, size: 16, color: p.pink),
+        const SizedBox(width: 10),
+        Expanded(
+          child: TextField(
+            controller: _searchCtrl,
+            style: TextStyle(fontSize: XlFont.bodySm, color: p.text1, fontWeight: FontWeight.w600),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: '在对话历史中搜索…',
+              hintStyle: TextStyle(fontSize: XlFont.bodySm, color: p.decor),
+            ),
+          ),
+        ),
+        Text('$_matchCount 命中',
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              color: _matchCount > 0 ? p.gold : p.decor,
+              fontWeight: FontWeight.w800,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+        const SizedBox(width: 8),
+        _Pressable(
+          scale: 0.9,
+          onTap: _toggleSearch,
+          child: Container(
+            width: 26,
+            height: 26,
+            decoration: AppTheme.neuXxs(context, r: XlRadius.sm),
+            child: Icon(Icons.close_rounded, size: 13, color: p.text2),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _msgText(XlPalette p, _Msg m) {
+    final base = TextStyle(
+      fontSize: XlFont.bodySm,
+      height: XlLineHeight.relaxed,
+      color: m.who == 'me' ? p.btnInk : p.text1,
+      fontWeight: m.who == 'me' ? FontWeight.w600 : FontWeight.w400,
+    );
+    return RichText(
+      text: TextSpan(
+        children: _highlightSpans(m.text, base, p.gold),
+      ),
+    );
+  }
+
+  Widget _interruptButton(XlPalette p) {
+    return _Pressable(
+      scale: 0.92,
+      onTap: _interruptGeneration,
+      child: Container(
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [p.red, p.red.withOpacity(0.82)]),
+          borderRadius: BorderRadius.circular(XlRadius.pill),
+          border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.3 : 0.2), width: 1),
+          boxShadow: [...p.raisedXs, BoxShadow(color: p.red.withOpacity(0.32), blurRadius: 12, spreadRadius: -2)],
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.stop_rounded, size: 14, color: p.btnInk),
+          const SizedBox(width: 6),
+          Text('中断',
+              style: TextStyle(
+                fontSize: XlFont.captionSm,
+                fontWeight: FontWeight.w800,
+                color: p.btnInk,
+                letterSpacing: XlLetterSpacing.wider,
+              )),
+        ]),
+      ),
+    );
+  }
+
+  Widget _quoteBanner(XlPalette p) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: AppTheme.accentSoft(context, r: XlRadius.md),
+      child: Row(children: [
+        Icon(Icons.format_quote_rounded, size: 14, color: p.pink),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _quotedText!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: XlFont.captionSm,
+              color: p.text2,
+              fontWeight: FontWeight.w600,
+              height: XlLineHeight.snug,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _Pressable(
+          scale: 0.9,
+          onTap: () => setState(() => _quotedText = null),
+          child: Icon(Icons.close_rounded, size: 14, color: p.text3),
+        ),
+      ]),
+    );
+  }
+
+  void _clearChat() {
+    showDialog(
+      context: context,
+      barrierColor: XlPalette.of(context).scrim,
+      builder: (ctx) {
+        final p = XlPalette.of(ctx);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            width: 400,
+            padding: const EdgeInsets.all(24),
+            decoration: AppTheme.neuLg(ctx, r: XlRadius.xxxl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('清空对话',
+                    style: TextStyle(
+                      fontSize: XlFont.h5,
+                      fontWeight: FontWeight.w800,
+                      color: p.text1,
+                    )),
+                const SizedBox(height: 6),
+                Text('所有消息将被移除，此操作不可撤销',
+                    style: TextStyle(
+                      fontSize: XlFont.captionSm,
+                      color: p.text2,
+                      fontWeight: FontWeight.w500,
+                    )),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _Pressable(
+                        onTap: () => Navigator.pop(ctx),
+                        scale: 0.95,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: AppTheme.ghost(ctx, r: XlRadius.pill),
+                          child: Center(
+                            child: Text('取消',
+                                style: TextStyle(
+                                  fontSize: XlFont.captionSm,
+                                  fontWeight: FontWeight.w800,
+                                  color: p.text1,
+                                )),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _Pressable(
+                        scale: 0.95,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          setState(() {
+                            _msgs.clear();
+                            _msgSeq = 0;
+                            _chatCount = 0;
+                            _totalChars = 0;
+                          });
+                          _persistHistory();
+                          _hello();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: AppTheme.btn(ctx, r: XlRadius.pill),
+                          child: Center(
+                            child: Text('清空',
+                                style: TextStyle(
+                                  fontSize: XlFont.captionSm,
+                                  fontWeight: FontWeight.w800,
+                                  color: p.btnInk,
+                                )),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return Stack(
+      children: [
+        Positioned.fill(child: AppTheme.aurora(context, child: const SizedBox.shrink())),
+        Column(
+          children: [
+            _header(p),
+            if (_searchOpen) _searchBar(p),
+            _statsRow(p),
+            Expanded(child: RepaintBoundary(child: _refreshableList(p))),
+            _inputBar(p),
+          ],
+        ),
+        Positioned(
+          right: 28,
+          bottom: 128,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: XlCurve.spring,
+            switchOutCurve: XlCurve.easeOut,
+            transitionBuilder: (child, anim) => ScaleTransition(
+              scale: anim,
+              child: FadeTransition(opacity: anim, child: child),
+            ),
+            child: _showScrollDown ? _scrollDownBtn(p) : const SizedBox.shrink(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _header(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
+    return AnimatedBuilder(
+      animation: _enterAnim,
+      builder: (_, child) => Opacity(
+        opacity: _enterAnim.value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - _enterAnim.value) * -12),
+          child: child,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(hPad, isMobile ? 12 : 20, hPad, 10),
+        child: Row(
+          children: [
+            _avatar(p),
+            SizedBox(width: isMobile ? 10 : 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text('小凌',
+                          style: TextStyle(
+                            fontSize: XlFont.h5,
+                            fontWeight: FontWeight.w800,
+                            color: p.text1,
+                            letterSpacing: XlLetterSpacing.normal,
+                          )),
+                      SizedBox(width: isMobile ? 6 : 10),
+                      _statusChip(p),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  _modelLine(p),
+                ],
+              ),
+            ),
+            if (!isMobile) ...[
+              _agentEntryBtn(p),
+              const SizedBox(width: 8),
+            ],
+            _headerBtn(
+              p,
+              _ttsOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+              _ttsOn ? p.pink : p.text3,
+              () => setState(() => _ttsOn = !_ttsOn),
+            ),
+            const SizedBox(width: 8),
+            _headerBtn(
+              p,
+              _searchOpen ? Icons.filter_alt_rounded : Icons.search_rounded,
+              _searchOpen ? p.pink : p.text2,
+              _toggleSearch,
+            ),
+            if (!isMobile) ...[
+              const SizedBox(width: 8),
+              _headerBtn(p, Icons.ios_share_rounded, p.text2, _exportChat),
+              const SizedBox(width: 8),
+              _headerBtn(
+                p,
+                Icons.schedule_rounded,
+                _showTimestamp ? p.gold : p.text2,
+                () => setState(() => _showTimestamp = !_showTimestamp),
+              ),
+              const SizedBox(width: 8),
+              _headerBtn(p, Icons.cleaning_services_outlined, p.text2, _clearChat),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 聊天页头部第二行：**当前正在使用的模型**。
+  ///
+  /// 三种状态（这是需求里「实时识别并连通当前模型 / 没有就显示没有并引导」）：
+  ///   · 有模型 → 显示真实模型名 + 参数/量化/体积 + 已加载/待加载；
+  ///   · 无模型 → 明确写「未安装模型」，并做成可点击，一键去模型商店；
+  ///   · 后端未响应 → 显示「正在识别模型…」，不谎报、不瞎猜。
+  Widget _modelLine(XlPalette p) {
+    final m = _model;
+    final style = TextStyle(
+      fontSize: XlFont.label,
+      color: p.text3,
+      fontWeight: FontWeight.w500,
+      letterSpacing: XlLetterSpacing.wider,
+    );
+
+    if (m == null) {
+      return Text(
+          _connected ? '正在识别模型…' : (_stage.isEmpty ? '在线等你' : _stage),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: style);
+    }
+
+    if (!m.available) {
+      // 无模型：红色提示 + 下载引导，点击直达模型商店
+      return _Pressable(
+        onTap: _gotoModelStore,
+        scale: 0.98,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline_rounded, size: 13, color: p.red),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text('未安装模型 · 点这里去模型商店下载',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: style.copyWith(color: p.red)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 有模型：真实模型名；点击可刷新（强制重新向后端核对）
+    return _Pressable(
+      onTap: () => _refreshModel(force: true),
+      scale: 0.98,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(m.loaded ? Icons.bolt_rounded : Icons.memory_rounded,
+              size: 13, color: m.loaded ? p.green : p.text3),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(m.subtitle,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _avatar(XlPalette p) {
+    return AnimatedBuilder(
+      animation: _pulseCtrl,
+      builder: (_, __) {
+        final t = XlEffects.enabled ? _pulseCtrl.value : 0.0;
+        final breatheScale = _busy ? 1.0 + (t * 0.5).clamp(0.0, 1.0) * 0.05 : 1.0;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 52 + t * 8,
+              height: 52 + t * 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: p.pink.withOpacity((1 - t) * 0.18),
+              ),
+            ),
+            Transform.scale(
+              scale: breatheScale,
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: AppTheme.brandOrb(context, size: 52),
+                child: Icon(Icons.favorite_rounded, color: p.btnInk, size: 20),
+              ),
+            ),
+            if (_busy)
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: AppTheme.glowDot(p.green, size: 16),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _statusChip(XlPalette p) {
+    final c = _connected ? p.green : p.gold;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        color: c.withOpacity(p.isDark ? 0.14 : 0.10),
+        borderRadius: BorderRadius.circular(XlRadius.pill),
+        border: Border.all(color: c.withOpacity(0.30), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: AppTheme.glowDot(c, size: 5),
+          ),
+          const SizedBox(width: 5),
+          Text(_connected ? 'ONLINE' : 'OFFLINE',
+              style: TextStyle(
+                fontSize: XlFont.micro,
+                fontWeight: FontWeight.w800,
+                color: c,
+                letterSpacing: XlLetterSpacing.ultra,
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _agentEntryBtn(XlPalette p) {
+    return _Pressable(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AgentPage())),
+      scale: 0.92,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: AppTheme.brand(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.auto_awesome_rounded, size: 15, color: p.btnInk),
+            const SizedBox(width: 6),
+            Text('Agent',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  fontWeight: FontWeight.w800,
+                  color: p.btnInk,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _headerBtn(XlPalette p, IconData icon, Color color, VoidCallback onTap) {
+    return _Pressable(
+      onTap: onTap,
+      scale: 0.92,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: AppTheme.neuXs(context, r: XlRadius.md),
+        child: Icon(icon, size: 17, color: color),
+      ),
+    );
+  }
+
+  Widget _statsRow(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 16.0 : 26.0;
+    final stats = <_MiniStat>[
+      _MiniStat('对话', '$_chatCount', '轮', Icons.chat_bubble_outline_rounded, p.pink),
+      _MiniStat('字符', '$_totalChars', '字', Icons.text_fields_rounded, p.gold),
+      _MiniStat('版本', _version.isEmpty ? '—' : _version.replaceFirst('v', ''), '', Icons.tag_rounded, p.violet),
+      _MiniStat('语音', _ttsOn ? '开' : '关', '', Icons.volume_up_rounded, p.green),
+    ];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 10),
+      child: Row(
+        children: [
+          for (int i = 0; i < stats.length; i++) ...[
+            Expanded(child: _miniStatCard(p, stats[i])),
+            if (i != stats.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStatCard(XlPalette p, _MiniStat s) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: AppTheme.neuXxs(context, r: XlRadius.md),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: s.color.withOpacity(p.isDark ? 0.14 : 0.10),
+              borderRadius: BorderRadius.circular(XlRadius.xs),
+              border: Border.all(color: s.color.withOpacity(0.28), width: 1),
+            ),
+            child: Icon(s.icon, size: 13, color: s.color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(s.label,
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      color: p.text3,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+                const SizedBox(height: 1),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Flexible(
+                      child: Text(s.value,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: XlFont.caption,
+                            color: p.text1,
+                            fontWeight: FontWeight.w800,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            height: 1.1,
+                          )),
+                    ),
+                    if (s.unit.isNotEmpty)
+                      Text(s.unit,
+                          style: TextStyle(
+                            fontSize: XlFont.micro,
+                            color: p.text3,
+                            fontWeight: FontWeight.w700,
+                          )),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _refreshableList(XlPalette p) {
+    return RefreshIndicator(
+      color: p.pink,
+      backgroundColor: p.surfaceHi,
+      onRefresh: _pullRefresh,
+      child: _list(p),
+    );
+  }
+
+  Future<void> _pullRefresh() async {
+    HapticFeedback.mediumImpact();
+    try {
+      await _loadHistory();
+    } catch (_) {}
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(milliseconds: 900),
+      content: Text(AppLocalizations.of(context).refreshHistory),
+    ));
+  }
+
+  Widget _list(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 12.0 : 26.0;
+    if (_msgs.isEmpty) return _emptyState(p);
+    return ListView.builder(
+      controller: _scroll,
+      padding: EdgeInsets.fromLTRB(hPad, 8, hPad, 8),
+      itemCount: _msgs.length,
+      physics: const AlwaysScrollableScrollPhysics(),
+      cacheExtent: 300,
+      itemBuilder: (_, i) {
+        final m = _msgs[i];
+        final prev = i > 0 ? _msgs[i - 1] : null;
+        final showTime = prev == null || m.time.difference(prev.time).inMinutes >= 3;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (showTime) _timeDivider(p, m.time),
+            _AnimatedBubble(child: _bubble(p, m, i)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _emptyState(XlPalette p) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: AppTheme.brandOrbLg(context, size: 96),
+              child: Icon(Icons.favorite_rounded, size: 40, color: p.btnInk),
+            ),
+            const SizedBox(height: 22),
+            Text('开始对话吧',
+                style: TextStyle(
+                  fontSize: XlFont.h5,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                )),
+            const SizedBox(height: 8),
+            Text('小凌已经准备好，随时可以聊',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: XlFont.caption,
+                  color: p.text2,
+                  fontWeight: FontWeight.w500,
+                  height: XlLineHeight.relaxed,
+                )),
+            const SizedBox(height: 26),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: _quickReplies.take(4).map((q) => _Pressable(
+                onTap: _busy ? null : () => _send(q),
+                scale: 0.93,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: AppTheme.accentSoft(context, r: XlRadius.pill),
+                  child: Text(q,
+                      style: TextStyle(
+                        fontSize: XlFont.label,
+                        fontWeight: FontWeight.w700,
+                        color: _busy ? p.decor : p.pink,
+                        letterSpacing: XlLetterSpacing.wide,
+                      )),
+                ),
+              )).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _timeDivider(XlPalette p, DateTime t) {
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 400),
+      curve: XlCurve.easeOut,
+      tween: Tween(begin: 0.0, end: 1.0),
+      builder: (_, v, child) => Opacity(
+        opacity: v,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Center(child: child),
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: AppTheme.sunkenHair(context, r: XlRadius.pill),
+        child: Text(formatRelative(t),
+            style: TextStyle(
+              fontSize: XlFont.micro,
+              fontWeight: FontWeight.w700,
+              color: p.text3,
+              letterSpacing: XlLetterSpacing.wider,
+            )),
+      ),
+    );
+  }
+
+  Widget _bubble(XlPalette p, _Msg m, int index) {
+    final isMe = m.who == 'me';
+    final isEmptyStream = m.status == _MsgStatus.streaming && m.text.isEmpty;
+    final isError = m.status == _MsgStatus.error && !isMe;
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final maxBubbleWidth = MediaQuery.of(context).size.width * (isMobile ? 0.85 : 0.62);
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (m.system)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4, left: 2),
+              child: Text('系统',
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    color: p.text3,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (!isMe) ...[
+                  _miniAvatar(p),
+                  const SizedBox(width: 10),
+                ],
+                Flexible(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPress: m.text.isEmpty ? null : () => _showMsgContextMenu(p, m),
+                    onHorizontalDragEnd: m.text.isEmpty
+                        ? null
+                        : (d) {
+                            final v = d.primaryVelocity ?? 0;
+                            if (v < -250) {
+                              HapticFeedback.lightImpact();
+                              _showMsgContextMenu(p, m);
+                            } else if (v > 250) {
+                              HapticFeedback.lightImpact();
+                              _requestQuote(m.text);
+                            }
+                          },
+                    child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: maxBubbleWidth,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: isMe ? _meBubble(p) : _aiBubble(p, m.status),
+                    child: isEmptyStream
+                        ? _typingIndicator(p)
+                        : isError
+                            ? _errorBody(p, m, index)
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _msgText(p, m),
+                                  if (_showTimestamp && m.text.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        '${m.time.year}-${m.time.month.toString().padLeft(2, '0')}-${m.time.day.toString().padLeft(2, '0')} ${m.time.hour.toString().padLeft(2, '0')}:${m.time.minute.toString().padLeft(2, '0')}:${m.time.second.toString().padLeft(2, '0')}',
+                                        style: TextStyle(
+                                          fontSize: XlFont.micro,
+                                          color: (isMe ? p.btnInk : p.text3).withOpacity(0.7),
+                                          fontWeight: FontWeight.w600,
+                                          fontFeatures: const [FontFeature.tabularFigures()],
+                                        ),
+                                      ),
+                                    ),
+                                  if (!isMe && m.status == _MsgStatus.done && m.text.isNotEmpty)
+                                    _bubbleActions(p, m),
+                                  if (!isMe && m.status == _MsgStatus.interrupted)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Row(children: [
+                                        Icon(Icons.stop_circle_outlined, size: 11, color: p.gold),
+                                        const SizedBox(width: 4),
+                                        Text('已中断',
+                                            style: TextStyle(
+                                              fontSize: XlFont.micro,
+                                              color: p.gold,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: XlLetterSpacing.wider,
+                                            )),
+                                      ]),
+                                    ),
+                                ],
+                              ),
+                  ),
+                    ),
+                ),
+                if (isMe) ...[
+                  const SizedBox(width: 10),
+                  _meAvatar(p),
+                ],
+              ],
+            ),
+          ),
+          if (!isMe && (m.status == _MsgStatus.done || m.status == _MsgStatus.interrupted) && m.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 46, bottom: 4),
+              child: Text(formatClock(m.time),
+                  style: TextStyle(
+                    fontSize: XlFont.micro,
+                    color: p.decor,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: XlLetterSpacing.wider,
+                  )),
+            ),
+          if (isMe)
+            Padding(
+              padding: const EdgeInsets.only(right: 46, bottom: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(formatClock(m.time),
+                      style: TextStyle(
+                        fontSize: XlFont.micro,
+                        color: p.decor,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: XlLetterSpacing.wider,
+                      )),
+                  const SizedBox(width: 6),
+                  Icon(Icons.done_all_rounded, size: 12, color: p.pink.withOpacity(0.75)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _errorBody(XlPalette p, _Msg m, int index) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.error_outline_rounded, size: 14, color: p.red),
+            const SizedBox(width: 6),
+            Text('回复失败',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  color: p.red,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(m.text,
+            style: TextStyle(
+              fontSize: XlFont.bodySm,
+              height: XlLineHeight.relaxed,
+              color: p.text2,
+            )),
+        const SizedBox(height: 10),
+        _Pressable(
+          onTap: _busy ? null : () => _retryError(index),
+          scale: 0.94,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: p.red.withOpacity(p.isDark ? 0.14 : 0.10),
+              borderRadius: BorderRadius.circular(XlRadius.pill),
+              border: Border.all(color: p.red.withOpacity(0.35), width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.refresh_rounded, size: 11, color: p.red),
+                const SizedBox(width: 5),
+                Text('重新生成',
+                    style: TextStyle(
+                      fontSize: XlFont.micro,
+                      fontWeight: FontWeight.w800,
+                      color: p.red,
+                      letterSpacing: XlLetterSpacing.wider,
+                    )),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  BoxDecoration _meBubble(XlPalette p) {
+    return BoxDecoration(
+      gradient: p.gradBrand,
+      borderRadius: const BorderRadius.only(
+        topLeft: Radius.circular(XlRadius.lg),
+        topRight: Radius.circular(XlRadius.lg),
+        bottomLeft: Radius.circular(XlRadius.lg),
+        bottomRight: Radius.circular(XlRadius.micro),
+      ),
+      border: Border.all(color: Colors.white.withOpacity(p.isDark ? 0.28 : 0.4), width: 1),
+      boxShadow: [...p.raisedXs, BoxShadow(color: p.pink.withOpacity(0.28), blurRadius: 18, spreadRadius: -4)],
+    );
+  }
+
+  BoxDecoration _aiBubble(XlPalette p, _MsgStatus s) {
+    final border = s == _MsgStatus.error ? p.red.withOpacity(0.42) : p.shDark.withOpacity(p.isDark ? 0.22 : 0.10);
+    return BoxDecoration(
+      color: p.screenSoft,
+      borderRadius: const BorderRadius.only(
+        topLeft: Radius.circular(XlRadius.lg),
+        topRight: Radius.circular(XlRadius.lg),
+        bottomLeft: Radius.circular(XlRadius.micro),
+        bottomRight: Radius.circular(XlRadius.lg),
+      ),
+      border: Border.all(color: border, width: 1),
+      boxShadow: p.sunkenSm,
+    );
+  }
+
+  Widget _miniAvatar(XlPalette p) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: AppTheme.brandOrb(context, size: 32),
+      child: Icon(Icons.favorite_rounded, size: 13, color: p.btnInk),
+    );
+  }
+
+  Widget _meAvatar(XlPalette p) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        gradient: p.face,
+        shape: BoxShape.circle,
+        border: Border.all(color: p.edge, width: 1),
+        boxShadow: p.raisedXxs,
+      ),
+      child: Center(
+        child: Text('我',
+            style: TextStyle(
+              fontSize: XlFont.captionSm,
+              fontWeight: FontWeight.w800,
+              color: p.text2,
+            )),
+      ),
+    );
+  }
+
+  Widget _typingIndicator(XlPalette p) {
+    return AnimatedBuilder(
+      animation: _typingCtrl,
+      builder: (_, __) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final delay = i * 0.2;
+            final phase = (_typingCtrl.value - delay) % 1.0;
+            final bounce = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+            final scale = 0.6 + bounce * 0.6;
+            final opacity = 0.3 + bounce * 0.7;
+            return Padding(
+              padding: EdgeInsets.only(right: i < 2 ? 5 : 0),
+              child: Transform.scale(
+                scale: scale,
+                child: Opacity(
+                  opacity: opacity,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: p.pink,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: p.pink.withOpacity(0.4), blurRadius: 6, spreadRadius: -1)],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
+  void _showMsgContextMenu(XlPalette p, _Msg m) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        margin: const EdgeInsets.all(12),
+        decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: p.decor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: Icon(Icons.copy_rounded, color: p.pink),
+                title: Text('复制', style: TextStyle(fontSize: XlFont.bodySm, fontWeight: FontWeight.w600, color: p.text1)),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: m.text));
+                  Navigator.pop(ctx);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.format_quote_rounded, color: p.gold),
+                title: Text('引用', style: TextStyle(fontSize: XlFont.bodySm, fontWeight: FontWeight.w600, color: p.text1)),
+                onTap: () {
+                  setState(() => _quotedText = m.text);
+                  Navigator.pop(ctx);
+                  _inputFocus.requestFocus();
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_outline_rounded, color: p.red),
+                title: Text('删除', style: TextStyle(fontSize: XlFont.bodySm, fontWeight: FontWeight.w600, color: p.red)),
+                onTap: () {
+                  setState(() => _msgs.removeWhere((e) => e.id == m.id));
+                  Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bubbleActions(XlPalette p, _Msg m) {
+    final isSpeaking = _speaking.contains(m.id);
+    final isPlaying = _playing && _playingId == m.id;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _bubbleAction(
+            p,
+            isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            isSpeaking ? '合成中' : (isPlaying ? '暂停' : '朗读'),
+            isSpeaking ? p.gold : p.pink,
+            isSpeaking ? null : () => _togglePlay(m.text, m.id),
+          ),
+          const SizedBox(width: 6),
+          _bubbleAction(p, Icons.copy_rounded, '复制', p.text2, () {
+            Clipboard.setData(ClipboardData(text: m.text));
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: p.surface,
+              elevation: 0,
+              duration: const Duration(milliseconds: 1200),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(XlRadius.md)),
+              content: Text('已复制',
+                  style: TextStyle(
+                    color: p.text1,
+                    fontSize: XlFont.captionSm,
+                    fontWeight: FontWeight.w700,
+                  )),
+            ));
+          }),
+          const SizedBox(width: 6),
+          _bubbleAction(p, Icons.format_quote_rounded, '引用', p.gold, () => _requestQuote(m.text)),
+          const SizedBox(width: 6),
+          _bubbleAction(p, Icons.refresh_rounded, '重发', p.text2, () {
+            final lastUser = _msgs.lastWhere(
+              (it) => it.who == 'me',
+              orElse: () => _Msg(id: '', who: 'me', text: '', time: DateTime.now(), status: _MsgStatus.done),
+            );
+            if (lastUser.text.isNotEmpty) _send(lastUser.text);
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _bubbleAction(XlPalette p, IconData icon, String label, Color color, VoidCallback? onTap) {
+    return _Pressable(
+      onTap: onTap,
+      scale: 0.92,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: AppTheme.ghost(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _scrollDownBtn(XlPalette p) {
+    return _Pressable(
+      onTap: () => _scrollBottom(force: true),
+      scale: 0.93,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: AppTheme.neu(context, r: XlRadius.pill),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.arrow_downward_rounded, size: 14, color: p.pink),
+            const SizedBox(width: 6),
+            Text('最新消息',
+                style: TextStyle(
+                  fontSize: XlFont.label,
+                  fontWeight: FontWeight.w800,
+                  color: p.text1,
+                  letterSpacing: XlLetterSpacing.wider,
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _inputBar(XlPalette p) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final hPad = isMobile ? 12.0 : 26.0;
+    return Container(
+      padding: EdgeInsets.fromLTRB(hPad, 8, hPad, isMobile ? 8 : 20),
+      child: Column(
+        children: [
+          _quickRepliesRow(p),
+          if (_playing && _playingId != null) _nowPlayingBar(p),
+          if (_quotedText != null) _quoteBanner(p),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(child: _inputField(p)),
+              const SizedBox(width: 12),
+              if (_busy) _interruptButton(p),
+              _sendButton(p),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4, right: 2),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '$_charCount/2000',
+                style: TextStyle(
+                  fontSize: XlFont.micro,
+                  color: _charCount > 2000 ? p.red : p.decor,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickRepliesRow(XlPalette p) {
+    return SizedBox(
+      height: 34,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _quickReplies.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final q = _quickReplies[i];
+          return _Pressable(
+            onTap: _busy ? null : () => _send(q),
+            scale: 0.93,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: AppTheme.neuXs(context, r: XlRadius.pill),
+              child: Text(q,
+                  style: TextStyle(
+                    fontSize: XlFont.label,
+                    fontWeight: FontWeight.w700,
+                    color: _busy ? p.decor : p.text2,
+                    letterSpacing: XlLetterSpacing.wide,
+                  )),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _nowPlayingBar(XlPalette p) {
+    final pct = _playDur.inMilliseconds == 0
+        ? 0.0
+        : (_playPos.inMilliseconds / _playDur.inMilliseconds).clamp(0.0, 1.0);
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: AppTheme.neu(context, r: XlRadius.md),
+      child: Row(
+        children: [
+          AnimatedBuilder(
+            animation: _waveCtrl,
+            builder: (_, __) {
+              return Row(
+                children: List.generate(4, (i) {
+                  final t = ((_waveCtrl.value + i * 0.25) % 1.0);
+                  final h = 4 + (t < 0.5 ? t * 2 : (1 - t) * 2) * 12;
+                  return Padding(
+                    padding: EdgeInsets.only(right: i < 3 ? 2 : 0),
+                    child: Container(
+                      width: 3,
+                      height: h,
+                      decoration: BoxDecoration(
+                        gradient: p.gradBrand,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: pct,
+                minHeight: 4,
+                backgroundColor: p.surfaceLo,
+                valueColor: AlwaysStoppedAnimation(p.pink),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text('${_fmtDur(_playPos)} / ${_fmtDur(_playDur)}',
+              style: TextStyle(
+                fontSize: XlFont.micro,
+                color: p.text3,
+                fontWeight: FontWeight.w800,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              )),
+          const SizedBox(width: 10),
+          _Pressable(
+            scale: 0.9,
+            onTap: () async {
+              await _player.stop();
+              AvatarBridge.instance.stopSpeak();
+              if (mounted) {
+                setState(() {
+                  _playing = false;
+                  _playingId = null;
+                  _playPos = Duration.zero;
+                });
+              }
+            },
+            child: Icon(Icons.close_rounded, size: 16, color: p.text3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _fmtDur(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  Widget _inputField(XlPalette p) {
+    return AnimatedContainer(
+      duration: XlDuration.fast,
+      curve: XlCurve.standard,
+      decoration: _inputFocused
+          ? BoxDecoration(
+              color: p.screen,
+              borderRadius: BorderRadius.circular(XlRadius.xl),
+              border: Border.all(color: p.pink.withOpacity(0.5), width: 1.5),
+              boxShadow: [
+                ...p.sunkenDeep,
+                BoxShadow(color: p.pink.withOpacity(0.18), blurRadius: 16, spreadRadius: -4),
+              ],
+            )
+          : AppTheme.screen(context, r: XlRadius.xl),
+      padding: const EdgeInsets.fromLTRB(18, 6, 8, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.enter, control: true): () => _send(),
+                const SingleActivator(LogicalKeyboardKey.escape): () => _input.clear(),
+                const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () => _navigateHistory(true),
+                const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () => _navigateHistory(false),
+              },
+              child: TextField(
+                controller: _input,
+                focusNode: _inputFocus,
+                enabled: !_busy,
+                maxLines: 4,
+                minLines: 1,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) {
+                  _pushHistory(_input.text);
+                  if (_quotedText != null) {
+                    final q = _quotedText!;
+                    final mine = _input.text;
+                    _quotedText = null;
+                    _input.clear();
+                    _send('引用自：$q\n$mine');
+                    return;
+                  }
+                  _send();
+                },
+                style: TextStyle(
+                  fontSize: XlFont.bodySm,
+                  color: p.text1,
+                  height: XlLineHeight.relaxed,
+                ),
+                decoration: InputDecoration(
+                  hintText: _listening
+                      ? '正在聆听，请对着麦克风说话…'
+                      : (_busy ? '小凌正在打字…' : '和小凌说句话…'),
+                  hintStyle: TextStyle(
+                    fontSize: XlFont.bodySm,
+                    color: _listening ? p.pink : p.decor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+          ),
+          _micBtn(p),
+          const SizedBox(width: 6),
+          _agentToggle(p),
+          const SizedBox(width: 6),
+          _focusBtn(p),
+        ],
+      ),
+    );
+  }
+
+  Widget _micBtn(XlPalette p) {
+    final color = _listening ? p.pink : p.text2;
+    return _Pressable(
+      onTap: (_listening || _busy) ? null : _startListening,
+      scale: 0.9,
+      child: AnimatedContainer(
+        duration: XlDuration.fast,
+        width: 36,
+        height: 36,
+        decoration: _listening
+            ? BoxDecoration(
+                color: p.pink.withOpacity(0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: p.pink.withOpacity(0.6), width: 1.4),
+              )
+            : AppTheme.neuXs(context, r: XlRadius.sm),
+        child: _listening
+            ? Padding(
+                padding: const EdgeInsets.all(9),
+                child: CircularProgressIndicator(strokeWidth: 2, color: p.pink),
+              )
+            : Icon(Icons.mic_rounded, size: 17, color: color),
+      ),
+    );
+  }
+
+  /// Agent 模式就地开关：打开后本条及后续消息走 AgentStart（自主规划+工具），
+  /// 关掉回到普通聊天。用户要求「agent 是自带功能，不是独立接口」，
+  /// 所以这里给一个聊天内的开关，而不是只留一个跳转按钮。
+  Widget _agentToggle(XlPalette p) {
+    return Tooltip(
+      message: _agentMode ? 'Agent 模式：开（点击关闭）' : 'Agent 模式：关（点击开启）',
+      child: _Pressable(
+        onTap: () => setState(() => _agentMode = !_agentMode),
+        scale: 0.9,
+        child: AnimatedContainer(
+          duration: XlDuration.fast,
+          width: 32,
+          height: 32,
+          decoration: _agentMode
+              ? BoxDecoration(
+                  color: p.violet.withOpacity(0.18),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: p.violet.withOpacity(0.6), width: 1.4),
+                )
+              : AppTheme.neuXs(context, r: XlRadius.sm),
+          child: Icon(Icons.auto_awesome_rounded,
+              size: 15, color: _agentMode ? p.violet : p.text2),
+        ),
+      ),
+    );
+  }
+
+  Widget _focusBtn(XlPalette p) {
+    // 这颗笑脸以前只是「重新聚焦输入框」—— 图标是表情，点下去却和表情
+    // 毫无关系，属于「看起来有、其实是假的」。现在接上真正的表情选择器。
+    return _Pressable(
+      onTap: _showEmojiPicker,
+      scale: 0.9,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: AppTheme.neuXs(context, r: XlRadius.sm),
+        child: Icon(Icons.sentiment_satisfied_alt_rounded, size: 15, color: p.text2),
+      ),
+    );
+  }
+
+  /// 在当前光标处插入文本（表情 / 附件名等）。光标不在末尾时也能正确插入，
+  /// 插入后把光标移到插入内容之后，符合输入框直觉。
+  void _insertAtCursor(String s) {
+    final text = _input.text;
+    var offset = _input.selection.isValid ? _input.selection.baseOffset : text.length;
+    if (offset < 0 || offset > text.length) offset = text.length;
+    final next = text.replaceRange(offset, offset, s);
+    final caret = offset + s.length;
+    _input.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: caret),
+    );
+    if (mounted) setState(() => _charCount = next.length);
+  }
+
+  void _showEmojiPicker() {
+    final p = XlPalette.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final tabCtl = DefaultTabController(
+          length: _emojiGroups.length,
+          child: Container(
+            height: 360,
+            margin: const EdgeInsets.all(12),
+            decoration: AppTheme.neuLg(context, r: XlRadius.xxl),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                      color: p.decor.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  TabBar(
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    labelColor: p.pink,
+                    unselectedLabelColor: p.text2,
+                    indicatorColor: p.pink,
+                    dividerColor: Colors.transparent,
+                    tabs: [
+                      for (final g in _emojiGroups)
+                        Tab(text: g.label, height: 40),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        for (final g in _emojiGroups)
+                          GridView.builder(
+                            padding: const EdgeInsets.all(10),
+                            gridDelegate:
+                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: 52,
+                              mainAxisSpacing: 4,
+                              crossAxisSpacing: 4,
+                            ),
+                            itemCount: g.items.length,
+                            itemBuilder: (_, i) => InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () {
+                                _insertAtCursor(g.items[i]);
+                                _inputFocus.requestFocus();
+                              },
+                              child: Center(
+                                child: Text(g.items[i],
+                                    style: const TextStyle(fontSize: 26)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        return tabCtl;
+      },
+    );
+  }
+
+  Widget _sendButton(XlPalette p) {
+    return _SendButton(
+      busy: _busy,
+      onTap: _busy ? null : () => _send(),
+    );
+  }
+}
+
+class _AnimatedBubble extends StatefulWidget {
+  final Widget child;
+  const _AnimatedBubble({required this.child});
+  @override
+  State<_AnimatedBubble> createState() => _AnimatedBubbleState();
+}
+
+class _AnimatedBubbleState extends State<_AnimatedBubble> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<Offset> _slide;
+  late Animation<double> _fade;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(duration: const Duration(milliseconds: 260), vsync: this);
+    _slide = Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+      CurvedAnimation(parent: _ctrl, curve: XlCurve.springSoft),
+    );
+    _fade = CurvedAnimation(parent: _ctrl, curve: XlCurve.easeOut);
+    _ctrl.forward();
+  }
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return SlideTransition(
+      position: _slide,
+      child: FadeTransition(opacity: _fade, child: widget.child),
+    );
+  }
+}
+
+class _SendButton extends StatefulWidget {
+  final bool busy;
+  final VoidCallback? onTap;
+  const _SendButton({required this.busy, this.onTap});
+  @override
+  State<_SendButton> createState() => _SendButtonState();
+}
+
+class _SendButtonState extends State<_SendButton> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    final p = XlPalette.of(context);
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? 0.9 : 1.0,
+        duration: XlDuration.micro,
+        child: AnimatedContainer(
+          duration: XlDuration.fast,
+          width: 52,
+          height: 52,
+          decoration: widget.busy
+              ? AppTheme.sunkenXs(context, r: 999)
+              : (_down ? AppTheme.btnPressed(context, r: 999) : AppTheme.btn(context, r: 999)),
+          child: widget.busy
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: p.pink.withOpacity(0.75),
+                  ),
+                )
+              : Icon(Icons.send_rounded, color: p.btnInk, size: 20),
+        ),
+      ),
+    );
+  }
+}
+
+enum _MsgStatus { streaming, done, interrupted, error }
+
+class _Msg {
+  final String id;
+  final String who;
+  final String text;
+  final DateTime time;
+  final _MsgStatus status;
+  final bool system;
+  const _Msg({
+    required this.id,
+    required this.who,
+    required this.text,
+    required this.time,
+    required this.status,
+    this.system = false,
+  });
+  _Msg copyWith({String? text, _MsgStatus? status}) => _Msg(
+        id: id,
+        who: who,
+        text: text ?? this.text,
+        time: time,
+        status: status ?? this.status,
+        system: system,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'who': who,
+        'text': text,
+        'time': time.toIso8601String(),
+        'status': status.name,
+        'system': system,
+      };
+
+  factory _Msg.fromJson(Map<String, dynamic> json) {
+    var st = _MsgStatus.values.firstWhere(
+      (e) => e.name == json['status'].toString(),
+      orElse: () => _MsgStatus.done,
+    );
+    if (st == _MsgStatus.streaming) st = _MsgStatus.done;
+    return _Msg(
+      id: json['id'].toString(),
+      who: json['who'].toString(),
+      text: json['text'].toString(),
+      time: DateTime.tryParse(json['time'].toString()) ?? DateTime.now(),
+      status: st,
+      system: json['system'] == true,
+    );
+  }
+}
+
+class _MiniStat {
+  final String label;
+  final String value;
+  final String unit;
+  final IconData icon;
+  final Color color;
+  const _MiniStat(this.label, this.value, this.unit, this.icon, this.color);
+}
+
+class _Pressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+  const _Pressable({required this.child, this.onTap, this.scale = 0.95});
+  @override
+  State<_Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<_Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+      onTapUp: widget.onTap == null ? null : (_) => setState(() => _down = false),
+      onTapCancel: () {
+        if (mounted) setState(() => _down = false);
+      },
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? widget.scale : 1.0,
+        duration: XlDuration.micro,
+        curve: XlCurve.standard,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// 表情分组数据（Unicode emoji，零第三方依赖）。
+///
+/// 为什么不引 emoji_picker_flutter：项目红线是「不加新第三方依赖」，
+/// 而且这里只需要一个能插入文本框的表情面板，Unicode 码点本身就能满足。
+/// 用 \u{...} 码点显式构造，避免源码里直接贴 emoji 时被编辑器/管道吞掉
+/// 变体选择符（FE0F）导致渲染成空白格子。
+class _EmojiGroup {
+  const _EmojiGroup(this.label, this.items);
+  final String label;
+  final List<String> items;
+}
+
+const List<_EmojiGroup> _emojiGroups = [
+  _EmojiGroup('常用', ['\u{1F600}', '\u{1F601}', '\u{1F602}', '\u{1F923}', '\u{1F60A}', '\u{1F60D}', '\u{1F618}', '\u{1F642}', '\u{1F609}', '\u{1F60C}', '\u{1F60E}', '\u{1F914}', '\u{1F605}', '\u{1F92A}', '\u{1F621}', '\u{1F620}', '\u{1F44D}', '\u{1F44E}', '\u{1F44F}', '\u{1F64F}', '\u{1F4AA}', '\u{2764}\u{FE0F}', '\u{1F525}', '\u{2728}\u{FE0F}', '\u{1F389}', '\u{1F4AF}', '\u{1F60C}', '\u{1F917}', '\u{1F634}', '\u{1F973}', '\u{1F622}', '\u{1F624}']),
+  _EmojiGroup('表情', ['\u{1F600}', '\u{1F603}', '\u{1F604}', '\u{1F601}', '\u{1F606}', '\u{1F605}', '\u{1F923}', '\u{1F602}', '\u{1F642}', '\u{1F643}', '\u{1F609}', '\u{1F60A}', '\u{1F607}', '\u{1F970}', '\u{1F60D}', '\u{1F929}', '\u{1F618}', '\u{1F617}', '\u{1F61A}', '\u{1F619}', '\u{1F60B}', '\u{1F61B}', '\u{1F61C}', '\u{1F92A}', '\u{1F61D}', '\u{1F911}', '\u{1F913}', '\u{1F92D}', '\u{1F92B}', '\u{1F914}', '\u{1F910}', '\u{1F610}', '\u{1F611}', '\u{1F636}', '\u{1F60F}', '\u{1F612}', '\u{1F644}', '\u{1F62C}', '\u{1F614}', '\u{1F62A}', '\u{1F924}', '\u{1F634}', '\u{1F637}', '\u{1F912}', '\u{1F915}', '\u{1F922}', '\u{1F92E}', '\u{1F975}']),
+  _EmojiGroup('手势', ['\u{1F44B}', '\u{1F91A}', '\u{270B}\u{FE0F}', '\u{1F596}', '\u{1F44C}', '\u{1F90F}', '\u{1F448}', '\u{270C}\u{FE0F}', '\u{1F91E}', '\u{1F91F}', '\u{1F918}', '\u{1F449}', '\u{1F446}', '\u{1F447}', '\u{261D}\u{FE0F}', '\u{1F595}', '\u{1F44D}', '\u{1F44E}', '\u{270A}\u{FE0F}', '\u{1F44A}', '\u{1F91B}', '\u{1F91C}', '\u{1F44F}', '\u{1F64C}', '\u{1F450}', '\u{1F932}', '\u{1F91D}', '\u{1F64F}', '\u{1F485}', '\u{1F933}', '\u{1F4AA}', '\u{1F440}']),
+  _EmojiGroup('符号', ['\u{2764}\u{FE0F}', '\u{1F9E1}', '\u{1F49B}', '\u{1F49A}', '\u{1F499}', '\u{1F49C}', '\u{1F5A4}', '\u{1F495}', '\u{1F494}', '\u{2763}\u{FE0F}', '\u{1F495}', '\u{1F49E}', '\u{1F493}', '\u{1F497}', '\u{1F496}', '\u{1F498}', '\u{2728}\u{FE0F}', '\u{2B50}\u{FE0F}', '\u{1F31F}', '\u{1F4AB}', '\u{1F525}', '\u{1F4AF}', '\u{1F389}', '\u{1F38A}', '\u{1F388}', '\u{1F381}', '\u{1F3C6}', '\u{1F947}', '\u{26A1}\u{FE0F}', '\u{2600}\u{FE0F}', '\u{1F319}', '\u{2601}\u{FE0F}']),
+];

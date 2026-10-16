@@ -1,0 +1,363 @@
+name: Build All Platforms
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # 不能低于 3.32：flutter_inappwebview 6.2.0-beta.x（含 Linux 实现）
+  # 要求 Flutter >= 3.32 / Dart SDK ^3.8，用 3.24 会在 pub get 阶段直接失败。
+  FLUTTER_VERSION: "3.47.6"
+  APP_VERSION: "0.0.1"
+  # 公开发布仓库（官网下载链接指向此处）。
+  # 注意：私有主仓库 XLmodel 的 release 匿名访问 404，必须上传到公开仓库 XLmodel-release。
+  RELEASE_REPO: "3477856804/XLmodel-release"
+  # 与官网下载路径 /releases/download/flutter-v0.0.1/ 保持一致。
+  RELEASE_TAG: "flutter-v0.0.1"
+  # 跨仓库上传到 XLmodel-release 所需的 PAT。
+  # 必须在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置 RELEASE_TOKEN，
+  # 切勿将令牌硬编码在此文件中（公开仓库会被扫描并自动吊销）。
+  RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.rid.outputs.id }}
+    steps:
+      - name: Resolve (or create) public release
+        id: rid
+        run: |
+          set -e
+          RID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/tags/$RELEASE_TAG" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('id',''))")
+          if [ -z "$RID" ]; then
+            echo "Release $RELEASE_TAG not found in $RELEASE_REPO, creating..."
+            RID=$(curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"tag_name\":\"$RELEASE_TAG\",\"name\":\"XiaoLing $RELEASE_TAG\",\"body\":\"XiaoLing AI Companion $RELEASE_TAG (Flutter UI + Python gRPC backend)\",\"draft\":false,\"prerelease\":false}" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases" \
+              | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+          fi
+          echo "id=$RID" >> $GITHUB_OUTPUT
+          echo "Using release id=$RID in $RELEASE_REPO @ $RELEASE_TAG"
+
+  build-linux:
+    needs: prepare-release
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev libwpewebkit-1.0-dev libwpebackend-fdo-1.0-dev
+      - name: Install Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Bundle backend
+        env:
+          # XIAOLING_ONEFILE=1 → packaging/backend.spec 产出单个 dist/backend(.exe)，
+          # 便于下面一步直接 `cp dist/backend $BUNDLE/backend` / `Copy-Item dist\backend.exe`。
+          # 必须用统一 spec，不能用裸 pyinstaller 命令：只有 spec 才会收集
+          # resources/web（3D viewer 依赖的 three.js / three-vrm）、*.vrm 角色模型、
+          # 动作库、内置插件（plugin.json 缺了插件会静默全废）、shared/proto 与
+          # llama_cpp 运行时（ggml 的 DLL/so，缺了 GGUF 加载即崩）；同时也排除了
+          # torch/transformers（累计 4.2G，全项目均为函数内延迟导入，缺席不影响启动）。
+          XIAOLING_ONEFILE: "1"
+        run: |
+          pyinstaller packaging/backend.spec --noconfirm --clean --distpath dist --workpath build/pyi
+          ls -lh dist/backend*
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Build Flutter Linux
+        run: |
+          cd frontend && flutter pub get
+      - name: Remove flutter_inappwebview_linux from build
+        run: |
+          # 从生成的插件注册和CMake中移除flutter_inappwebview_linux
+          sed -i '/flutter_inappwebview_linux/d' frontend/linux/flutter/ephemeral/generated_plugin_registrant.cc 2>/dev/null || true
+          sed -i '/flutter_inappwebview_linux/d' frontend/linux/flutter/ephemeral/CMakeLists.txt 2>/dev/null || true
+          rm -rf frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux 2>/dev/null || true
+          echo "Removed flutter_inappwebview_linux"
+      - name: Compile Linux
+        run: |
+          cd frontend && flutter build linux --release
+      - name: Package AppImage
+        run: |
+          set -e
+          BUNDLE=frontend/build/linux/x64/release/bundle
+          cp dist/backend $BUNDLE/backend && chmod +x $BUNDLE/backend
+          # 组装 AppDir（产物名与官网一致：XiaoLing-x86_64.AppImage）
+          APPDIR="$GITHUB_WORKSPACE/build/AppDir"
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin/xiaoling"
+          cp -r "$BUNDLE/"* "$APPDIR/usr/bin/xiaoling/"
+          cp packaging/linux/xiaoling.desktop "$APPDIR/xiaoling.desktop"
+          cp packaging/linux/AppRun "$APPDIR/AppRun" && chmod +x "$APPDIR/AppRun"
+          cp packaging/linux/xiaoling.png "$APPDIR/xiaoling.png"
+          # 下载 linuxdeploy（CI 无 FUSE，加 --appimage-extract-and-run）
+          curl -L -o /tmp/linuxdeploy.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x /tmp/linuxdeploy.AppImage
+          cd "$GITHUB_WORKSPACE"
+          /tmp/linuxdeploy.AppImage --appimage-extract-and-run \
+            --appdir "$APPDIR" --output appimage \
+            --desktop-file "$APPDIR/xiaoling.desktop" \
+            --icon-file "$APPDIR/xiaoling.png" || true
+          ls -lh *.AppImage || true
+          mv "$(ls *.AppImage | head -1)" XiaoLing-x86_64.AppImage
+          ls -lh XiaoLing-x86_64.AppImage
+      - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -e
+          FILE="$GITHUB_WORKSPACE/XiaoLing-x86_64.AppImage"
+          NAME="XiaoLing-x86_64.AppImage"
+          # 删除同名旧资产（避免 422）
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
+
+  build-windows:
+    needs: prepare-release
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
+      - name: Bundle backend
+        env:
+          # XIAOLING_ONEFILE=1 → packaging/backend.spec 产出单个 dist/backend(.exe)，
+          # 便于下面一步直接 `cp dist/backend $BUNDLE/backend` / `Copy-Item dist\backend.exe`。
+          # 必须用统一 spec，不能用裸 pyinstaller 命令：只有 spec 才会收集
+          # resources/web（3D viewer 依赖的 three.js / three-vrm）、*.vrm 角色模型、
+          # 动作库、内置插件（plugin.json 缺了插件会静默全废）、shared/proto 与
+          # llama_cpp 运行时（ggml 的 DLL/so，缺了 GGUF 加载即崩）；同时也排除了
+          # torch/transformers（累计 4.2G，全项目均为函数内延迟导入，缺席不影响启动）。
+          XIAOLING_ONEFILE: "1"
+        run: |
+          pyinstaller packaging/backend.spec --noconfirm --clean --distpath dist --workpath build/pyi
+          ls -lh dist/backend*
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Regenerate Windows project
+        run: |
+          Remove-Item -Recurse -Force frontend\windows -ErrorAction SilentlyContinue
+          cd frontend
+          flutter create --platforms=windows .
+      - name: Build Flutter Windows
+        run: |
+          cd frontend
+          flutter pub get
+          flutter build windows --release
+      - name: Assemble installer source
+        run: |
+          $releaseDir = "frontend\build\windows\x64\runner\Release"
+          Copy-Item "dist\backend.exe" "$releaseDir\backend.exe"
+          New-Item -ItemType Directory -Force -Path "dist\win-pkg" | Out-Null
+          Copy-Item "$releaseDir\*" "dist\win-pkg\" -Recurse -Force
+          # 重命名主程序：frontend.exe 对使用者毫无辨识度。
+          # 必须与 packaging/assemble_windows.py 保持一致（那里也叫 小凌.exe），
+          # 否则本地包与 CI 包的主程序名字不一样，排障时会对不上。
+          Move-Item "dist\win-pkg\frontend.exe" "dist\win-pkg\小凌.exe" -Force
+          dir dist\win-pkg
+      - name: Build Inno Setup installer
+        shell: bash
+        run: |
+          set -e
+          choco install innosetup -y --no-progress
+          ISS="$GITHUB_WORKSPACE/build/win-setup.iss"
+          cat > "$ISS" <<'EOF'
+          #define MyAppName "XiaoLing"
+          #define MyAppVersion "0.0.1"
+          [Setup]
+          AppId={{8E4C1B52-9F31-4E3B-9C5A-8F2D4B6E0A17}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          DefaultDirName={autopf}\XiaoLing
+          DefaultGroupName={#MyAppName}
+          DisableProgramGroupPage=yes
+          OutputBaseFilename=xiaoling-setup-0.0.1
+          OutputDir=out
+          Compression=lzma2/max
+          SolidCompression=yes
+          WizardStyle=modern
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          PrivilegesRequired=lowest
+          [Languages]
+          Name: "chinese"; MessagesFile: "compiler:Default.isl"
+          [Tasks]
+          Name: "desktopicon"; Description: "Create desktop icon"; GroupDescription: "Additional icons:"
+          [Files]
+          Source: "..\\dist\\win-pkg\\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+          [Icons]
+          Name: "{group}\{#MyAppName}"; Filename: "{app}\小凌.exe"
+          Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\小凌.exe"; Tasks: desktopicon
+          [Run]
+          Filename: "{app}\小凌.exe"; Description: "Launch XiaoLing"; Flags: nowait postinstall skipifsilent
+          EOF
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "$ISS"
+          ls -lh build/out/
+      - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -e
+          FILE="$GITHUB_WORKSPACE/build/out/xiaoling-setup-0.0.1.exe"
+          NAME="xiaoling-setup-0.0.1.exe"
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
+
+  build-macos:
+    needs: prepare-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python deps
+        run: |
+          pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
+      - name: Bundle backend
+        env:
+          # XIAOLING_ONEFILE=1 → packaging/backend.spec 产出单个 dist/backend(.exe)，
+          # 便于下面一步直接 `cp dist/backend $BUNDLE/backend` / `Copy-Item dist\backend.exe`。
+          # 必须用统一 spec，不能用裸 pyinstaller 命令：只有 spec 才会收集
+          # resources/web（3D viewer 依赖的 three.js / three-vrm）、*.vrm 角色模型、
+          # 动作库、内置插件（plugin.json 缺了插件会静默全废）、shared/proto 与
+          # llama_cpp 运行时（ggml 的 DLL/so，缺了 GGUF 加载即崩）；同时也排除了
+          # torch/transformers（累计 4.2G，全项目均为函数内延迟导入，缺席不影响启动）。
+          XIAOLING_ONEFILE: "1"
+        run: |
+          pyinstaller packaging/backend.spec --noconfirm --clean --distpath dist --workpath build/pyi
+          ls -lh dist/backend*
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Build Flutter macOS
+        run: |
+          cd frontend && flutter pub get
+      - name: Patch flutter_inappwebview_macos Swift
+        run: |
+          SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
+          if [ -f "$SWIFT" ]; then
+            awk '/ASWebAuthenticationPresentationContextProviding/ && !/available/ {print "@available(macOS 10.14, *)"} {print}' "$SWIFT" > /tmp/patched.swift
+            mv /tmp/patched.swift "$SWIFT"
+            grep -n "available\|ASWebAuthentication" "$SWIFT" | head -5
+            echo "Patched"
+          else
+            echo "Swift file not found"
+            find "$HOME/.pub-cache" -name "WebAuthenticationSession.swift" 2>/dev/null || true
+          fi
+      - name: Compile macOS
+        run: |
+          cd frontend && flutter build macos --release
+      - name: Package DMG
+        run: |
+          set -e
+          APP=$(find frontend/build/macos/Build/Products/Release -name "*.app" -maxdepth 1 | head -1)
+          cp dist/backend "$APP/Contents/MacOS/backend" && chmod +x "$APP/Contents/MacOS/backend"
+          # 产物名与官网一致：xiaoling-macos.dmg
+          hdiutil create -volname "XiaoLing" -srcfolder "$(dirname $APP)" -ov -format UDZO xiaoling-macos.dmg
+          ls -lh xiaoling-macos.dmg
+      - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -e
+          FILE="$GITHUB_WORKSPACE/xiaoling-macos.dmg"
+          NAME="xiaoling-macos.dmg"
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"
+
+  build-android:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Build Android APK
+        run: |
+          cd frontend && flutter pub get && flutter build apk --release
+      - name: Rename APK
+        run: |
+          # 产物名与官网一致：xiaoling-android-v0.0.1.apk
+          cp frontend/build/app/outputs/flutter-apk/app-release.apk xiaoling-android-v0.0.1.apk
+          ls -lh xiaoling-android-v0.0.1.apk
+      - name: Upload to release
+        shell: bash
+        env:
+          RID: ${{ needs.prepare-release.outputs.release_id }}
+        run: |
+          set -e
+          FILE="$GITHUB_WORKSPACE/xiaoling-android-v0.0.1.apk"
+          NAME="xiaoling-android-v0.0.1.apk"
+          ASSET_ID=$(curl -s -H "Authorization: Bearer $RELEASE_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPO/releases/$RID/assets" \
+            | python3 -c "import sys,json;print(next((a['id'] for a in json.load(sys.stdin) if a['name']=='$NAME'),''))")
+          if [ -n "$ASSET_ID" ]; then
+            echo "Deleting existing asset $NAME (id=$ASSET_ID)"
+            curl -s -X DELETE -H "Authorization: Bearer $RELEASE_TOKEN" \
+              "https://api.github.com/repos/$RELEASE_REPO/releases/assets/$ASSET_ID"
+          fi
+          curl -s -X POST -H "Authorization: Bearer $RELEASE_TOKEN" \
+            -H "Content-Type: application/octet-stream" --data-binary @"$FILE" \
+            "https://uploads.github.com/repos/$RELEASE_REPO/releases/$RID/assets?name=$NAME" \
+            | python3 -c "import sys,json;r=json.load(sys.stdin);print(f'Uploaded: {r.get(\"name\")} size={r.get(\"size\")} state={r.get(\"state\")} url={r.get(\"browser_download_url\")}')"

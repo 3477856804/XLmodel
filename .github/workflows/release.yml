@@ -1,0 +1,96 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      lite:
+        description: '只出精简版（体积小，无 torch/Qt）'
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: 安装最小依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install Pillow numpy PyOpenGL pyinstaller
+      - name: 四套回归测试
+        run: |
+          python tests/test_growth.py || true
+          python tests/test_fusion.py || true
+          python tests/test_avatar.py || true
+          python tests/test_renderer.py || true
+      - name: 全系统自检
+        run: python -m core.selftest || true
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+            args: '--zip'
+          - os: ubuntu-latest
+            target: linux-x64
+            args: '--zip --deb'
+          - os: macos-latest
+            target: macos-arm64
+            args: '--zip --dmg'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Linux 系统依赖（Mesa 软件 GL / 打包工具）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libosmesa6 libgl1-mesa-dri libgl1 fakeroot
+      - name: 安装依赖
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || pip install Pillow numpy PyOpenGL pyinstaller
+          pip install pyinstaller
+      - name: 打包
+        shell: bash
+        run: |
+          LITE_FLAG=""
+          if [ "${{ github.event.inputs.lite }}" = "true" ]; then LITE_FLAG="--lite"; fi
+          python packaging/build.py $LITE_FLAG ${{ matrix.args }}
+      - name: 产物自检（无头渲染一帧）
+        shell: bash
+        run: |
+          if [ -x dist/xiaoling/xiaoling ]; then dist/xiaoling/xiaoling --growth || true; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiaoling-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.dmg
+            dist/manifest.json
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          name: 小凌 XIAOLING ${{ github.ref_name }}

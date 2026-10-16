@@ -1,0 +1,100 @@
+name: xiaoling
+description: 小凌
+publish_to: 'none'
+version: 0.0.1+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  grpc: ^4.0.1
+  protobuf: ^4.0.0
+  fixnum: ^1.1.0
+  path_provider: ^2.1.0
+  http: ^1.2.0
+  # 真 3D：桌面端（Win/macOS/Linux）与移动端统一走 InAppWebView + 本地
+  # three.js/three-vrm 渲染 VRM。原先的 model_viewer_plus 在桌面会崩
+  # （它内部用 webview_flutter，而后者没有桌面实现，
+  # 触发 'WebViewPlatform.instance != null' 断言），故替换。
+  #
+  # 版本必须是 6.2.0-beta.x：稳定版 6.1.5 **没有 Linux 实现**
+  # （只有 android/ios/macos/windows/web），而本项目要发四个平台。
+  # 6.2.0-beta.3 开始带 flutter_inappwebview_linux（WPE WebKit）。
+  # 若哪天 6.2.0 转正，改成 ^6.2.0 即可。
+  flutter_inappwebview: ^6.2.0-beta.3
+  path: ^1.9.0
+  audioplayers: ^6.1.0
+  file_picker: ^13.1.0
+  # 窗口透明度（BUG-B）：设置页的 opacity 滑块要真正作用于程序窗口，
+  # 需要平台通道支持。window_manager 提供 setOpacity / setSkipTaskbar 等。
+  window_manager: ^0.4.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  msix: ^3.16.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/xiaoling.png
+    - assets/icon.png
+
+  # Inter（Rasmus Andersson，SIL OFL 1.1；见 assets/fonts/LICENSE-inter.txt）。
+  #
+  # 为什么打包而不是直接用系统字体：typography.dart 早就把 primary 写成
+  # 'Inter'，但这里从没声明过 —— 于是四端全部静默回落到系统字体
+  # （Linux 上是 DejaVu Sans，观感与本项目的设计稿差得最远），界面看起来
+  # 「字距怪、不够利落」很大程度是这个原因，而不是样式本身写错。
+  #
+  # 为什么是两套 family 而不是一枚可变字体：Apple HIG 的「动态光学尺寸」
+  # 让 SF Pro 随字号在 Text/Display 之间自动插值；可变字体在 Skia 各后端
+  # （Windows/Linux/Android/iOS）的 opsz 插值行为并不一致，靠它拿不到稳定
+  # 结果。所以把 opsz=14 / opsz=32 各自实例化成静态字重，由
+  # XlFontFamily.forSize() 按字号显式选族。
+  #
+  # 只有 400–800 五档：全仓库实际用到的是 w400/500/600/700/800
+  # （w800 出现 405 次，是最重的品牌字重），轻于 400 的字重 HIG 本来就
+  # 建议避免，因此不打包 thin/light/extraLight，省体积。
+  # 子集只含拉丁+标点+常用符号（不含 CJK），中文走 fontFamilyFallback 到
+  # 系统 CJK 字体，10 个文件合计约 1.2 MB。
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/InterText-400.ttf
+          weight: 400
+        - asset: assets/fonts/InterText-500.ttf
+          weight: 500
+        - asset: assets/fonts/InterText-600.ttf
+          weight: 600
+        - asset: assets/fonts/InterText-700.ttf
+          weight: 700
+        - asset: assets/fonts/InterText-800.ttf
+          weight: 800
+    - family: InterDisplay
+      fonts:
+        - asset: assets/fonts/InterDisplay-400.ttf
+          weight: 400
+        - asset: assets/fonts/InterDisplay-500.ttf
+          weight: 500
+        - asset: assets/fonts/InterDisplay-600.ttf
+          weight: 600
+        - asset: assets/fonts/InterDisplay-700.ttf
+          weight: 700
+        - asset: assets/fonts/InterDisplay-800.ttf
+          weight: 800
+
+msix_config:
+  display_name: 小凌
+  publisher_name: XiaoLing
+  publisher_display_name: XiaoLing
+  identity_name: 3477856804.XiaoLing
+  msix_version: 0.0.1.0
+  logo_path: assets/xiaoling.png
+  capabilities: internetClient, privateNetworkClientServer

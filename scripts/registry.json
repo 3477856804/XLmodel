@@ -1,0 +1,19 @@
+{
+  "_说明": "小凌的脚本注册表。**当前没有任何代码读这个文件**（全仓 grep 'registry.json' 只命中本文档与本文件），它是给人看的命令清单，不是运行时接线。上一版整表写的是旧架构（xl.py 的 execute-action / 文件工具箱）的命令，全部失效：`core.filebox`、`renderer.app`、`core.growth check|report`、`core.selftest` 这几个模块/入口在仓库里都不存在（`growth.py` 没有 `__main__`，体检入口是 `python main.py --selftest`）。",
+  "_口径": "下面每条都在当前仓库实测可用；需要模型或图形依赖的项在缺依赖时会如实报错，不会静默跳过。",
+  "scripts": {
+    "全系统体检": "python main.py --selftest",
+    "引擎状态": "python main.py --status",
+    "仅起 gRPC（Flutter 联调）": "python main.py --no-web",
+    "形象改造（VRM 换装）": "python3 scripts/xiaoling_avatar.py build --base <基底.vrm> --face <立绘.png> --out <输出.vrm> [--preview 预览图]",
+    "仅采样立绘配色": "python3 scripts/xiaoling_avatar.py sample --face <立绘.png>",
+    "形象离线出图（软件光栅，校验用）": "python3 scripts/vrm_preview.py <模型.vrm> <输出.png> [--w 520 --h 800 --yaw 0 --focus full]",
+    "VRM 转 FBX（需 Blender，参数在 -- 后面）": "python3 scripts/vrm_to_fbx.py -- <输入.vrm> <输出.fbx>　|　-- --batch（models/ → resources/models/）",
+    "重新生成 gRPC 桩": "python3 scripts/gen_proto.py",
+    "程序化音效": "python3 scripts/make_sounds.py",
+    "发布（Gitee/GitHub Release）": "python3 scripts/publish.py --help",
+    "回归测试": "python3 -m pytest tests/ -q"
+  },
+  "_文件工具箱": "旧表的「整理文件夹 / 图片压缩 / 视频压缩 / 重复文件清理 / 文件夹体检」依赖已删除的 core.filebox，没有替代实现；这类动作现在由 Agent 工具（terminal / fileops）执行，不在本表登记。",
+  "note": "改这里不会改变任何运行时行为 —— 想接线得先在 rpc/server.py 或 fusion.py 加读取方。"
+}

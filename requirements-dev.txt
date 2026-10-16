@@ -1,0 +1,13 @@
+# 开发/测试专用依赖（不是运行时依赖，刻意不塞进 requirements.txt）
+# ============================================================
+# 运行回归测试（rootdir 的 pytest.ini 已配置 testpaths = tests）：
+#
+#   pip install -r requirements-dev.txt
+#   pytest                 # 等价于 pytest tests/
+#
+# 注：tests/ 下 test_renderer.py / test_growth.py / test_imports.py 是重构前遗留，
+# 依赖已删除的旧 renderer 包与 GrowthEngine 签名，由 tests/conftest.py 的
+# collect_ignore 默认排除，不影响 `pytest tests/` 通过。
+
+pytest>=7.4
+pyinstaller>=6.0.0          # 本地打包（packaging/build.py），CI 环境另行安装

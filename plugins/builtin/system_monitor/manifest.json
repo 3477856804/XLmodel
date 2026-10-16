@@ -1,0 +1,11 @@
+{
+  "name": "system_monitor",
+  "version": "0.0.1",
+  "description": "系统监控：CPU / 内存 / 磁盘 / 进程 / 网络实时状态",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["system"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

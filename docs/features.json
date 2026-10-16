@@ -1,0 +1,149 @@
+[
+ {
+  "id": "avatar3d",
+  "name": "3D 数字人（后端资源层 + Flutter 画面）",
+  "module": "renderer/stage.py, renderer/vrm_gltf.py",
+  "state": "done",
+  "desc": "后端负责 VRM/glTF 解析、骨骼与材质元信息、*.vrma 动作库、当前模型/动作状态；画面由 Flutter 侧 flutter_inappwebview（Windows WebView2 / macOS WKWebView）绘制，静态服务在 core/webpanel.py（/viewer.html、/vendor/*、/models/*、/api/vrm/list）。离线软件光栅器在 scripts/vrm_preview.py（校验形象用，不是运行时窗口）。置顶/透明度走 window_manager，proto 的 always_on_top 落到 config.window。内置形象 resources/models/小凌.vrm 随仓库发布 —— 此前『3D 加载不出来』的第一根因不是渲染代码，而是 .gitignore 用 `resources/models/` 排除整个目录，被忽略的目录 Git 不进入，`!` 例外永不生效，形象文件从未进过版本库（两个远端全部历史里没有任何 .vrm/.glb/.fbx）。现在的文件由自有管线生成，来源与再生命令见 resources/models/README.md。静态服务支持 Range（206 + 精确 Content-Range）、后缀/开区间范围、越界 416、多段范围如实退回整文件（不伪装 206）、并实现 HEAD；回归 tests/test_webpanel_static.py。真实监听端口经 system:ports 报给前端，不再盲扫 8765~8785"
+ },
+ {
+  "id": "pet2d",
+  "name": "2D 桌宠兜底（Tkinter 程序化绘制）",
+  "module": "—",
+  "state": "missing",
+  "desc": "仓库里没有任何 tkinter 引用（grep 全库 0 命中），也不存在 pet.py 或它的 git 历史。这条能力此前是写在清单里的意图，不是代码事实；需要时按 Flutter 侧的降级路径实现，别按本条下单"
+ },
+ {
+  "id": "growth",
+  "name": "成长闭环引擎",
+  "module": "core/growth.py",
+  "state": "done",
+  "desc": "训练→体积进度（adapter_weight_bytes vs 基底）→增长上限→合并晋升→基底退役→回滚；合并前原子校验，校验不过回滚并隔离临时产物；require_eval 开启时先过生成式验收才允许换代；暂停/恢复/状态已接 RPC：growth:pause|resume|status（train_round 与 check_and_promote 真读 is_paused()，不是只写布尔）"
+ },
+ {
+  "id": "store",
+  "name": "训练数据仓库",
+  "module": "core/growth.py（GrowthStore）",
+  "state": "done",
+  "desc": "SQLite records + quality_score/score_detail + prompt_hash 与向量哈希去重（dup_of）+ dpo_pairs 偏好对 + JSONL 导出（可选 xor 密钥）+ 归档目录"
+ },
+ {
+  "id": "eval",
+  "name": "晋升门槛：体积 + 生成式验收",
+  "module": "core/growth.py, core/eval_probe.py",
+  "state": "partial",
+  "desc": "真实门槛只有两条：适配器体积 ≥ 基底（check_and_promote）与磁盘增长上限（cap_check）。eval_probe 用 4 条固定探针（identity×2 / style×2）真跑推理，比对新权重与基座，判退化复读/空输出；跑不动或没跑全一律不通过。历史上写的「B 用户专属验证集 loss + C 通用基准（常识 20/通用 20/安全 10）」没有任何实现：验证 loss 只作为 TrainEvent 上报，不参与换代判定；那 50 道基准题在仓库里不存在。默认 require_eval=False 时报告里如实写「未做生成式验收，仅凭 loss 晋升」"
+ },
+ {
+  "id": "rank",
+  "name": "LoRA rank 登记与上限",
+  "module": "core/growth.py（RankManager）",
+  "state": "partial",
+  "desc": "status() 读 adapter_config.json 的 r/lora_alpha，grow() 翻倍写回配置并把 alpha 设为 2r，上限 max_rank=256，dry_run 支持。所谓「旧权重复制保留、新增维度补零」的张量重排并不存在；GrowthEngine.grow_rank() 在仓库里没有任何调用方（RPC/CLI/UI 都没接线），改 r 之后必须重训才会生效"
+ },
+ {
+  "id": "lifecycle",
+  "name": "模型生命周期",
+  "module": "core/growth.py（ModelLifecycle）",
+  "state": "done",
+  "desc": "代数登记表 + trash 退役（可选 archive）+ 稳定期 24h/100 轮 + keep_generations GC + rollback + zip 导出 + 总磁盘增长上限（cap_check 拦住晋升）；RPC：growth:rollback（裸=列回收区、<代>=演练、<代> confirm=真回滚）与 growth:gc（裸=演练且不写 journal、run [force]=真删）；清样本走 growth:purge <范围> [confirm]。前端仍无按钮。"
+ },
+ {
+  "id": "throttle",
+  "name": "蒸馏（文本）与节流成本",
+  "module": "core/growth.py",
+  "state": "done",
+  "desc": "TeacherClient 走 OpenAI 兼容接口 + distill_queue 异步队列 + DistillThrottle hash 缓存/每日限流/费用估算；老师端未配置时如实跳过，一条请求都不发。非 soft-label KD（API 拿不到 logits）"
+ },
+ {
+  "id": "device",
+  "name": "算力分级与训练参数自适应",
+  "module": "core/model.py",
+  "state": "partial",
+  "desc": "best_device()（可被 XIAOLING_FORCE_DEVICE 覆盖）+ inference_device() 刻意默认 CPU + HardwareInfo.tier() 按显存/内存分 flagship/high/standard/entry/minimal + train_plan(device) 给 cuda=4/1/fp16、mps=2/2/none、cpu=1/8/none + compute_plan() 回显档位。历史文案里的「<4GB 纯 CPU / 4~8GB 4bit 部分层 / >8GB 全 GPU」三档阈值没有对应实现：量化只在配置显式要 int4/int8 且装了 bitsandbytes 时生效，否则记 quant_fallback 照实说明。按硬件推荐模型走 recommend_for_hardware()：真调 detect_hardware() + fit_models_for_hardware()（逐模型算 RAM/VRAM/参数量/量化档），gRPC ListRecommendedModels 同样改走这条路径（此前用 size_mb 反算参数量、context 硬编码 32K、can_run 用自创公式，且从未调用已有的 fit_models_for_hardware）。RAM 探测失败时 available=false 并把所有 recommended 强制置 false，不编推荐"
+ },
+ {
+  "id": "train",
+  "name": "LoRA 微调内核（含文本蒸馏产出的语料）",
+  "module": "core/trainer.py",
+  "state": "done",
+  "desc": "真 batch + 梯度累积 + 可选 4bit + prompt mask（不支持 ChatML 时标 degraded）+ 损失曲线落盘 + DPO（trl 缺失时内置 manual_dpo_loss，都不行就回落 SFT 并记录）+ 断点续训（权重/优化器状态）；训练前先按蒸馏队列问老师"
+ },
+ {
+  "id": "rag",
+  "name": "本地记忆检索",
+  "module": "core/memory.py",
+  "state": "partial",
+  "desc": "JSON/JSONL 落盘（memory.json、rag.jsonl、knowledge.json）+ 关键词检索 + search_semantic() 向量余弦召回（向量另存 .vectors.json sidecar）；装了 sentence-transformers 时是真语义，否则降级 hash-ngram 并在 stats() 里如实标注。不是 SQLite"
+ },
+ {
+  "id": "multi",
+  "name": "多平台接入",
+  "module": "core/channels.py",
+  "state": "partial",
+  "desc": "实际实现的通道：telegram / discord / feishu / wecom（企微群机器人）/ dingtalk / wechat_oa / whatsapp / slack / signal / email / 通用 webhook，配置化开关。core/fusion.py 是指令解析器，不是通道层；清单里原先写的「QQ」只有企业微信/公众号的 api.weixin.qq.com 域名，没有 QQ 机器人实现。2026-10-14 第三批：ChannelManager 生命周期改跑常驻事件循环（此前 asyncio.run 返回即销毁循环，服务器从没真正监听），配置现读磁盘、engine.chat 元组契约修正、重连走常驻循环；后端已接线，仍待真实凭据端到端验证，故保持 partial"
+ },
+ {
+  "id": "selftest",
+  "name": "全系统体检",
+  "module": "core/system.py",
+  "state": "done",
+  "desc": "统一入口 python main.py --selftest；system.selftest() 逐条实测（依赖、gRPC 桩、模型商店、插件、fusion、隔离区可写…）。各模块自带 selftest()：core/growth.py、core/model.py、core/memory.py（方法）、core/multimodal.py；不存在 core/selftest.py"
+ },
+ {
+  "id": "dashboard",
+  "name": "工作台与成长可视化（Flutter）",
+  "module": "frontend/lib/pages/dashboard_page.dart, growth_page.dart, training_page.dart",
+  "state": "done",
+  "desc": "工作台含 3D 角色展示、进度条、模型商店入口；成长页展示进度/段位/关系，训练页展示曲线与历史。后端侧资源与状态由 renderer/stage.py 提供。原条目写的 renderer/dashboard.py 不存在。蒸馏在 Flutter 端至今没有任何入口（grep 蒸馏/distill = 0 命中），老师配置只在后端 config.growth / config.yaml。本轮新增：成长页「暂停成长/恢复成长」按钮 + 「成长运维」浮层（回滚/GC/清库，一律先演练再 confirm）。Dart 侧只做过语法校验，未真机验证。"
+ },
+ {
+  "id": "apk",
+  "name": "Android APK 打包",
+  "module": "packaging/termux, frontend/android",
+  "state": "partial",
+  "desc": "Termux 安装脚本 + Flutter android 工程 + SandboxService.kt 就位；仓库里没有 Chaquopy gradle 配置，也没有构建产物（find *.apk 0 命中）。需在本地实际构建后才能分发，别当成已完成"
+ },
+ {
+  "id": "modelstore",
+  "name": "模型商店（魔搭远端搜索 / 硬件推荐 / 远端下载）",
+  "module": "core/model.py, rpc/server.py, frontend/lib/widgets/model_remote_panel.dart",
+  "state": "partial",
+  "desc": "后端完成并实测：search_remote() 真连魔搭 /openapi/v1/models?search=（分页/许可证/gated/私有都取自接口），remote_model_files() 列 .gguf 量化档，download_remote() 复用同一套断点续传实现（ModelScope 续传回 200 + 正确 Content-Range 而非 206，旧判定会把已下字节作废从头再下，已修），recommend_for_hardware() 按本机硬件算适配。RPC：model:search|files|recommend|downloadremote，进度真源是 sandbox:status 的 progress.<repo>，取消走 agent:task cancel（协作式，.part 保留）。降级口径：搜索/列文件失败一律 ok:false + error，空关键词直接拒绝，绝不返回空列表冒充『没找到』。标 partial 的原因：新增前端面板只过了 dart format 解析校验（沙箱无 Flutter SDK，跑不了 flutter analyze），没有在真机上点过搜索防抖/分页/展开列文件/进度轮询/取消；内置清单原有搜索框已改标注为本地筛选"
+ },
+ {
+  "id": "apiconfig",
+  "name": "统一外部 API 配置（设置页 API 配置选项卡 / api: 指令族）",
+  "module": "core/api_config.py, rpc/server.py, frontend/lib/pages/settings_page.dart",
+  "state": "partial",
+  "desc": "收敛历史上互不相通的两套外部 API 存储（training.api_* 与 deepseek_*）为 config.api.{enabled,base,key,model,provider}。后端 core/api_config.py 纯标准库 urllib：cfg() 打码快照（明文 key 永不回流）、set_field()（base 校验 http/https、key 空串=清除、provider 白名单）、chat()/test() 真连 OpenAI 兼容 /chat/completions、transcribe() stdlib 手拼 multipart 调 /audio/transcriptions。RPC：api:cfg|set|test|chat（ExecuteCommand+JSON，proto 未动）。消费方四处：设置页选项卡、trainer.api_cfg 回落（source:unified，修掉『配了等于没配』）、agent._llm_think 外部优先（失败记日志回退本地不静默冒充）、ASR.available() whisper 缺席+API 已配时走云端。降级口径：未启用时 chat 回 ok:false+disabled:true 并明说『自动降级本地模型』；空识别结果如实 ok:false。测试 tests/test_api_config.py 16 例含本地 mock OpenAI/ASR 服务真实端到端。标 partial 的原因：前端选项卡只过了 dart format 解析校验（沙箱无 Flutter SDK），未在真机填真实端点走一遍"
+ },
+ {
+  "id": "sandbox_shell",
+  "name": "沙箱 shell 路由（Windows『ls 都用不了』真修）",
+  "module": "core/sandbox.py, core/exec_gate.py",
+  "state": "done",
+  "desc": "根因：Windows 上 subprocess.run(cmd, shell=True) 落进 cmd.exe，它没有 ls/cat/pwd——不是权限不是守卫，是 shell 选错。修法：_posix_run_args(cmd, plat) 统一路由——Windows 找到 Git Bash（shutil.which + 常见安装路径候选，进程内缓存只探测一次）走 bash.exe -c + shell=False 并标 shell:'bash'；没找到 bash 如实降级 shell=True 并标 shell:'cmd' 绝不伪装；POSIX 不变 shell:'sh'。exec_gate 透传 shell/guard/note/offending 字段。Job Object ActiveProcessLimit 8→64（bash 管道 a|b|c 要 fork bash 本体+每个管道成员）。测试 tests/test_sandbox_degraded_guard.py 新增 6 例（POSIX 不变式/Windows→bash 路由/cmd 如实降级/探测缓存/exec_gate 透传）。剩余：Windows 真机回归"
+ },
+ {
+  "id": "avatar_switch",
+  "name": "3D 形象切换持久化 + 切换 UI",
+  "module": "rpc/server.py, frontend/lib/pages/dashboard_page.dart",
+  "state": "partial",
+  "desc": "真根因：SwitchModel 只写 model.path，而全链路没有任何地方按它选 3D 形象；ListModels 排默认形象读 avatar.model（按文件名匹配）——『切换成功』只是回包假象，重启必回默认。修复后同时写 model.path（兼容渲染器）与 avatar.model（basename）。dashboard 页此前没有任何形象切换入口，新增 _avatarSwitcher 多形象芯片切换器（乐观更新+失败回滚+toast）。标 partial 的原因：沙箱无 Flutter SDK/无 WebGL，渲染与『切换→重启→仍是切后形象』的持久化必须真机回归；形象资源链路本身已由 4f6a228 修（.gitignore/端口/Range/HEAD）"
+ },
+ {
+  "id": "chat_agent_emoji",
+  "name": "聊天内置 Agent 模式 + 真表情面板",
+  "module": "frontend/lib/pages/chat_page.dart",
+  "state": "partial",
+  "desc": "响应用户『agent 是自带功能并不是独立接口』：输入条新增 _agentToggle（violet 开关），开启后 _sendAgent 流式订阅 pb.AgentRequest 的 AgentEvent，按 🧭计划/🔧工具/↳结果/⚠️错误 逐行渲染；Completer 存 _agentCompleter，停止按钮取消订阅并 resolve await（防中断后卡死），dispose 兜底。表情按钮原先是假的（点击无任何实现），现为真面板：Dart \\u{...} Unicode 码点 4 组（常用/表情/手势/符号），文本默认符号补 U+FE0F(VS16)，底部弹层 GridView tab 分页，点击插入光标处含 offset 钳制；零第三方依赖。教训如实记录：Dart 不支持相邻字符串字面量拼接。标 partial 的原因：仅 dart format 解析校验，无 Flutter SDK，真机未点过"
+ },
+ {
+  "id": "compliance_persona_plugin",
+  "name": "内容合规 + 人格生效 + 插件/设置页去假（第四批）",
+  "module": "core/engine.py, core/model.py, rpc/server.py, frontend/lib/pages/settings_page.dart, frontend/lib/pages/plugins_page.dart",
+  "state": "partial",
+  "desc": "三处『类实现齐全但零调用方』的假接进真链路：(1) SensitiveFilter —— 新增 _compliance_mask 接到 _do_chat 与 _do_chat_streaming 的 _post_chat 之前，返回前端/入库/进记忆与成长样本的都是打码文本；新增 sensitive:list|check|add 指令族；诚实边界=流式已推前端的 token 收不回。(2) system_prompt —— engine.system_prompt() 组装的 persona hint+suffix 此前从没进模型（ModelReplacement 把静态 DEFAULT_SYSTEM_PROMPT 写死传给 LocalModel），新增 system_prompt_provider 回调一路透传，build_messages 每轮现取，provider 异常退回静态串不吞对话。(3) GrowthEngine —— GetStatus/GetGrowthStatus/GetTrainingStatus 此前每次 new 一份读到刚出厂状态，与 growth: 指令族不同源，收敛为 _get_growth_engine() 单例（优先 eng.growth）。插件后端补 reload|installpath|dir，plugin 页 8 个 Navigator.pop 假按钮 + 1 个从不发后端的假输入框全换成真动作；设置页 3 个假外链按钮（Process.run 开浏览器，失败复制剪贴板如实告知，不加 url_launcher）+ 开关区分本机偏好/后端字段并对后端字段回读验证（此前无条件『已保存』）。上一批误加到 options.py 的 ui.* 白名单已回滚（给 proto 不存在的字段造假通路本身就是假）。追加：第三批接线后 _channels 本地 Map 早已成死 fallback（只在离线时把『几周前的一次快照』当真值骗用户），删之并让 channels:list 成唯一真值，UI 拿不到时显示『未获取（后端未连接）』；_setChannel 之前失败只 debugPrint，用户看着开关自动弹回却什么都不知道，现解析后端 JSON 并如实弹 SnackBar；model_remote_panel._refreshProgress 之前 catch 完全静默，后端 sandbox:status 永久不可用时进度条停在最后一次已知状态假装还在下载，加连续失败计数越过阈值（3）就在进度行标『同步中断（后端已无响应，进度停留在最后一次已知状态）』并停止轮询。测试 tests/test_fakes_to_real.py 41 例（R9~R13），全量 456 passed/1 skipped。标 partial 的原因：4 个前端 Dart 文件只过 dart format 解析校验，无 Flutter SDK，敏感词打码/换人格/插件 8 按钮/开关回读/通道 fallback 移除/进度中断提示都没在真机点过"
+ }
+]

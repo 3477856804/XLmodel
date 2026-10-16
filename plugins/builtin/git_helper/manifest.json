@@ -1,0 +1,11 @@
+{
+  "name": "git_helper",
+  "version": "0.0.1",
+  "description": "Git 操作助手：查看状态、提交、创建分支、查看 diff",
+  "author": "xiaoling",
+  "category": "development",
+  "entry": "main.py",
+  "permissions": ["file:read", "file:write"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

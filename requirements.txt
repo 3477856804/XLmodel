@@ -1,0 +1,60 @@
+# 小凌 XIAOLING v0.0.1 · 依赖清单
+# =============================================
+# 一键安装：pip install -r requirements.txt
+#
+# 架构说明：UI 由 Flutter 前端提供（frontend/），Python 后端只跑 gRPC 服务、
+# 3D 查看器(HTTP)、模型推理与成长闭环。因此本清单不再包含 PySide6/PyOpenGL
+# 等原生桌面 GUI 依赖（旧架构遗留，后端已无引用）。
+
+# ------------------------------ 核心必需（缺一不可启动） ------------------------------
+Pillow>=9.0.0                 # 形象贴图 / 多模态图像处理
+numpy>=1.24.0                 # 数学与渲染兜底
+grpcio>=1.60.0                # gRPC 通信（Flutter 前端 ↔ Python 后端，端口 50051）
+grpcio-tools>=1.60.0          # 重新生成 xiaoling_pb2 / xiaoling_pb2_grpc（改 proto 时用）
+# protobuf 运行时：gencode（xiaoling_pb2.py）声明 Protobuf Python Version
+# 7.35.1，需要运行时 >= 5.27 才能通过 ValidateProtobufRuntimeVersion 校验；
+# 4.x 会直接 import 失败、后端起不来（实跑环境对齐冻结清单 7.36.x）。
+protobuf>=5.27                # protobuf 运行时（grpc 消息编解码）
+requests>=2.31.0              # HTTP 抓取 / 模型商店 / 镜像下载 / API 接入测试
+aiohttp>=3.9.0                # 异步 HTTP（浏览器工具、平台通道、查看器）
+llama-cpp-python>=0.2.75      # GGUF 本地模型推理运行时（backend/core/model.py 懒加载）
+psutil>=5.9.0                 # 系统内存/进程/电量遥测（engine/growth/model/sysinfo，缺失时静默降级）
+jieba>=0.42.1                 # 中文分词（knowledge_base.py，缺失时检索召回下降）
+huggingface_hub>=0.20.0       # HF 模型下载（model.py _download_hf，缺失时模型商店 HF 通道失败）
+modelscope>=1.10.0            # 国内镜像下载通道（model.py _download_modelscope）
+
+# ------------------------------ 本地模型推理 + 成长闭环（体积大，打包版默认排除） ------------------------------
+# 说明：torch/transformers/peft/accelerate 合计数 GB，packaging/backend.spec 刻意
+# 排除它们以控制产物体积；它们负责 safetensors 模型加载与 LoRA 蒸馏/合并/晋升。
+# 需要"成长闭环训练"能力时再安装；仅用 GGUF 聊天可不装。
+torch>=2.0.0
+transformers>=4.30.0
+peft>=0.10.0
+accelerate>=0.20.0
+# 可选训练增强：DPO（trl）与 QLoRA 量化（bitsandbytes）；未装时 trainer 自动降级
+# trl>=0.8.0
+# bitsandbytes>=0.43.0
+
+# ------------------------------ 可选能力（装了即自动启用，不装自动降级） ------------------------------
+opencv-python>=4.8.0          # 2D 兜底视频动画（无 WebView 时）
+pyttsx3>=2.90                 # 离线语音朗读
+sounddevice>=0.4.6            # 麦克风语音输入
+edge-tts>=7.3.1               # 联网情感语音（multimodal.py 懒加载）；7.3.1 起修复微软服务端 Sec-MS-GEC 403
+# 以下默认注释掉：体积/系统依赖较大，按需取消注释并按注释完成额外步骤
+# playwright>=1.40.0           # 【可选】真实浏览器自动化：渲染 JS 动态页面/截图/点击。
+#                               装库后须执行 `playwright install chromium` 下载内核；
+#                               未装时 browser_tool.py 自动降级为 requests+正则抓取。
+# sentence-transformers>=2.2.0 # 【可选】语义检索/记忆向量化（knowledge_base.py、memory.py 懒加载）。
+#                               未装时知识库退化为关键词匹配。
+# tree-sitter>=0.20.0          # 【可选】代码结构解析（tools.py 代码工具懒加载）。
+#                               未装时代码工具退化为纯文本处理。
+
+# ------------------------------ 消息平台接入（按需安装对应库，未列平台走 Bot API/Webhook） ------------------------------
+# websocket-client>=1.6.0      # QQ（OneBot/go-cqhttp）
+# lark-oapi>=1.0.0             # 飞书事件回调（轮询/REST 可不装）
+# 微信 / 企业微信 / 钉钉 / Telegram / Discord 走 Webhook 或官方 Bot API，无需额外库。
+
+# ------------------------------ 系统依赖（非 pip，仅 Linux 需要） ------------------------------
+# Win/macOS 开箱可用；Linux 无 GPU 时装 Mesa 软件光栅与 WPE WebKit：
+#   sudo bash packaging/linux/install_deps.sh
+#   （含 libgl1 / libosmesa6 / libwebkit2gtk-4.1-0 / libwpe 等）

@@ -1,0 +1,223 @@
+# 晓灵 XiaoLing · v0.0.1
+
+会成长的 AI 伴侣 + Agent 平台 —— Flutter + Python + gRPC 三语言架构，本地优先，桌面常驻。
+
+---
+
+## 项目简介
+
+晓灵不是一个"问一句答一句"的聊天框，而是一个常驻桌面、有持久人格与记忆、能在你本地机器上真正干活的 AI 伴侣兼 Agent 平台。
+
+它把两类能力合在了一起：
+
+- **AI 伴侣属性**：3D 数字人形象、情绪与亲密度、长期记忆、拟人化人格，桌面常驻可交互。
+- **Agent 工程能力**：本地工具调用（终端、文件、git、搜索）、MCP 接入、插件体系、子 Agent 编排、代码符号索引与知识库检索，可在沙箱内安全执行。
+
+架构上 UI（Flutter/Dart）与 AI 后端（Python）通过 localhost 上的 gRPC 解耦，前端可替换，后端可独立运行自检。
+
+---
+
+## 核心特性
+
+下列特性均对应仓库中实际存在的后端模块，未做夸大。
+
+### 本地成长与 LoRA 训练
+
+- 基底模型 + LoRA 适配器的成长闭环：对话数据进数据仓库 → 登记蒸馏队列（可选，需配置老师端）→ LoRA 训练 → 适配器成熟后合并晋升 → 可脱离原基底继续长大，并支持回滚（`backend/core/growth.py`）。蒸馏是**文本蒸馏**（把老师的答案当 SFT 语料），不是 soft-label KD；未配置老师端时如实跳过，一条请求都不发。
+- 训练与合并基于 PyTorch / transformers / peft，CPU 可跑小模型，有 GPU 自动用 GPU。
+- 训练页只展示后端给出的事实：设备、依赖版本、可训练基座与不可用原因、适配器体积、target_modules、rank/alpha、可否续训均取自 `training:` 指令的 JSON 返回；取不到的项显示「未获取」，不由前端推断。停止按钮真的向 `training:cancel` 发请求并如实回报结果，预计剩余时间来自上一轮实测的 `sec_per_step`，首次训练则明说暂无实测值。
+
+### 3D VRM 数字人
+
+- 桌面端通过内置 InAppWebView 加载本地 three.js + three-vrm 页面渲染 VRM，自带轨道相机、三点布光、呼吸/眨眼/注视。
+- three.js 与 three-vrm 全部离线内置，不依赖 CDN，断网也能出 3D（`backend/core/webpanel.py`、`resources/web/`）。
+- 内置形象 `resources/models/小凌.vrm`（glTF 2.0 二进制，VRM0，1.52 m，54 根人形骨骼、11 个网格、18 个表情）随仓库发布，`viewer.html` 默认加载它。曾经「3D 加载不出来」的第一根因不是渲染代码，而是 `.gitignore` 用 `resources/models/` 整目录排除，使 `!` 例外规则永远不生效，形象文件从来没进过版本库 → 线上永远 404。改为 `resources/models/*` 后只放行这一个文件，用户自己丢进来的其它模型仍然不入库。
+- 静态服务支持 `Range`（`206` + 精确 `Content-Range`，续传与 WebView 预取的前提）与 `HEAD`；越界回 `416`，多段范围不伪装成 `206` 而是如实回整文件。回归测试见 `tests/test_webpanel_static.py`。
+- 查看器真实端口由后端记录，前端用 `system:ports` 直接问，不再盲扫 8765~8785（顺延出窗口就永远找不到，还可能连到别的软件同号服务）。
+
+### 多通道消息（11 个通道）
+
+- 统一外部消息通道抽象，内置 11 个通道：Webhook / Telegram / Discord / 飞书 / WhatsApp / Slack / Signal / 邮件 / 企业微信 / 钉钉 / 微信公众号（`backend/core/channels.py`）。
+- 所有出站调用带 10 秒超时与失败降级，不阻塞主程序；企业微信/钉钉走 Webhook，Telegram/Discord 走 Bot API，无需额外 SDK。
+
+### MCP 接入
+
+- 内置 Model Context Protocol 客户端：工具调用结果缓存、网络错误指数退避重试、连接健康检查、服务器配置持久化、统一超时（`backend/core/mcp_client.py`）。
+
+### DSH 插件兼容
+
+- DSH 插件兼容层，可解析、安装、管理 DSH 格式插件（`backend/core/dsh_compat.py`）。
+
+### 代码符号索引与知识库检索
+
+- 代码符号索引：扫描 def / class / function / import 等符号，缓存到 `.symbol_index.json`，支撑代码检索（`backend/core/tools.py`、`CodeSearch` RPC）。
+- 知识库检索：jieba 中文分词（不可用时降级为正则分词）+ TF-IDF 加权词法检索；可选接入 sentence-transformers 做语义向量检索，与关键词结果加权融合、去重并带引用溯源；未安装时自动降级为纯 TF-IDF（`backend/core/knowledge_base.py`）。
+
+### 知识图谱可视化
+
+- 从对话与文档中抽取实体与关系，持久化到 `data/knowledge.json`，支持搜索、统计、导出 JSON / GraphML（`backend/core/memory.py` 的 `KnowledgeGraph`）。
+- 前端 `knowledge_graph_panel.dart` 提供图谱可视化面板，可被 Agent 调用查询实体关系。
+
+### 语音 ASR / TTS
+
+- 语音朗读（TTS）：离线 pyttsx3 与联网 edge-tts 双后端，经 `ReadAloud` / `ListVoices` / `SetVoice` RPC 暴露（`backend/core/multimodal.py` 懒加载）。
+- 语音识别（ASR）：`Transcribe` RPC 支持音频转写，麦克风输入经 sounddevice 采集。
+
+### 浏览器自动化
+
+- 内置浏览器工具：可选 Playwright 驱动真实浏览器，渲染 React/Vue 等 JS 动态页面、截图、点击与输入（`backend/core/browser_tool.py`）。
+- 未安装 Playwright 时自动降级为 requests + 正则抓取，不影响其余功能；前端 `browser_panel.dart` / `browser_page.dart` 提供地址栏与导航面板。
+
+### 沙箱与安全
+
+- 自有数据沙箱：模型下载与工具执行隔离在用户数据目录，避免写入 Program Files、升级覆盖用户数据、以及工具越权读写全盘（`backend/core/sandbox.py`）。
+- 统一执行入口：模型产出的命令一律经 `backend/core/exec_gate.py` 分派 —— 桌面走 `sandbox.run_sandboxed`，iOS/Android 走应用内受控执行（`sandbox_mobile.py`，不 fork shell、只允许白名单动作），未知平台默认拒绝。黑名单 + 路径白名单 + 联网命令按权限档位判定，全部判定写日志。
+- OS 级路径隔离：Linux 优先使用 Landlock（路径级强制、deny-by-default），macOS 使用 Seatbelt，Windows 的 Job Object 只限资源、**不做路径隔离**。**内核低于 5.13 就没有 Landlock，此时降级路径是常态而不是例外**：`sandbox.py` 会启用一层词法路径守卫 `lexical_escape_check()`，挡住 `../../`、`~/.ssh/…`、他人 home 这类越界读写。它刻意**只镜像 Landlock 的放行面**（系统目录只读、workspace/tmp 可写），所以 `cat /etc/passwd`、读 `/proc/meminfo` 是允许通过的 —— 降级模式不该比真隔离更严。命中时返回体带 `guard: "lexical"`，而 `capability()` 里 `path_isolation` 仍然如实为 `False`（只新增 `lexical_guard: true`）：**这是防误操作的一层提示，不是安全边界**，挡不住编码、拼接、解释器内联脚本绕过。探测不支持时如实降级，绝不假装安全。
+- "永不删除"红线：任何待删文件一律移入隔离区并登记清单，不直接从磁盘删除（`backend/core/quarantine.py`）。
+
+### 本地模型与模型商店
+
+- 同时支持 transformers 目录模型与 GGUF 单文件权重，推理后端自动分派（`backend/core/model.py`）。
+- 模型商店接的是**真实**魔搭（ModelScope）OpenAPI，不再是一张内置清单：`model:search <词> [页]` 远端搜索（带 total/分页/许可证/gated 标记）、`model:files <ns/name>` 列仓库里的 `.gguf` 量化档、`model:downloadremote <ns/name> [量化档]` 后台下载并写真实进度（`sandbox:status` 的 `progress.<repo>` 是唯一真源，可 `agent:task cancel` 协作式取消，`.part` 保留续传）。前端面板在 `frontend/lib/widgets/model_remote_panel.dart`。
+- 按本机硬件推荐走 `model:recommend`：`detect_hardware()` + `fit_models_for_hardware()` 真算 RAM/VRAM/参数量/量化档，返回 `tier` / `available` / `why` / `detected`。**探测不到 RAM 时 `available: false` 并把所有 `recommended` 强制置 false** —— 不给没有依据的推荐。gRPC 的 `ListRecommendedModels` 同样改用这条真路径，参数量与上下文长度取自 `MODEL_PRESETS` 的真实字段（此前用 `size_mb` 反算出 "469B" 这种假参数量、并硬编码 "32K" 上下文，已修正）。
+- 搜索/列文件失败一律 `ok:false + error` 并保留重试入口，不返回空列表冒充「没找到」；空关键词直接拒绝，不回全量清单。
+- 多下载通道（HuggingFace 镜像 / ModelScope）回退、断点续传，并支持添加 OpenAI 兼容接口（如 LM Studio，`backend/core/fusion.py`）。
+
+
+### 插件系统
+
+- 插件开关状态持久化、从 URL/zip 真实安装、按模板自建插件；同名插件升级时旧版先移入隔离区再写入，不覆盖（`backend/core/plugin_system.py`）。
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.10+（实测 3.12）
+- Flutter 3.32+（本项目 CI 用 3.47.6，Dart 3.13）
+- 本地模型推理需要足够内存；无 GPU 时训练与推理自动退回 CPU
+
+### 安装依赖
+
+```bash
+git clone https://gitee.com/COSMOnb666/XLmodel.git
+cd XLmodel
+pip install -r requirements.txt
+```
+
+### 启动后端
+
+```bash
+# gRPC 后端 + Web 实测面板（默认端口 50051，面板 8765）
+python3 main.py
+
+# 仅 gRPC（Flutter 正式联调时使用）
+python3 main.py --port 50051 --no-web
+
+# 打印引擎状态后退出 / 运行自检
+python3 main.py --status
+python3 main.py --selftest
+```
+
+### 启动前端
+
+```bash
+cd frontend
+flutter pub get
+flutter run
+```
+
+前端会自动挑选空闲端口启动后端并通过 gRPC 连接；也可用浏览器打开后端打印的 `http://127.0.0.1:8765/viewer.html` 直接看 3D。
+
+---
+
+## 目录结构
+
+```
+xl_project/
+├── main.py                 # 后端启动入口（gRPC + 可选 Web 面板 / 3D 查看器）
+├── backend/
+│   ├── core/               # 业务模块（引擎/模型/记忆/成长/插件/工具/沙箱/通道/MCP 等）
+│   ├── renderer/           # VRM/GLTF 渲染辅助
+│   └── rpc/                # gRPC 服务 + proto 生成桩代码
+├── frontend/               # Flutter (Dart) 桌面/移动 UI
+│   └── lib/
+│       ├── pages/          # 页面：聊天/工作台/训练/模型商店/终端/git/插件/设置 等
+│       ├── widgets/        # 业务组件
+│       ├── services/        # 后端端口发现、更新器等本地服务
+│       ├── theme/          # 主题与持久化
+│       └── rpc/            # gRPC Dart 客户端
+├── shared/proto/           # gRPC 通信契约（.proto 源）
+├── resources/              # 模型 / 动作 / 材质 / 音效 / 离线 3D 前端资源
+├── plugins/                # 内置插件
+├── tests/                  # pytest 用例（test_contracts 等）
+├── docs/                   # 设计与发布文档
+├── packaging/              # 三平台打包配置
+└── tools/                  # 比对 / 推送等辅助脚本
+```
+
+---
+
+## 与主流编码 Agent 工具的定位对比
+
+Trae、Codex、Qoder、DSH、WorkBuddy、OpenClaw 等都是以"写代码 / 命令行干活"为核心的编码 Agent。晓灵与它们的定位差异如下：
+
+| 维度    | 编码 Agent（Trae/Codex/Qoder/DSH 等） | 晓灵 XiaoLing                                                                |
+| ----- | -------------------------------- | -------------------------------------------------------------------------- |
+| 核心定位  | 代码生成 / 终端命令执行                    | 常驻桌面的 AI 伴侣 + Agent 平台                                                     |
+| 形象与情感 | 无                                | 3D VRM 数字人 + 情绪/亲密度/人格                                                     |
+| 模型来源  | 多依赖云端 API                        | 本地 GGUF / transformers 模型，可断网运行                                            |
+| 自我成长  | 无                                | 本地 LoRA 训练 → 合并晋升的成长闭环                                                     |
+| 消息触达  | 多在 IDE 内                         | 11 个通道（Webhook/Telegram/Discord/飞书/WhatsApp/Slack/Signal/邮件/企业微信/钉钉/微信公众号） |
+| 代码理解  | 编辑器内                             | 符号索引 + 关键词/语义向量混合检索，可被 Agent 调用                                            |
+| 知识表示  | 无                                | 对话/文档抽取实体关系的知识图谱，导出 JSON/GraphML                                           |
+| 语音能力  | 多为纯文本                            | 离线/联网 TTS 朗读 + 麦克风 ASR 转写                                                  |
+| 浏览器操作 | 多依赖扩展                            | 内置 Playwright 浏览器自动化（无依赖时降级为抓取）                                            |
+| 安全隔离  | 进程级                              | 用户数据沙箱 + Landlock OS 级路径强制 + 隔离区"永不删文件"                                    |
+| 插件生态  | 各自封闭                             | MCP 客户端 + DSH 兼容层 + 15 个内置插件 + 自建插件                                        |
+| 对外接口  | IDE 插件                           | 47 个 gRPC 方法，前端可替换，后端可独立自检                                                 |
+
+说明：晓灵并不试图取代这些编码工具，而是把"会干活的 Agent"和"有形象、能成长、陪在桌面的伴侣"结合在同一个本地进程里。
+
+---
+
+## 差异化优势
+
+- **AI 伴侣属性**：不只是工具，而是有 3D 形象、情绪、亲密度与长期记忆的常驻角色。
+- **本地 LoRA 成长训练**：模型随使用在本地长大，训练 → 合并 → 晋升闭环完整，不依赖云端训练服务。文本蒸馏（问老师拿好答案）是可选项，需要自备 OpenAI 兼容接口；没配时整条管线照常本地运行并在报表里明说。回滚、GC、清库已接成 `growth:rollback|gc|purge` 指令并在成长页提供「成长运维」浮层（先演练、再确认）。
+- **VRM 3D 数字人**：离线 three.js + three-vrm 渲染，断网可用，五平台统一。
+- **多通道消息**：同一人格通过 11 个通道对外触达。
+- **安全边界完整**：用户数据沙箱 + Landlock OS 级隔离 + 隔离区永不删文件。
+- **源码自主、本地可完全自建**：UI 与后端 gRPC 解耦，数据落在本地沙箱，无云端锁定；源码托管于 Gitee 与 GitHub 双仓。
+
+---
+
+## 技术栈
+
+- UI：Flutter 3 (Dart) + Material 3，新拟态设计系统，深浅双主题 × 标准/高对比四变体（配色按 Apple HIG《Color》经 `tools/contrast_audit.py` 逐色验证）
+- 后端：Python 3.10+，gRPC（localhost:50051）
+- 推理与训练：PyTorch + transformers + peft，GGUF 经 llama.cpp 封装
+- 3D：three.js r160 + @pixiv/three-vrm 1.x，离线 vendor，经 InAppWebView 嵌入
+- 打包：PyInstaller + 各平台安装器
+
+---
+
+## 测试
+
+```bash
+python3 -m pytest tests/ -v
+```
+
+当前 182 个 pytest 用例全部通过；后端全部核心模块可导入，`main.py` 可正常启动并响应 `GetStatus` RPC。仓库内置 15 个插件、11 个消息通道、47 个 gRPC 方法。
+
+---
+
+## 版本
+
+- 后端：`0.0.1`（见 `backend/core/config.py`）
+- 前端：`0.0.1+1`（见 `frontend/pubspec.yaml`）
+
+## License
+
+当前为源码双仓托管项目，尚未选定开源许可证；具体授权以仓库后续补充的 LICENSE 文件为准。

@@ -1,0 +1,909 @@
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/core/channels.py	2026-10-16 02:54:32.693091700 +0800
++++ backend/core/channels.py	2026-10-16 02:56:29.644631800 +0800
+@@ -1020,7 +1020,13 @@
+                 if self.engine is not None:
+                     ch.set_engine(self.engine)
+                 await ch.start()
+-                self.channels[name] = ch
++                # 只在真跑起来才登记为「运行中」：缺凭据时 start() 只打印
++                # 「跳过启动」就返回，此前无条件登记让 UI 显示金色「运行中」，
++                # 而用户看到的其实是「连接没反应」——假状态比没有状态更糟。
++                if getattr(ch, 'is_running', False):
++                    self.channels[name] = ch
++                else:
++                    print(f"  [通道] {name} 未启动（凭据缺失或未连接），不记为运行中")
+             except Exception as e:
+                 print(f"  [通道] {name} 启动失败: {e}")
+ 
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/core/config.py	2026-10-16 02:54:33.396551100 +0800
++++ backend/core/config.py	2026-10-16 02:56:29.637590700 +0800
+@@ -527,7 +527,11 @@
+     if not str(model.get("base_model") or "").strip():
+         errors.append(("model.base_model", "模型名称为空"))
+     voice = c.get("tts") or {}
+-    if not str(voice.get("edge_voice") or voice.get("minimax_voice") or "").strip():
++    # 实际合成读的是 voice.id（SetVoice / ReadAloud / options 全链路），
++    # tts.edge_voice 只是个没人写的陈旧迁移键。校验要回落到真实生效的键，
++    # 否则用户明明切了音色，validate 仍报「未配置任何可用音色」。
++    if not str(voice.get("edge_voice") or (c.get("voice") or {}).get("id")
++               or voice.get("minimax_voice") or "").strip():
+         errors.append(("tts.voice", "未配置任何可用音色"))
+     if not str(c.get("user_name") or "").strip():
+         errors.append(("user_name", "用户名为空"))
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/core/deps.py	2026-10-16 02:54:32.626572900 +0800
++++ backend/core/deps.py	2026-10-16 02:56:29.632981000 +0800
+@@ -83,17 +83,32 @@
+     return cmd + packages
+ 
+ 
+-def _run_install(packages: list, timeout: float = 900.0) -> dict:
++def precheck_install() -> dict:
++    """安装前的同步预检（frozen / pip / 网络），任一项不满足即返回可执行错误。
++
++    此前的失败路径：同步返回 ok:true + task_id，后台线程在 _run_install
++    里秒失败，结果只落进 BackgroundTaskManager 的 task 表无人读取 ——
++    前端表现为「点击安装没反应」。把检查前移到这里，让失败原因同步可见。
++    """
+     if getattr(sys, "frozen", False):
+         return {"ok": False,
+-                "error": "打包态（frozen）通常无 pip，无法在产物内安装；"
+-                         "请用源码环境运行 `python main.py --install-deps` "
+-                         "或在打包时内置这些依赖。"}
++                "error": "打包模式（frozen）无法在线安装依赖：产物内没有 pip。"
++                         "请使用源码模式运行 python main.py --install-deps <包名>，"
++                         "或在打包时内置该依赖。"}
+     if not _pip_available():
+         return {"ok": False,
+-                "error": "当前解释器没有 pip（%s）。先装 pip 再试。" % sys.executable}
++                "error": "当前解释器没有 pip（%s），无法自动安装。"
++                         "请先安装 pip，或用源码模式运行 "
++                         "python main.py --install-deps <包名>。" % sys.executable}
+     if not _has_network():
+         return {"ok": False, "error": "本机没有可用网络，无法下载依赖。"}
++    return {"ok": True}
++
++
++def _run_install(packages: list, timeout: float = 900.0) -> dict:
++    pre = precheck_install()
++    if not pre.get("ok"):
++        return pre
+     last = None
+     for user in (False, True):
+         try:
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/core/growth.py	2026-10-16 02:54:32.754889300 +0800
++++ backend/core/growth.py	2026-10-16 03:03:32.292708000 +0800
+@@ -1150,7 +1150,39 @@
+     key = str(cfg.get("deepseek_api_key") or "").strip()
+     base = str(cfg.get("deepseek_base_url") or "").strip()
+     model = str(cfg.get("teacher_model") or "").strip()
++    # 占位符（「暂未填入」等）等同没配：DEFAULTS 里 deepseek_api_key 就是
++    # 占位符，若按原样判断 `key and base and model`，回落链永远不会触发 ——
++    # 那正是「用户在设置页/训练页配好 API，蒸馏仍说未配置」的重灾区。
+     real_key = key if key not in _KEY_PLACEHOLDERS else ""
++    # 回落链：deepseek_*（旧键）→ training.api_*（训练页 API 对话框）
++    #         → api.*（设置页统一 API 配置）。任何一处配过都算数。
++    if not (real_key and base and model):
++        _t = cfg.get("training") or {}
++        _a = cfg.get("api") or {}
++        if not real_key:
++            # 从 training/api 取 key 时，**同组**的 base/model 一并采用：
++            # 避免「key 是训练页的、base 还是 deepseek 默认值」的端点错配。
++            for _grp, _kk, _bk, _mk in (
++                (_t, "api_key", "api_base", "api_model"),
++                (_a, "key", "base", "model"),
++            ):
++                _k2 = str(_grp.get(_kk) or "").strip()
++                _rk2 = _k2 if _k2 not in _KEY_PLACEHOLDERS else ""
++                if _rk2:
++                    key, real_key = _k2, _rk2
++                    _b2 = str(_grp.get(_bk) or "").strip()
++                    _m2 = str(_grp.get(_mk) or "").strip()
++                    if _b2:
++                        base = _b2
++                    if _m2:
++                        model = _m2
++                    break
++        if not base:
++            base = str(_t.get("api_base") or _a.get("base") or "").strip()
++        if not model:
++            model = str(_t.get("api_model") or _a.get("model") or "").strip()
++        if key or base or model:
++            out["source"] = "training/api 回落"
+     out["has_key"] = bool(real_key)
+     out["key_len"] = len(real_key)
+     out["key_tail"] = real_key[-4:] if len(real_key) > 8 else ""
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/core/trainer.py	2026-10-16 02:54:32.823469300 +0800
++++ backend/core/trainer.py	2026-10-16 02:56:54.927441100 +0800
+@@ -55,6 +55,7 @@
+ import json
+ import os
+ import shutil
++import sys
+ import threading
+ import time
+ from dataclasses import dataclass, field
+@@ -530,8 +531,15 @@
+             from peft import LoraConfig, TaskType, get_peft_model
+             from transformers import AutoModelForCausalLM, AutoTokenizer
+         except ImportError as e:
+-            return None, None, None, meta, (f"训练依赖未安装（{e}）。"
+-                                            "请 pip install torch transformers peft accelerate")
++            # 按运行形态给可执行建议：源码态才说 pip install；打包态产物内
++            # 没有 pip，那句提示对用户是死指令，只会让人觉得「训练坏了」。
++            if getattr(sys, "frozen", False):
++                hint = ("当前为打包版，未内置 PyTorch 训练栈，且产物内没有 pip "
++                        "无法在线补装。请改用源码模式运行 python main.py，"
++                        "或使用内置训练栈的完整版后端。")
++            else:
++                hint = "请 pip install torch transformers peft accelerate"
++            return None, None, None, meta, f"训练依赖未安装（{e}）。{hint}"
+         mdir, err = _resolve_model_dir(self.base_dir_hint)
+         if mdir is None:
+             return None, None, None, meta, err
+@@ -1359,6 +1367,27 @@
+     return snap
+ 
+ 
++def _resolve_api_plain() -> dict:
++    """按 training.api_* → api.* 回落链读取**明文** API 配置（仅内部消费）。
++
++    api_cfg() 按同一优先级解析但只回打码 key；测试连接需要真 key，
++    故单开此函数。明文绝不外流：只在本进程内用于构造 HTTP 请求头，
++    不进任何返回前端的快照。
++    """
++    out = {"base": "", "key": "", "model": ""}
++    try:
++        from .config import load as _load
++        cfg = _load() or {}
++        t = cfg.get("training") or {}
++        a = cfg.get("api") or {}
++        out["base"] = str(t.get("api_base") or a.get("base") or "").strip()
++        out["key"] = str(t.get("api_key") or a.get("key") or "").strip()
++        out["model"] = str(t.get("api_model") or a.get("model") or "").strip()
++    except Exception:                                            # noqa: BLE001
++        pass
++    return out
++
++
+ def api_test(timeout: float = 10.0) -> dict:
+     """对配置的 OpenAI 兼容端点发一次真实 /chat/completions 请求。
+ 
+@@ -1367,14 +1396,13 @@
+     """
+     cfg = api_cfg()
+     base = str(cfg.get("base") or "")
+-    key, model = None, None
+-    try:
+-        from .config import load as _load
+-        t = ((_load() or {}).get("training") or {})
+-        key = str(t.get("api_key", "") or "").strip() or None
+-        model = str(t.get("api_model", "") or "").strip() or None
+-    except Exception:                                            # noqa: BLE001
+-        pass
++    # key/model 必须走与 api_cfg() 相同的回落链（training.api_* → api.*），
++    # 且要明文：api_cfg() 只回打码值。此前 key/model 只从 training.api_*
++    # 直读，用户在设置页配的统一 API（需鉴权端点）测试时必 401，而本地
++    # 免鉴权端点却能过 —— 表现为「测试成功但训练/蒸馏时没用」。
++    plain = _resolve_api_plain()
++    key = plain.get("key") or None
++    model = plain.get("model") or None
+     if not base:
+         return {"ok": False, "error": "未配置 api_base"}
+     url = f"{base.rstrip('/')}/chat/completions"
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/core/webpanel.py	2026-10-16 02:54:33.248449400 +0800
++++ backend/core/webpanel.py	2026-10-16 02:56:54.881672800 +0800
+@@ -19,6 +19,7 @@
+ import json
+ import os
+ import re
++import socket
+ import threading
+ import time
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+@@ -650,11 +651,31 @@
+     """建服务器；端口被占用时自动顺延最多 20 个。
+ 
+     Windows 上后端可能被重复启动（或上次没退干净），死等 8765 会让 3D
+-    一直白屏，所以这里直接往后找空位，并把**真实端口**回传给调用方。"""
++    一直白屏，所以这里直接往后找空位，并把**真实端口**回传给调用方。
++
++    探测必须显式独占 bind：http.server 默认 allow_reuse_address=1，
++    Windows 的 SO_REUSEADDR 语义允许「抢占」别人已 listen 的端口并返回
++    成功 —— 日志打印已监听，实际连到的却是别的软件（或根本不通），
++    表现是「3D 一直加载不出来」。SO_EXCLUSIVEADDRUSE 才是 Windows 的
++    独占语义；POSIX 无此项，退回默认行为。
++    """
+     for p in range(int(port), int(port) + 20):
++        probe = None
+         try:
++            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
++            if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
++                probe.setsockopt(socket.SOL_SOCKET,
++                                 socket.SO_EXCLUSIVEADDRUSE, 1)
++            probe.bind((host, p))
++            probe.close()
++            probe = None
+             return ThreadingHTTPServer((host, p), _Handler), p
+         except OSError:
++            if probe is not None:
++                try:
++                    probe.close()
++                except Exception:
++                    pass
+             continue
+     return None, int(port)
+ 
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/backend/rpc/server.py	2026-10-16 02:54:32.569392000 +0800
++++ backend/rpc/server.py	2026-10-16 02:57:13.223785600 +0800
+@@ -623,6 +623,12 @@
+                                 'note': '所请求的依赖均已就绪，无需下载'},
+                                ensure_ascii=False, default=str)
+ 
++        # 同步预检：frozen / pip / 网络。不过就当场返回错误，不再走后台任务
++        # （后台失败结果只落 task 表、前端不轮询 → 表现为「点击安装没反应」）。
++        pre = _deps.precheck_install()
++        if not pre.get('ok'):
++            return _json.dumps(pre, ensure_ascii=False, default=str)
++
+         def _job(cancel_event, output, _names=names, _force=force):
+             try:
+                 return _deps.install(_names, force_train=_force, output=output)
+@@ -1548,7 +1554,9 @@
+             return _json.dumps(d, ensure_ascii=False, default=str)
+ 
+         if op == 'env':
+-            info = {"ok": True}
++            info = {"ok": True,
++                    # 前端据此显示「打包版无法在线装训练栈」横幅与按钮前置校验
++                    "frozen": bool(getattr(sys, "frozen", False))}
+             for mod in ("torch", "transformers", "peft", "accelerate", "bitsandbytes"):
+                 try:
+                     m = __import__(mod)
+@@ -2044,7 +2052,9 @@
+                     mgr.restart_channels()
+                 st = _state(name)
+             except Exception as e:                                   # noqa: BLE001
+-                st["note"] = f'开关已写入配置，但启停失败：{e}'
++                # 启停失败要当成失败返回：此前只写进 note 仍回 ok:true，
++                # 前端只检查 ok，于是「开关亮了但通道没起」被当成成功。
++                return _err(f'开关已写入配置，但启停失败：{e}')
+             return _json.dumps({"ok": True, "channel": st,
+                                 "message": f'{name} 已{"启用" if on else "停用"}'},
+                                ensure_ascii=False, default=str)
+@@ -4087,7 +4097,10 @@
+             result = TTS().synth(text, voice=voice, rate=rate, volume=volume)
+             data = bytes(getattr(result, 'data', b'') or b'')
+             if not data:
+-                logger.warning('ReadAloud: TTS produced no audio (voice=%s)', voice)
++                # 把真实原因写进日志：edge-tts 与服务端之间的失败（如 403
++                # 令牌被拒）原来只报「no audio」，排障全靠猜；现在 error 明文落盘。
++                logger.warning('ReadAloud: TTS produced no audio (voice=%s): %s',
++                               voice, getattr(result, 'error', '') or 'unknown')
+             else:
+                 chunk_size = 4096
+                 for i in range(0, len(data), chunk_size):
+@@ -4977,6 +4990,13 @@
+         _log_act("system", "后端服务已启动", f"gRPC 监听 localhost:{bound}")
+     except Exception:
+         pass
++    # 已启用通道自启：此前 start_enabled() 只有 channels:set/start 两个
++    # 调用点，前端从不发、后端启动时也不调 —— 重启后所有通道静默停摆，
++    # 用户看到的就是「多平台连接没反应」。服务就绪后自动拉一次。
++    try:
++        _get_channel_manager().start_enabled()
++    except Exception as _e:                                          # noqa: BLE001
++        logger.warning('通道自启失败（不影响主服务）：%s', _e)
+     try:
+         server.wait_for_termination()
+     except KeyboardInterrupt:
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/docs/PACKAGING.md	2026-10-16 03:04:36.328105200 +0800
++++ docs/PACKAGING.md	2026-10-16 03:04:54.494497000 +0800
+@@ -81,12 +81,15 @@
+ 
+ #### 两个容易踩空的配置
+ 
+-- **`contents_directory='.'`（必须）**：PyInstaller 6.x 默认把依赖塞进 `_internal/`，
+- 但 `config.py` 的 `resource_dir()` 取的是 `sys._MEIPASS`（= exe 所在目录）→ 会指空，
+- 3D 直接黑屏。平铺才能让两者一致。
++- **产物布局是 `_internal/`（PyInstaller 6.x 默认）**：2026-10-16 用 PyInstaller 6.22.3
++  实测确认——`contents_directory` 参数只有放在 `EXE()` 上才生效，放在 `COLLECT` 上会被
++  静默忽略，onedir 产物实际为 `<run>/backend.exe + <run>/_internal/`。
++  `config.py` 的 `resource_dir()` 取 `sys._MEIPASS`（= `_internal/`），资源解析正确。
++  **不要**为了「平铺」把参数挪到 `EXE()`：那会让 `.star_core` 数据目录落进包顶层，
++  被 `assemble_windows.py` 的 `BACKEND_SKIP_TOP` 跳过，插件种子静默失效。
+ - **onedir 而非 onefile**：onefile 每次启动要把 173MB 的 VRM 解压到临时目录，
+- 冷启动慢到不能忍；且 `_MEIPASS`（临时目录）与 `app_dir()`（exe 目录）分离，
+- 会造成"资源在 A、数据在 B"的错位。
++  冷启动慢到不能忍；且 `_MEIPASS`（临时目录）与 `app_dir()`（exe 目录）分离，
++  会造成"资源在 A、数据在 B"的错位。
+ 
+ ### 3. 合并成一个可运行目录
+ 
+@@ -121,7 +124,7 @@
+ | 现象 | 原因 / 处理 |
+ |---|---|
+ | 界面能开但聊天没反应 | 前端没找到 `backend.exe` → 确认两个 exe 同目录 |
+-| 3D 区域全黑 | `resources/web/vendor/*.js` 缺失，或 `contents_directory` 不是 `'.'` |
++| 3D 区域全黑 | `resources/web/vendor/*.js` 缺失（看 `_internal/resources/web/` 是否存在）；或 WebView2 运行时未安装/过旧；或 GPU/WebGL 不可用 |
+ | 后端控制台报端口占用 | 结束占用 50051 的旧进程（后端会派生父子两个 PID，要一起杀） |
+ | 双击后弹黑窗口 | 正常 —— 那是 backend.exe 的控制台，故意保留以便你看报错 |
+ | 想搬走整个小凌 | 直接搬整个文件夹，`data/` 与 `.star_core/` 跟着走 |
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/pages/dashboard_page.dart	2026-10-16 02:54:32.205952400 +0800
++++ frontend/lib/pages/dashboard_page.dart	2026-10-16 02:56:14.700283900 +0800
+@@ -384,7 +384,11 @@
+       _modelPath = m.path;
+       _modelName = m.name;
+     });
+-    final r = await XlClient.stub.safe(() => XlClient.stub.switchModel(m.path));
++    // 必须显式构造 pb.SwitchModelRequest：生成的 gRPC 客户端方法
++    // switchModel(SwitchModelRequest) 会遮蔽 client_ext 里的 String 扩展
++    // 重载，直接传 path 编译不过（曾导致 flutter build windows 失败）。
++    final r = await XlClient.stub.safe(() =>
++        XlClient.stub.switchModel(pb.SwitchModelRequest(path: m.path)));
+     if (!mounted) return;
+     setState(() => _switchingAvatar = false);
+     if (r?.ok != true) {
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/pages/plugins_page.dart	2026-10-16 02:54:32.263836300 +0800
++++ frontend/lib/pages/plugins_page.dart	2026-10-16 03:02:10.198651400 +0800
+@@ -2411,7 +2411,10 @@
+   Future<void> _openExternal(String url) async {
+     final p = XlPalette.of(context);
+     String? bin;
+-    List<String> args;
++    // 可空：Linux/macOS/Windows 之外的分支不会赋值，非空声明过不了 Dart
++    // 的明确赋值分析（曾导致 flutter build windows 失败）；那些平台本就
++    // 走下面的剪贴板兜底。
++    List<String>? args;
+     if (Platform.isLinux) {
+       bin = 'xdg-open';
+       args = [url];
+@@ -2422,7 +2425,7 @@
+       bin = 'cmd';
+       args = ['/c', 'start', '', url];
+     }
+-    if (bin != null) {
++    if (bin != null && args != null) {
+       try {
+         final r = await Process.run(bin, args);
+         if (r.exitCode == 0) {
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/pages/settings_page.dart	2026-10-16 02:54:32.326676900 +0800
++++ frontend/lib/pages/settings_page.dart	2026-10-16 03:02:10.198651400 +0800
+@@ -99,6 +99,10 @@
+   final Map<String, Map<String, dynamic>> _channelStatus = {};
+   bool _channelsLoading = false;
+ 
++  /// 正在下发中的通道 id：飞行中禁用该开关（防重复点击），
++  /// 并让 UI 在等待期间有可见的置灰反馈，而不是「点了没反应」。
++  final Set<String> _channelBusy = {};
++
+   // 历史上这里还有一个 `_channels: Map<String,bool>` 作为「离线兜底」显示，
+   // 但第三批接线后 `_setChannel` 已不再写入它，只有 `_restoreLocal` 从旧
+   // channels.json 读进来 —— 于是变成「几周前的一次快照」的假记忆：用户离线
+@@ -620,8 +624,12 @@
+   }
+ 
+   /// 拉取后端通道真实状态（enabled / configured / running）。
+-  Future<void> _loadChannels() async {
+-    if (_channelsLoading) return;
++  ///
++  /// [force]：切换开关后的回刷必须到达。此前 initState 发起的 list 若还在
++  /// withRetry 重试中（离线最坏 10s+），这次刷新被加载守卫直接 return，
++  /// 开关既不亮也不弹回 —— 用户看到的就是「点了没反应」。
++  Future<void> _loadChannels({bool force = false}) async {
++    if (_channelsLoading && !force) return;
+     setState(() => _channelsLoading = true);
+     try {
+       final raw = await XlClient.stub
+@@ -652,20 +660,34 @@
+ 
+   /// 把开关真正下发到后端（写配置 + 同步启停）。
+   ///
+-  /// 此前失败只 `debugPrint`，UI 完全没提示；用户看着开关翻转又自动弹回来，
++  /// 此前失败只 debugPrint，UI 完全没提示；用户看着开关翻转又自动弹回来，
+   /// 什么都不知道——这是「点了没反应但不说谎」的另一种假。
+   /// 后端 channels:set 走 ExecuteCommand，返回 JSON 字符串带 ok/error。
++  ///
++  /// 本次修复：① 飞行中禁用（防重复点）② 用后端回传的 channel 真值即时
++  /// 更新，不等 list ③ 成功也弹 SnackBar（此前只有失败有反馈）④ 回刷
++  /// 走 force，绕过加载守卫保证一定发生 ⑤ timeout 15s→8s，离线快速失败。
+   Future<void> _setChannel(String id, bool on) async {
++    if (_channelBusy.contains(id)) return;
++    setState(() => _channelBusy.add(id));
+     String? fail;
++    String? done;
+     try {
+       final reply = await XlClient.stub.command(
+           'channels:set $id ${on ? 'on' : 'off'}',
+-          opt: const XlCallOptions(timeout: Duration(seconds: 15)));
++          opt: const XlCallOptions(timeout: Duration(seconds: 8)));
+       try {
+         final d = jsonDecode(reply.output);
+         if (d is! Map || d['ok'] != true) {
+           final err = (d is Map ? (d['error'] ?? '').toString() : '');
+           fail = err.isEmpty ? '后端未确认通道切换' : err;
++        } else {
++          done = (d['message'] ?? '').toString();
++          final ch = d['channel'];
++          if (ch is Map) {
++            // 后端回的真值（含 running / configured / missing_credentials）
++            _channelStatus[id] = Map<String, dynamic>.from(ch);
++          }
+         }
+       } catch (_) {
+         fail = '后端返回体无法解析（协议异常）';
+@@ -674,8 +696,9 @@
+       debugPrint('切换通道 $id 失败: $e');
+       fail = '请求未到达后端（离线 / gRPC 断开）';
+     }
+-    await _loadChannels();
+-    if (fail != null && mounted) {
++    await _loadChannels(force: true);
++    if (!mounted) return;
++    if (fail != null) {
+       ScaffoldMessenger.of(context)
+         ..clearSnackBars()
+         ..showSnackBar(SnackBar(
+@@ -684,7 +707,18 @@
+           content: Text('「$id」切换失败：$fail（开关已回滚到后端真实状态）',
+               style: const TextStyle(fontWeight: FontWeight.w600)),
+         ));
++    } else {
++      ScaffoldMessenger.of(context)
++        ..clearSnackBars()
++        ..showSnackBar(SnackBar(
++          behavior: SnackBarBehavior.floating,
++          duration: const Duration(milliseconds: 1600),
++          content: Text(
++              done != null && done.isNotEmpty ? done : '「$id」已${on ? '启用' : '停用'}',
++              style: const TextStyle(fontWeight: FontWeight.w600)),
++        ));
+     }
++    if (mounted) setState(() => _channelBusy.remove(id));
+   }
+ 
+   // ---------------------------------------------------------------- API 配置
+@@ -2218,7 +2252,10 @@
+                         fontWeight: FontWeight.w800,
+                         letterSpacing: XlLetterSpacing.wider)),
+               ])),
+-              _toggle(p, on, p.gold, () => _setChannel(id, !on)),
++              // 飞行中（_channelBusy）禁用该开关：onTap 传 null 时 _toggle
++              // 以降不透明度呈现，避免「点了没反应」还能重复点。
++              _toggle(p, on, p.gold,
++                  _channelBusy.contains(id) ? null : () => _setChannel(id, !on)),
+             ]),
+             ),
+           );
+@@ -3155,8 +3192,46 @@
+         name.contains('torch');
+   }
+ 
++  /// 安装指令的统一回执处理。
++  ///
++  /// 此前一律弹「已在后台开始」——已就绪时什么都没发生也提示「开始」；
++  /// 后台任务失败（frozen 无 pip 等）只落进无人轮询的 task 表，前端
++  /// 表现为「点击安装没反应」。现在按回执类型分别如实展示。
++  void _onInstallReply(dynamic d) {
++    if (d is Map && d['ok'] == true) {
++      final note = (d['note'] ?? '').toString();
++      final taskId = (d['task_id'] ?? '').toString();
++      if (note.isNotEmpty) {
++        _showSnack(note);
++      } else if (taskId.isNotEmpty) {
++        _showSnack('已提交后台安装任务，稍后点「刷新依赖状态」查看结果');
++      } else {
++        _showSnack('安装完成');
++      }
++    } else {
++      final err = d is Map ? (d['error'] ?? '未知错误') : '响应异常';
++      setState(() => _depsError = '安装失败：$err');
++      _showSnack('安装失败：$err');
++    }
++  }
++
+   Future<void> _installPkg(String package, {bool force = false}) async {
++    // frozen 前置拦截：产物内没有 pip，点了也只会在后台秒失败、结果无人
++    // 展示（表现为「点击安装没反应」）。在这里就把可执行的出路说明白。
++    if (_depsInfo['frozen'] == true) {
++      setState(() => _depsError =
++          '打包模式（frozen）无法在线安装依赖：产物内没有 pip。'
++          '请使用源码模式运行 python main.py --install-deps $package'
++          '${force ? ' force' : ''}，或在打包时内置该依赖。');
++      _showSnack('打包模式无法在线安装依赖，请改用源码模式');
++      return;
++    }
+     final cmd = 'deps:install $package${force ? ' force' : ''}';
++    // 与「一键补齐」对齐：进 loading 态（防重复点击 + 按钮置灰反馈）。
++    setState(() {
++      _depsInstalling = true;
++      _depsError = null;
++    });
+     try {
+       final raw = await XlClient.stub.safe(
+         () => XlClient.stub.commandOutput(
+@@ -3169,19 +3244,14 @@
+         _showSnack('安装失败：后端未连接');
+         return;
+       }
+-      final d = jsonDecode(raw);
+-      if (d is Map && d['ok'] == true) {
+-        _showSnack('已在后台开始，稍后点刷新查看状态');
+-        await _loadDeps();
+-      } else {
+-        final err = d is Map ? (d['error'] ?? '未知错误') : '响应异常';
+-        setState(() => _depsError = '安装失败：$err');
+-        _showSnack('安装失败：$err');
+-      }
++      _onInstallReply(jsonDecode(raw));
++      await _loadDeps();
+     } catch (e) {
+       if (!mounted) return;
+       setState(() => _depsError = '安装失败：$e');
+       _showSnack('安装失败：$e');
++    } finally {
++      if (mounted) setState(() => _depsInstalling = false);
+     }
+   }
+ 
+@@ -3215,15 +3285,8 @@
+         _showSnack('安装失败：后端未连接');
+         return;
+       }
+-      final d = jsonDecode(raw);
+-      if (d is Map && d['ok'] == true) {
+-        _showSnack('已在后台开始，稍后点刷新查看状态');
+-        await _loadDeps();
+-      } else {
+-        final err = d is Map ? (d['error'] ?? '未知错误') : '响应异常';
+-        setState(() => _depsError = '安装失败：$err');
+-        _showSnack('安装失败：$err');
+-      }
++      _onInstallReply(jsonDecode(raw));
++      await _loadDeps();
+     } catch (e) {
+       if (!mounted) return;
+       setState(() => _depsError = '安装失败：$e');
+@@ -3591,6 +3654,9 @@
+     final purpose = (m['purpose'] ?? '').toString();
+     final size = (m['size'] ?? '').toString();
+     final isTrain = _isTrainTier(m);
++    // frozen 下安装必然失败（产物内无 pip）：按钮置灰，与顶部金色提示条
++    // 行为一致，从源头消除「可点但无效」。
++    final frozen = _depsInfo['frozen'] == true;
+     return Container(
+       margin: const EdgeInsets.only(bottom: 8),
+       padding: const EdgeInsets.all(12),
+@@ -3660,7 +3726,7 @@
+               ),
+               const Spacer(),
+               FilledButton.tonal(
+-                onPressed: _depsInstalling
++                onPressed: (_depsInstalling || frozen)
+                     ? null
+                     : (isTrain
+                           ? () => _confirmAndInstallTrain(m)
+@@ -3673,7 +3739,7 @@
+                     vertical: 6,
+                   ),
+                 ),
+-                child: Text(isTrain ? '确认安装 (force)' : '安装'),
++                child: Text(frozen ? '打包态不可安装' : (isTrain ? '确认安装 (force)' : '安装')),
+               ),
+             ],
+           ),
+@@ -3961,7 +4027,10 @@
+       return;
+     }
+     String? bin;
+-    List<String> args;
++    // 可空：Linux/macOS/Windows 之外的分支不会赋值，非空声明过不了 Dart
++    // 的明确赋值分析（曾导致 flutter build windows 失败）；Android 等
++    // 平台本就该走下面的复制兜底。
++    List<String>? args;
+     if (Platform.isLinux) {
+       bin = 'xdg-open';
+       args = [url];
+@@ -3972,7 +4041,7 @@
+       bin = 'cmd';
+       args = ['/c', 'start', '', url];
+     }
+-    if (bin != null) {
++    if (bin != null && args != null) {
+       try {
+         final r = await Process.run(bin, args);
+         if (r.exitCode == 0) {
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/pages/training_page.dart	2026-10-16 02:54:32.388147200 +0800
++++ frontend/lib/pages/training_page.dart	2026-10-16 02:58:51.040650700 +0800
+@@ -922,13 +922,37 @@
+   Widget _startBtn(XlPalette p, {Key? key}) {
+     final steps = int.tryParse(_stepsCtrl.text.trim()) ?? 100;
+     final est = _estimateLabel(steps);
++    // 前置校验：训练栈（torch/transformers/peft）缺失时不再假装能开始。
++    // 打包版未内置 torch，点击后只会走到 trainer 的 ImportError 分支，
++    // 而那句「请 pip install」在打包态没有 pip 可执行 —— 在这里就把
++    // 真实原因说清楚，让用户知道该换源码模式而不是反复重点。
++    String? blocked;
++    final env = _trainEnv;
++    if (env != null) {
++      final missing = <String>[];
++      for (final k in const ['torch', 'transformers', 'peft']) {
++        final v = env[k]?.toString();
++        if (v == null || v.isEmpty || v == 'None') missing.add(k);
++      }
++      if (missing.isNotEmpty) {
++        blocked = env['frozen'] == true
++            ? '当前为打包版，未内置 PyTorch 训练栈（缺少：${missing.join('、')}），'
++                  '且产物内没有 pip 无法在线补装。请使用源码模式运行 python main.py，'
++                  '或改用内置训练栈的完整版后端。'
++            : '训练栈未安装（缺少：${missing.join('、')}）。'
++                  '请先在设置页「依赖自愈」安装（torch 档需显式确认），'
++                  '或运行 python main.py --install-deps torch force。';
++      }
++    }
+     return Column(
+       key: key,
+       crossAxisAlignment: CrossAxisAlignment.end,
+       mainAxisSize: MainAxisSize.min,
+       children: [
+         _Pressable(
+-          onTap: _startTraining,
++          onTap: blocked == null
++              ? _startTraining
++              : () => setState(() => _trainError = blocked),
+           child: Container(
+             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+             decoration: AppTheme.btn(context, r: XlRadius.pill),
+@@ -2493,6 +2517,39 @@
+                   fontWeight: FontWeight.w700,
+                 )),
+           ],
++          // frozen 横幅：与设置页同款。写清楚两件事 ——
++          // ① 打包版没有内置训练栈、也没有 pip，微调请走源码模式；
++          // ② API 配置不参与微调启动，只服务蒸馏老师端与连通性测试
++          //    （此前的产品预期缺口：「配好 API 就能训练」并不成立）。
++          if (env?['frozen'] == true) ...[
++            const SizedBox(height: 10),
++            Container(
++              padding: const EdgeInsets.all(12),
++              decoration: BoxDecoration(
++                color: p.gold.withOpacity(0.10),
++                borderRadius: BorderRadius.circular(XlRadius.md),
++                border: Border.all(color: p.gold.withOpacity(0.35)),
++              ),
++              child: Row(
++                children: [
++                  Icon(Icons.info_outline_rounded, size: 16, color: p.gold),
++                  const SizedBox(width: 10),
++                  Expanded(
++                    child: Text(
++                      '当前为打包模式（frozen）：未内置 PyTorch 训练栈，且无法在线安装。'
++                      '微调训练请使用源码模式运行 python main.py，或改用完整版后端；'
++                      'API 配置仅用于蒸馏老师端与连通性测试，不参与微调启动。',
++                      style: TextStyle(
++                        fontSize: XlFont.label,
++                        color: p.gold,
++                        fontWeight: FontWeight.w600,
++                      ),
++                    ),
++                  ),
++                ],
++              ),
++            ),
++          ],
+           const SizedBox(height: 14),
+           Wrap(
+             spacing: 8,
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/services/viewer_port.dart	2026-10-16 02:54:32.513682300 +0800
++++ frontend/lib/services/viewer_port.dart	2026-10-16 02:59:01.082286800 +0800
+@@ -168,10 +168,12 @@
+         value = 0;
+         return 0;
+       }
+-      // 问不到就保持 pin：宁可显示「服务未响应」，也不去盲扫，
+-      // 否则可能连到别的软件的同号服务上，显示出一个莫名其妙的页面。
+-      value = pinnedPort;
+-      return pinnedPort;
++      // 问不到（gRPC 也未就绪，多半是后端还在并行启动）：返回 0 让上层
++      // 显示「服务未启动」并走自动重试。此前的做法是把过期 pin 当结果
++      // 返回，WebView 拼出连不上的 URL → onLoadError 直接落错误态，
++      // 且没有任何自动恢复路径，冷启动慢的机器上必现「3D 加载不出来」。
++      value = 0;
++      return 0;
+     }
+ 
+     // 没有 pin —— 优先问后端要真值（开发态手动起后端就走这条）。
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/updater.dart	2026-10-16 03:02:01.403889100 +0800
++++ frontend/lib/updater.dart	2026-10-16 03:02:10.209297700 +0800
+@@ -1,6 +1,10 @@
+ import 'dart:convert';
+ import 'package:flutter/foundation.dart';
+ import '../rpc/client.dart';
++// safe() / commandOutput() 是 xiaoling_client_ext.dart 里对 XiaoLingClient
++// 的扩展方法，不 import 该文件扩展不在作用域 → undefined_method 编译错误
++// （曾导致 flutter build windows 失败）。
++import '../rpc/xiaoling_client_ext.dart';
+ 
+ class UpdateInfo {
+   final bool hasUpdate;
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/frontend/lib/widgets/model_showcase.dart	2026-10-16 02:54:32.444293900 +0800
++++ frontend/lib/widgets/model_showcase.dart	2026-10-16 02:59:12.550508300 +0800
+@@ -102,6 +102,10 @@
+   Timer? _viewerWatchdog;
+   int? _webPort;
+ 
++  /// 「服务未启动」自动重试计数（见 _resolveViewerPort 的 p==0 分支）：
++  /// 启动竞态不该被当成最终结论，重试到上限再落错误态。
++  int _viewerRetry = 0;
++
+   late AnimationController _pulseCtrl;
+   late AnimationController _ringCtrl;
+   late AnimationController _glowCtrl;
+@@ -181,16 +185,30 @@
+     // 结果 WebView 连一个不属于我们的地址、显示空白；改成直接把状态
+     // 标为「服务未响应」并交给 _errorOverlay 显示分类原因与重试入口。
+     if (p == 0) {
++      // 后端可能还在并行启动（launcher 先拉后端、再拉前端），或查看器刚
++      // 好还没 bind：先自动重试几轮再落错误态，别把启动竞态当成「3D 服务
++      // 未响应」的最终结论。此前的做法是立即显示错误，冷启动慢的机器上
++      // 必现，且只能靠用户手动点重试恢复。
++      if (_viewerRetry < 4) {
++        _viewerRetry++;
++        final delay = _viewerRetry == 1 ? 1 : 2;
++        Future<void>.delayed(Duration(seconds: delay), () {
++          if (mounted) _resolveViewerPort(force: true);
++        });
++        return;
++      }
++      _viewerRetry = 0;
+       setState(() {
+         _webPort = null;
+         _loading = false;
+         _hasError = true;
+         _fail = ViewerFail.service;
+         _viewerError = ViewerPort.lastError ??
+-            '3D 服务未启动（后端未成功绑定端口）';
++            '3D 服务未启动（后端未成功绑定端口）· 已自动重试 4 次';
+       });
+       return;
+     }
++    _viewerRetry = 0;
+     if (!force && p == _webPort) return;
+     setState(() => _webPort = p);
+   }
+@@ -313,6 +331,7 @@
+   }
+ 
+   void _retry() {
++    _viewerRetry = 0;
+     setState(() {
+       _hasError = false;
+       _fail = ViewerFail.none;
+@@ -704,7 +723,11 @@
+           setState(() {
+             _hasError = true;
+             _fail = ViewerFail.service;
+-            _viewerError = '3D 服务返回 HTTP $code · 端口可能已被其它程序占用';
++            // 404 与「端口被占」给的原因完全不同：前者是资源没随包分发，
++            // 后者才是端口问题。此前的文案把 404 也说成端口占用，把人引偏。
++            _viewerError = code == 404
++                ? '3D 查看器资源缺失（HTTP 404）· 请确认 resources/web 与 VRM 模型已随包分发'
++                : '3D 服务返回 HTTP $code · 端口可能已被其它程序占用';
+             _loading = false;
+           });
+         },
+@@ -779,7 +802,11 @@
+     }
+     switch (_fail) {
+       case ViewerFail.service:
+-        return _viewerError ?? '3D 服务未响应 · 后端可能未启动或端口被占用';
++        // 附 WebView2 提示：桌面真 3D 全靠 WebView2（Windows）/WKWebView，
++        // 运行时缺失或过旧时页面往往不同步报错，最终也表现成「服务未响应」。
++        // 多次重试无效时，这是最可能的环境侧原因。
++        return '${_viewerError ?? '3D 服务未响应 · 后端可能未启动或端口被占用'}'
++            '（多次重试无效时：请安装/更新 Microsoft Edge WebView2 运行时）';
+       case ViewerFail.render:
+         return _viewerError ?? '模型渲染失败 · 文件可能损坏或格式不受支持';
+       case ViewerFail.noModel:
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/packaging/assemble_windows.py	2026-10-16 03:04:36.287815700 +0800
++++ packaging/assemble_windows.py	2026-10-16 03:04:54.496517600 +0800
+@@ -164,9 +164,9 @@
+     # 只拷目录型模型（HF safetensors），跳过 >2.5GB 的单文件（大 GGUF
+     # 让用户从模型商店按需下载，避免安装包体积失控）。
+     seed_src = ROOT / '.star_core' / 'models'
+-    # 后端 PyInstaller 产物有两种布局：contents_directory='.' 时资源平铺在
+-    # 包根（_MEIPASS=包根）；默认布局则全部在 _internal/ 下（_MEIPASS=_internal）。
+-    # runtime_hook 从 _MEIPASS/.star_core 读种子，所以这里跟着实际布局走。
++    # 后端 PyInstaller 产物实际布局：PyInstaller 6.x onedir 默认 _internal/
++    # （_MEIPASS=_internal；2026-10-16 实测，contents_directory 放 COLLECT 上
++    # 会被静默忽略）。这里按实际布局定位种子目录，两种布局都能兼容。
+     _bundle = out_dir / '_internal' if (out_dir / '_internal').is_dir() else out_dir
+     seed_dst = _bundle / '.star_core' / 'models'
+     if args.with_models:
+@@ -242,7 +242,8 @@
+     # ---- 体检 ----
+     print('\n体检：')
+     # 兼容两种后端布局：默认 _internal/（_MEIPASS=_internal，当前实测布局）
+-    # 与 contents_directory='.'（资源平铺在包根）。后端资源按实际布局检查。
++    # 与理论上的平铺布局（contents_directory='.' 放 EXE 上才生效，本项目不用）。
++    # 后端资源按实际布局检查。
+     _bundle_chk = out_dir / '_internal' if (out_dir / '_internal').is_dir() else out_dir
+     must = [
+         (EXE_NEW_NAME, '前端主程序', out_dir),
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/packaging/backend.spec	2026-10-16 02:54:33.475546500 +0800
++++ packaging/backend.spec	2026-10-16 02:57:25.698089400 +0800
+@@ -198,10 +198,15 @@
+ #      会让"资源在 A、数据在 B"这种错位问题变得极难排查。
+ #   onedir 下两者都是 exe 所在目录，且与 Flutter Release 目录天然同构，可直接合并。
+ #
+-# contents_directory='.' 是关键：
+-#   PyInstaller 6.x 默认把依赖塞进 _internal/ 子目录，但 sys._MEIPASS 仍指向
+-#   exe 所在目录 → resource_dir() 会指空，resources/web、models 全部找不到，
+-#   3D 直接黑屏。平铺（'.'）才能让 _MEIPASS 与资源真实位置一致。
++# 布局说明（2026-10-16 核实，PyInstaller 6.22.3 实测）：
++#   onedir 产物实际是 <run>/backend.exe + <run>/_internal/。
++#   contents_directory 只在 EXE() 上生效；放在 COLLECT 上会被静默忽略
++#   （PyInstaller/building/api.py 的 COLLECT.__init__ 只从 EXE 实例读取）。
++#   本项目所有消费方（config.resource_dir、webpanel、runtime_hook、
++#   assemble_windows）都从 sys._MEIPASS 动态推导，两种布局都能正确解析，
++#   故保持默认 _internal/ 布局即可。不要为了「平铺」把参数挪到 EXE——
++#   那会让 .star_core 数据目录落进包顶层，被 assemble 的跳过规则漏掉，
++#   插件种子静默失效。
+ if ONEFILE:
+     # 单文件模式（XIAOLING_ONEFILE=1）：后端打成单个 dist/backend 可执行文件，
+     # 便于本地 Linux/macOS 复现脚本与 CI 直接 `cp dist/backend $BUNDLE/backend`。
+@@ -259,5 +264,4 @@
+         upx=False,
+         upx_exclude=[],
+         name='backend',
+-        contents_directory='.',
+     )
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/packaging/README.md	2026-10-16 03:04:36.369468600 +0800
++++ packaging/README.md	2026-10-16 03:04:54.472455500 +0800
+@@ -3,8 +3,8 @@
+ > 本文件描述当前架构：Flutter 桌面前端 + Python gRPC 后端，入口在根目录 `main.py`，
+ > 后端代码在 `backend/`。版本固定为 0.0.1（tag `v0.0.1`）。
+ >
+-> - 统一后端打包配置是 **`packaging/backend.spec`**（onedir，`contents_directory='.'`，
+->   显式收集 VRM/动作/resources/web/插件/proto 与 llama_cpp 运行时）。
++> - 统一后端打包配置是 **`packaging/backend.spec`**（onedir，产物默认 `_internal/`
++>   布局，显式收集 VRM/动作/resources/web/插件/proto 与 llama_cpp 运行时）。
+ > - **`packaging/xiaoling.spec`** 是兼容入口，直接转交 `backend.spec`（不再指向旧的
+ >   xl.py / core / 中文目录）。
+ > - **`packaging/build.py`** 是一键打包器（自动按平台产出 zip/tar.gz/deb/AppImage/dmg）。
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/packaging/requirements_frozen_xiaoling_pkg.txt	2026-10-16 02:54:33.552165800 +0800
++++ packaging/requirements_frozen_xiaoling_pkg.txt	2026-10-16 02:57:25.666303900 +0800
+@@ -14,7 +14,7 @@
+ charset-normalizer==3.5.2
+ comtypes==1.4.17
+ diskcache==5.6.3
+-edge-tts==7.2.8
++edge-tts==7.3.1
+ frozenlist==1.8.0
+ grpcio==1.84.0
+ grpcio-tools==1.84.0
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/packaging/xiaoling.spec	2026-10-16 03:04:36.408462100 +0800
++++ packaging/xiaoling.spec	2026-10-16 03:04:54.472455500 +0800
+@@ -11,8 +11,10 @@
+ 现状
+ ====
+ 统一打包配置为 packaging/backend.spec：入口 main.py，onedir（或 XIAOLING_ONEFILE=1
+-单文件），contents_directory='.'，显式登记 backend.core.* / backend.rpc.* /
+-backend.renderer.* 与 llama_cct 运行时，并收集 resources/web、VRM 模型、动作、
++单文件），产物默认 _internal/ 布局（contents_directory 参数在本项目不使用——
++2026-10-16 实测放 COLLECT 上会被 PyInstaller 静默忽略，消费方均走 sys._MEIPASS
++动态解析），显式登记 backend.core.* / backend.rpc.* /
++backend.renderer.* 与 llama_cpp 运行时，并收集 resources/web、VRM 模型、动作、
+ 插件与 proto 契约。
+ 
+ 本文件保留为兼容入口：任何旧文档 / 旧脚本里写的
+--- /c/Users/MVP/Desktop/XLmodel修复备份-20261016/requirements.txt	2026-10-16 02:54:33.615267800 +0800
++++ requirements.txt	2026-10-16 02:57:25.665697700 +0800
+@@ -39,7 +39,7 @@
+ opencv-python>=4.8.0          # 2D 兜底视频动画（无 WebView 时）
+ pyttsx3>=2.90                 # 离线语音朗读
+ sounddevice>=0.4.6            # 麦克风语音输入
+-edge-tts>=6.1.0               # 联网情感语音（multimodal.py 懒加载）
++edge-tts>=7.3.1               # 联网情感语音（multimodal.py 懒加载）；7.3.1 起修复微软服务端 Sec-MS-GEC 403
+ # 以下默认注释掉：体积/系统依赖较大，按需取消注释并按注释完成额外步骤
+ # playwright>=1.40.0           # 【可选】真实浏览器自动化：渲染 JS 动态页面/截图/点击。
+ #                               装库后须执行 `playwright install chromium` 下载内核；

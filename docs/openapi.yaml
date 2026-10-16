@@ -1,0 +1,670 @@
+openapi: 3.0.3
+info:
+  title: 小凌 XLmodel 本地接口
+  version: 1.1.0
+  description: |
+    小凌是本地单机应用，默认不对外暴露 HTTP 服务；本文件描述的是
+    「若把成长引擎包装成本地 HTTP 服务」时推荐采用的契约形态，
+    以及渲染层/成长引擎的字段约定。字段名与 core/*.py 返回值保持一致。
+paths:
+  /growth/status:
+    get:
+      summary: 成长状态
+      responses:
+        '200':
+          description: 状态对象
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GrowthStatus' }
+  /growth/trigger:
+    get:
+      summary: 判定当前能否训练
+      parameters:
+        - { name: manual, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: 判定结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TriggerResult' }
+  /growth/train:
+    post:
+      summary: 训练一轮并自动检查
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                epochs: { type: integer, default: 2 }
+                manual: { type: boolean, default: false }
+      responses:
+        '200': { description: 训练与检查结果 }
+  /growth/eval:
+    get:
+      summary: 换代门槛实况（体积 + 磁盘上限 + 可选生成式验收）
+      description: |
+        注意：这不是「三条件评估」。验证集 loss 只作为训练事件上报，
+        不参与换代判定；设计稿里的通用基准 50 道题从未实现。
+        真正会拦住换代的只有 cap_check（磁盘/代数上限）与
+        _acceptance_gate（config.growth.require_eval 开启时的生成式验收）。
+      responses:
+        '200':
+          description: 门槛结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromotionGate' }
+  /growth/pause:
+    post:
+      summary: '暂停自动成长（RPC: growth:pause [原因]）'
+      parameters:
+        - { name: reason, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: '{ok, paused, reason, already_paused, note}'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  paused: { type: boolean }
+                  reason: { type: string }
+                  already_paused: { type: boolean }
+                  note: { type: string }
+  /growth/resume:
+    post:
+      summary: '恢复自动成长（RPC: growth:resume），回显下一轮能否训练'
+      responses:
+        '200':
+          description: '{ok, paused, can_train_now, train_blockers[], note}'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/TriggerResult' }
+                  - type: object
+                    properties:
+                      ok: { type: boolean }
+                      paused: { type: boolean }
+                      note: { type: string }
+  /growth/rollback:
+    get:
+      summary: '回收区可回滚代数（RPC: growth:rollback，只读）'
+      responses:
+        '200':
+          description: '{ok, readonly, active_gen, can_rollback, trash[], usage, note}'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RollbackPreview' }
+    post:
+      summary: '回滚到指定代（RPC: growth:rollback <代> confirm，后台任务）'
+      parameters:
+        - { name: gen, in: query, required: true, schema: { type: integer } }
+        - { name: confirm, in: query, required: true, schema: { type: string, example: confirm } }
+      responses:
+        '202':
+          description: '已提交后台任务 {task_id, poll, poll_result}'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  task_id: { type: string }
+                  poll: { type: string }
+                  poll_result: { type: string }
+  /growth/gc:
+    get:
+      summary: '旧代清理演练（RPC: growth:gc [保留数]，不删文件也不写 journal）'
+      responses:
+        '200':
+          description: 演练结果，见 GcDryRun
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GcDryRun' }
+    post:
+      summary: '真删除旧代（RPC: growth:gc run [force]，后台任务）'
+      parameters:
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '202':
+          description: '已提交后台任务 {task_id, poll, poll_result}'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  task_id: { type: string }
+                  poll: { type: string }
+                  poll_result: { type: string }
+  /growth/purge:
+    get:
+      summary: '样本清理预览（RPC: growth:purge <范围>，只数条数不执行 DELETE）'
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [all, trained, disliked, dpo], default: all }
+      responses:
+        '200':
+          description: '{ok, readonly, scope, would_remove, stats{}, warning}'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurgePreview' }
+    post:
+      summary: '真删样本（RPC: growth:purge <范围> confirm，不可撤销，后台任务）'
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [all, trained, disliked, dpo] }
+        - { name: confirm, in: query, required: true, schema: { type: string, example: confirm } }
+      responses:
+        '202':
+          description: '已提交后台任务 {task_id, poll, poll_result}'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  task_id: { type: string }
+                  poll: { type: string }
+                  poll_result: { type: string }
+  /growth/export:
+    post:
+      summary: 导出模型包（RPC 侧走 training:export / training:gguf 后台任务）
+      responses:
+        '200': { description: 导出结果 }
+  /growth/distill:
+    get:
+      summary: 蒸馏真实状态（只读，不发网络请求）
+      responses:
+        '200':
+          description: 老师端配置状态 / 队列 / 配额与费用估算
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DistillStatus' }
+    post:
+      summary: 按队列问老师（长任务，返回 task_id 供轮询）
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 8 } }
+      responses:
+        '202':
+          description: '已提交后台任务 {task_id, poll, poll_result}'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  task_id: { type: string }
+                  poll: { type: string }
+                  poll_result: { type: string }
+  /growth/samples:
+    get:
+      summary: 样本 / 蒸馏 / 损失曲线摘要
+      responses:
+        '200': { description: 摘要 }
+  /model/search:
+    get:
+      summary: 魔搭（ModelScope）远端搜索（对应 ExecuteCommand 'model:search <词> [页]'）
+      description: |
+        真连 /openapi/v1/models?search=。失败一律 ok:false + error，
+        绝不返回空列表冒充「没找到」；空关键词直接拒绝，不回全量清单。
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 } }
+      responses:
+        '200':
+          description: 搜索结果（HTTP 200 不代表业务成功，看 ok 字段）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RemoteSearchResult' }
+  /model/files:
+    get:
+      summary: 列远端仓库文件与 .gguf 量化档（'model:files <ns/name>'）
+      parameters:
+        - { name: repo, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 文件清单
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RemoteFilesResult' }
+  /model/recommend:
+    get:
+      summary: 按本机硬件算出的适配/推荐（'model:recommend'）
+      description: |
+        真调 detect_hardware() + fit_models_for_hardware()。
+        RAM 探测不到时 available:false，why 写明原因，且所有 recommended 强制 false。
+      responses:
+        '200':
+          description: 推荐结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HardwareRecommendation' }
+  /model/downloadremote:
+    post:
+      summary: 后台下载远端 GGUF（'model:downloadremote <ns/name> [量化档]'）
+      description: |
+        仓库名必须形如 namespace/name；含 .. / 反斜杠 / 盘符一律拒绝（要拼进 URL）。
+        立即返回 task_id；进度真源是 sandbox:status 的 progress.<repo>，
+        取消走 agent:task cancel <task_id>（协作式，.part 保留可续传）。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo]
+              properties:
+                repo: { type: string }
+                quant: { type: string, default: Q4_K_M }
+      responses:
+        '200':
+          description: 后台任务受理
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  task_id: { type: string }
+                  poll: { type: string }
+                  poll_result: { type: string }
+                  repo: { type: string }
+                  quant: { type: string }
+  /api/config:
+    get:
+      summary: 统一外部 API 配置快照（ExecuteCommand 'api:cfg'）
+      description: |
+        config.api.{enabled,base,key,model,provider}，由 core/api_config.py 读写。
+        收敛历史上互不相通的两套（training.api_* 与 deepseek_*）。
+        key 永远打码回流（前4+****+后4），明文永不出后端。
+        消费方：设置页「API 配置」选项卡 / 训练蒸馏（trainer.api_cfg 回落）/
+        Agent 思考（启用时外部优先）/ 语音识别（whisper 缺席时云端兜底）。
+      responses:
+        '200':
+          description: 打码快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiConfig' }
+    post:
+      summary: 写单项设置（'api:set [enabled|base|key|model|provider] <值>'）
+      description: |
+        base 必须 http/https；key 空串=清除；provider 限白名单。
+        校验失败如实 ok:false + error，不写坏配置。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [field, value]
+              properties:
+                field: { type: string, enum: [enabled, base, key, model, provider] }
+                value: { type: string }
+      responses:
+        '200':
+          description: 写入后的打码快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiConfig' }
+  /api/test:
+    post:
+      summary: 对配置端点发真实最小连通性测试（'api:test'）
+      responses:
+        '200':
+          description: 测试结果（失败带 error，绝不伪造成功）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiCallResult' }
+  /api/chat:
+    post:
+      summary: 外部 OpenAI 兼容 /chat/completions（'api:chat <messagesJson>'）
+      description: |
+        Agent / 蒸馏复用的同一入口。未启用（enabled=false）时返回
+        ok:false + disabled:true 并明说「调用方自动降级本地模型」——不会假装在用 API。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role: { type: string }
+                      content: { type: string }
+      responses:
+        '200':
+          description: 调用结果（HTTP 200 不代表业务成功，看 ok）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiCallResult' }
+  /system/ports:
+    get:
+      summary: gRPC 与 3D 查看器的真实监听端口（'system:ports'）
+      description: |
+        前端不再盲扫 8765~8785：后端端口被占会顺延，顺延出扫描窗口就永远找不到，
+        还可能连到别的软件同号服务。web=0 表示查看器确实没起来，web_error 给原因。
+      responses:
+        '200':
+          description: 端口快照
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  grpc: { type: integer }
+                  web: { type: integer }
+                  web_host: { type: string }
+                  web_error: { type: string, description: '仅在查看器未启动/启动失败时出现' }
+  /viewer/models/{name}:
+    get:
+      summary: 取 3D 形象文件（静态服务，支持 Range）
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: Range, in: header, required: false, schema: { type: string },
+            description: 'bytes=a-b / bytes=a- / bytes=-n；多段范围如实退回整文件 200，不伪装 206' }
+      responses:
+        '200': { description: '整文件或整文件降级（Accept-Ranges: bytes）' }
+        '206': { description: '分段内容，Content-Range 与请求区间精确对齐' }
+        '404': { description: '模型不存在，或路径越界（../、绝对路径、盘符一律 404）' }
+        '416': { description: '范围越界，Content-Range: bytes */<size>' }
+    head:
+      summary: 只取头部（Content-Length / Accept-Ranges），不回体
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '头部就绪（此前未实现 do_HEAD → 501，前端会判服务不可用）' }
+        '404': { description: '不存在' }
+components:
+  schemas:
+    RemoteSearchResult:
+      type: object
+      description: 'search_remote() 返回；ok=false 时 models 为空并带 error，绝不冒充「搜到了但没结果」'
+      properties:
+        ok: { type: boolean }
+        query: { type: string }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer, description: '接口 data.total_count' }
+        source: { type: string, enum: [modelscope] }
+        error: { type: string, nullable: true }
+        models:
+          type: array
+          items:
+            type: object
+            properties:
+              repo: { type: string, description: 'namespace/name，拼 URL 前已校验' }
+              name: { type: string }
+              display_name: { type: string }
+              description: { type: string, description: '截断到 200 字' }
+              downloads: { type: integer }
+              likes: { type: integer }
+              license: { type: string }
+              tasks: { type: array, items: { type: string } }
+              size_mb: { type: integer }
+              params: { type: string, description: '接口给的是参数量整数，这里换算成 0.5B / 7.6B 这种可读写法' }
+              tags: { type: array, items: { type: string } }
+              private: { type: boolean }
+              gated: { type: boolean, description: '需登录/申请，前端要标注而不是当作可直接下载' }
+              updated: { type: string }
+    RemoteFilesResult:
+      type: object
+      description: 'remote_model_files() 返回；接口是旧版 /api/v1/... 大小写敏感（Data.Files）'
+      properties:
+        ok: { type: boolean }
+        repo: { type: string }
+        error: { type: string, nullable: true }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              path: { type: string }
+              size_mb: { type: number }
+              is_lfs: { type: boolean }
+        gguf: { type: array, items: { type: string }, description: '只有 .gguf 结尾的' }
+    HardwareRecommendation:
+      type: object
+      description: 'recommend_for_hardware() 返回'
+      properties:
+        ok: { type: boolean }
+        tier: { type: string, enum: [flagship, high, standard, entry, minimal, unknown] }
+        available:
+          type: boolean
+          description: '如实反映硬件探测结果；false 时下面所有 recommended 一定为 false'
+        why: { type: string, description: '引用真实 RAM/VRAM 数字，或写明探测失败原因' }
+        detected:
+          type: object
+          properties:
+            ram_total_gb: { type: number }
+            ram_available_gb: { type: number }
+            vram_gb: { type: number }
+            gpu_name: { type: string }
+            disk_free_gb: { type: number }
+            cpu_cores: { type: integer }
+            has_cuda: { type: boolean }
+            has_metal: { type: boolean }
+            platform: { type: string }
+        models:
+          type: array
+          description: 'fit_models_for_hardware() 的逐模型计算结果，参数量/量化档/上下文取自 MODEL_PRESETS 真实字段'
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              params: { type: string }
+              quant: { type: string }
+              context: { type: string }
+              size_mb: { type: number }
+              ram_gb: { type: number }
+              vram_gb: { type: number }
+              can_run: { type: boolean }
+              recommended: { type: boolean }
+    GrowthStatus:
+      type: object
+      properties:
+        base_bytes: { type: integer }
+        adapter_bytes: { type: integer }
+        progress_percent: { type: number }
+        promotions: { type: integer }
+        self_research: { type: boolean }
+        paused: { type: boolean }
+        rank: { type: integer }
+        can_train_now: { type: boolean }
+        train_blockers: { type: array, items: { type: string } }
+        stage: { type: string }
+    TriggerResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        reasons: { type: array, items: { type: string } }
+        need_samples: { type: integer }
+        samples: { type: integer }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+    PromotionGate:
+      type: object
+      description: |
+        字段与 rpc/server.py::_handle_growth_cmd('promotecheck') 的返回一致。
+        旧的 EvalResult{A,B,C} 已删：只有一条体积门槛是真的，
+        B/C 从未实现，别拿这个结构当前端契约。
+      properties:
+        ok: { type: boolean }
+        paused: { type: boolean }
+        base_bytes: { type: integer }
+        adapter_bytes: { type: integer, description: '只算 LoRA 权重，不含 checkpoints/ 与 optimizer.pt' }
+        progress_percent: { type: number }
+        size_gate_met: { type: boolean, description: '体积门槛（唯一硬门槛）' }
+        cap:
+          type: object
+          description: 'ModelLifecycle.cap_check()，blocked=true 时晋升返回 action=blocked'
+          properties:
+            blocked: { type: boolean }
+            reasons: { type: array, items: { type: string } }
+            message: { type: string }
+        acceptance:
+          type: object
+          description: '生成式验收配置；enforced=null 表示配置读不出来，不猜「已开启」'
+          properties:
+            enforced: { type: boolean, nullable: true }
+            threshold: { type: number, nullable: true }
+            source: { type: string }
+        will_run_acceptance: { type: boolean }
+        generation: { type: integer }
+    DistillStatus:
+      type: object
+      description: 'growth:distill 只读返回；老师端未配置时 note 直说缺哪一项'
+      properties:
+        ok: { type: boolean }
+        enabled: { type: boolean }
+        batch_limit: { type: integer }
+        teacher:
+          type: object
+          description: 'teacher_config()；只回显 key_len/key_tail，绝不明文返回 Key'
+          properties:
+            configured: { type: boolean }
+            reason: { type: string, nullable: true }
+            base_url: { type: string }
+            model: { type: string }
+            key_tail: { type: string }
+            source: { type: string }
+        queue:
+          type: object
+          properties:
+            pending: { type: integer }
+            answered: { type: integer }
+            failed: { type: integer }
+            skipped: { type: integer }
+            skipped_stale: { type: integer }
+        quota:
+          type: object
+          properties:
+            used_today: { type: integer }
+            daily_limit: { type: integer }
+            cache_entries: { type: integer }
+            month_cost_yuan: { type: number, description: '估算值，非账单' }
+    DistillRunResult:
+      type: object
+      description: 'growth:distill run 的后台任务结果（distill_round 返回值）'
+      properties:
+        ok: { type: boolean }
+        asked: { type: integer }
+        answered: { type: integer }
+        from_cache: { type: integer }
+        failed: { type: integer }
+        gave_up: { type: integer }
+        skipped_stale: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        cost_yuan: { type: number }
+        queued: { type: integer }
+        truncated: { type: integer, description: '时间预算用尽后留在队列里的条数' }
+        remaining_pending: { type: integer }
+        elapsed_sec: { type: number }
+        message: { type: string }
+    RollbackPreview:
+      type: object
+      description: |
+        growth:rollback 的只读返回（裸列回收区），以及 growth:rollback <代>
+        的演练预览（带 dry_run）。两者都必须 readonly=true；
+        预览失败（代数不在回收区/目录已删）时不带 dry_run，只给 message。
+      properties:
+        ok: { type: boolean }
+        readonly: { type: boolean }
+        dry_run: { type: boolean, description: '仅演练预览返回' }
+        active_gen: { type: integer, nullable: true }
+        from_gen: { type: integer, nullable: true }
+        target_gen: { type: integer, nullable: true }
+        can_rollback: { type: boolean }
+        trash:
+          type: array
+          description: '仅裸调用返回：回收区里的代数'
+          items:
+            type: object
+            properties:
+              gen: { type: integer }
+              bytes: { type: integer }
+              retired_at: { type: string }
+              exists: { type: boolean, description: '目录是否还在磁盘上' }
+        usage: { type: string }
+        next: { type: string, description: '下一步该怎么发（带 confirm）' }
+        note: { type: string }
+        message: { type: string }
+    GcDryRun:
+      type: object
+      description: |
+        growth:gc 的演练返回。它直接调 ModelLifecycle.gc(dry_run=True)，
+        **不经过 GrowthEngine.gc()** —— 后者无条件写 journal，
+        前端每刷新一次成长页就会多一行流水。
+      properties:
+        ok: { type: boolean }
+        readonly: { type: boolean }
+        dry_run: { type: boolean }
+        keep_generations: { type: integer }
+        trash_generations: { type: integer }
+        keepers: { type: array, items: { type: integer } }
+        deletable:
+          type: array
+          items:
+            type: object
+            properties:
+              gen: { type: integer }
+              dir: { type: string }
+              bytes: { type: integer }
+              human: { type: string }
+        freed_bytes: { type: integer }
+        freed_human: { type: string }
+        allowed: { type: boolean, description: '稳定期未达标时 false，真删也会照样拒绝' }
+        stability:
+          type: object
+          properties:
+            stable: { type: boolean }
+            hours_elapsed: { type: number }
+            dialogue_turns: { type: integer }
+            need_hours: { type: number }
+            need_turns: { type: integer }
+            detail: { type: string }
+        message: { type: string }
+        next: { type: string }
+    PurgePreview:
+      type: object
+      description: growth:purge <范围> 的只读预览：按 scope 数条数，不执行 DELETE
+      properties:
+        ok: { type: boolean }
+        readonly: { type: boolean }
+        scope: { type: string, enum: [all, trained, disliked, dpo] }
+        would_remove: { type: integer }
+        warning: { type: string, description: '不可撤销提示，永远带上' }
+        stats: { type: object, additionalProperties: true }
+    ApiConfig:
+      type: object
+      description: 'api:cfg 的打码快照；明文 key 永不回流（api_key_masked 前4+****+后4）'
+      properties:
+        ok: { type: boolean }
+        enabled: { type: boolean }
+        base: { type: string, description: '未配置时回显示默认值，has_base 才说明用户真填过' }
+        has_base: { type: boolean }
+        key_masked: { type: string }
+        has_key: { type: boolean }
+        model: { type: string }
+        provider: { type: string, enum: [openai, deepseek, dashscope, moonshot, zhipu, custom] }
+        providers: { type: array, items: { type: string }, description: '白名单，前端下拉用' }
+        configured: { type: boolean, description: 'base 与 key 都有才算配好' }
+        source: { type: string, enum: [config, default] }
+        usage: { type: string, description: '裸 api:cfg 时附带的子命令速查' }
+    ApiCallResult:
+      type: object
+      description: 'api:chat / api:test 的返回；HTTP 200 不代表业务成功，看 ok'
+      properties:
+        ok: { type: boolean }
+        text: { type: string, description: 'chat 成功时的模型回复' }
+        model: { type: string, description: '实际使用的模型名（来自请求、配置或端点回显）' }
+        elapsed_ms: { type: integer }
+        disabled: { type: boolean, description: 'true=未启用，调用方应降级本地模型；错误文案会明说' }
+        error: { type: string, nullable: true }

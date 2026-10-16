@@ -1,0 +1,11 @@
+{
+  "name": "pdf_reader",
+  "version": "0.0.1",
+  "description": "PDF 文本阅读：提取全文 / 按页读取 / 搜索关键词",
+  "author": "xiaoling",
+  "category": "tool",
+  "entry": "main.py",
+  "permissions": ["file:read"],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}

@@ -1,0 +1,132 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.star_core/
+data/
+
+# ---- 运行时生成物 / 沙箱（每次运行重建，不入库）----
+.symbol_index.json
+logs/
+tmp/
+workspace/
+
+# ---- 内置插件运行时持久化数据（todo_manager / code_snippets / note_taker / rss_reader）----
+plugins/builtin/*/store.json
+plugins/builtin/*/store.json.tmp
+plugins/builtin/*/notes.json
+plugins/builtin/*/notes.json.tmp
+plugins/builtin/*/feeds.json
+plugins/builtin/*/feeds.json.tmp
+# PluginManager 运行时开关状态
+plugins/builtin/state.json
+
+frontend/build/
+frontend/.dart_tool/
+frontend/test/
+frontend/.idea/
+*.iml
+# 注意：这里必须是 `resources/models/*` 而不是 `resources/models/`。
+# 被忽略的是「目录」时，Git 不会进入该目录，下面的 ! 例外就永远不生效。
+# 内置形象 小凌.vrm 是 3D 渲染的必需资源（历史上从来没有进过库，
+# 导致 viewer.html 永远 404 —— 见 resources/models/README.md），
+# 所以显式放行这一个文件，其余模型仍然一律不入库。
+resources/models/*
+resources/animations/
+actionAssets/
+characterModels/
+assetsRaw/
+*.vrm
+*.fbx
+*.vrma
+# 内置形象必须入库（放在所有模型忽略规则之后，最后匹配的规则生效）：
+# 3D 查看器一直加载不到形象，根因就是资源从来没有进过版本库。
+# 只放行这一个文件，用户自己丢进来的其它模型仍然一律忽略。
+!resources/models/README.md
+!resources/models/小凌.vrm
+*.pt
+*.safetensors
+*.bin
+*.pth
+*.ckpt
+_shots/
+test_appimage/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+node_modules/
+frontend/.metadata
+*.log
+.DS_Store
+Thumbs.db
+
+# ---- Flutter 各平台生成物（flutter create / build 自动生成，不入库）----
+frontend/windows/flutter/ephemeral/
+frontend/linux/flutter/ephemeral/
+frontend/macos/Flutter/ephemeral/
+frontend/android/local.properties
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/native/.gradle/
+frontend/android/native/app/build/
+.flutter-plugins-dependencies
+
+# ---- 打包中间产物（PyInstaller）----
+# 注意：本工作区对批量删除有安全拦截，PyInstaller 重建时清不掉旧的 dist 目录，
+# 所以实际会按 dist、dist2、dist3… 递增出多个输出目录。这里用通配一并排除，
+# 同时 packaging/assemble_windows.py 会自动挑其中 backend.exe 最新的那个来合并。
+packaging/dist*/
+packaging/build*/
+packaging/dist/
+packaging/build/
+
+# ---- 发布产物（Release 由 CI 构建，源码仓库不放二进制）----
+*.apk
+*.aab
+*.exe
+*.msix
+*.msixbundle
+*.AppImage
+*.dmg
+*.iso
+release/
+
+
+# ---- 打包产物与构建中间件（体积巨大，绝不入库）----
+dist/
+packaging/dist/
+packaging/dist2/
+packaging/dist3/
+packaging/dist4/
+packaging/dist5/
+packaging/dist_fresh/
+packaging/build/
+packaging/build2/
+packaging/build3/
+packaging/build4/
+packaging/build5/
+*.zip
+
+# ---- 日志 / 缓存 / 待删除隔离区 ----
+*.log
+logs/
+待删除*/
+data/*.log
+backend_start.log
+_srv_err.log
+_srv_out.log
+
+# ---- 凭据与隐私 ----
+.env
+.env.*
+*.token
+*token*.json
+*credentials*
+*secret*
+
+# ---- 本机操作纪律（2026-10-14）：备份文件与临时测试目录不入库 ----
+*.bak-20261014*
+*.back
+.tmp_*/

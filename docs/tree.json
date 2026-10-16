@@ -1,0 +1,555 @@
+{
+ ".github": {
+  "workflows": {
+   "build-all.yml": 16192,
+   "build.yml": 3595,
+   "deploy-pages.yml": 1028,
+   "lint.yml": 1412,
+   "release.yml": 2868,
+   "test.yml": 944
+  }
+ },
+ ".gitignore": 2347,
+ "CHANGELOG.md": 45471,
+ "LICENSE": 1065,
+ "README.md": 12864,
+ "SANDBOX_FIX_REPORT.md": 14699,
+ "backend": {
+  "__init__.py": 663,
+  "core": {
+   "__init__.py": 555,
+   "_env_shim.py": 3546,
+   "_persist.py": 4888,
+   "activity_log.py": 7423,
+   "agent.py": 19286,
+   "background_tasks.py": 12475,
+   "browser_tool.py": 21906,
+   "channels.py": 46940,
+   "config.py": 20534,
+   "context.py": 4779,
+   "dpo.py": 4515,
+   "dsh_compat.py": 8455,
+   "engine.py": 83541,
+   "eval_probe.py": 8793,
+   "exec_gate.py": 12315,
+   "export.py": 14116,
+   "fileops.py": 7119,
+   "fusion.py": 11860,
+   "git_tool.py": 5130,
+   "growth.py": 131486,
+   "knowledge_base.py": 18828,
+   "lip_sync.py": 6963,
+   "mcp_client.py": 24185,
+   "memory.py": 83339,
+   "model.py": 136727,
+   "multimodal.py": 51297,
+   "options.py": 22881,
+   "persona_presets.py": 9932,
+   "plugin_sdk.py": 749,
+   "plugin_system.py": 38635,
+   "quarantine.py": 8897,
+   "sandbox.py": 47407,
+   "sandbox_mobile.py": 12590,
+   "search.py": 20664,
+   "security_center.py": 3293,
+   "sub_agent.py": 18727,
+   "system.py": 7108,
+   "terminal.py": 18498,
+   "tools.py": 103273,
+   "trainer.py": 61399,
+   "updater.py": 12007,
+   "webpanel.py": 25810,
+   "workflow_engine.py": 10182
+  },
+  "renderer": {
+   "__init__.py": 2083,
+   "stage.py": 10938,
+   "vrm_gltf.py": 17623
+  },
+  "rpc": {
+   "__init__.py": 0,
+   "server.py": 192574,
+   "xiaoling.proto": 13524,
+   "xiaoling_pb2.py": 22995,
+   "xiaoling_pb2_grpc.py": 80061
+  }
+ },
+ "docs": {
+  "ARCHITECTURE.md": 9918,
+  "CHANGES-vs-original.md": 22411,
+  "PACKAGING.md": 6227,
+  "PUBLISHING.md": 6566,
+  "analysisReport.md": 7032,
+  "android_sandbox_architecture.md": 4345,
+  "apiContract.csv": 4664,
+  "apiContract.md": 9356,
+  "codingGuidelines.md": 632,
+  "featureMapping.md": 7010,
+  "features.json": 7362,
+  "growthPipeline.md": 8672,
+  "languageSelection.md": 3585,
+  "openapi.yaml": 14876,
+  "stats.json": 758,
+  "tree.json": 12252,
+  "xiaolingCard.png": 164811
+ },
+ "frontend": {
+  ".gitignore": 691,
+  "README.md": 551,
+  "XL_FRONTEND_AUDIT.md": 18668,
+  "analysis_options.yaml": 1533,
+  "android": {
+   ".gitignore": 247,
+   "app": {
+    "build.gradle": 2028,
+    "src": {
+     "debug": {
+      "AndroidManifest.xml": 378
+     },
+     "main": {
+      "AndroidManifest.xml": 2849,
+      "kotlin": {
+       "com": {
+        "xiaoling": {
+         "frontend": {
+          "MainActivity.kt": 2587,
+          "SandboxService.kt": 5917
+         }
+        }
+       }
+      },
+      "python": {
+       "backend": {
+        "__init__.py": 55,
+        "config.py": 3976,
+        "model_manager.py": 6569
+       },
+       "sandbox_entry.py": 7773,
+       "xiaoling_pb2.py": 22105,
+       "xiaoling_pb2_grpc.py": 76573
+      },
+      "res": {
+       "drawable-v21": {
+        "launch_background.xml": 438
+       },
+       "drawable": {
+        "launch_background.xml": 434
+       },
+       "mipmap-hdpi": {
+        "ic_launcher.png": 544
+       },
+       "mipmap-mdpi": {
+        "ic_launcher.png": 442
+       },
+       "mipmap-xhdpi": {
+        "ic_launcher.png": 721
+       },
+       "mipmap-xxhdpi": {
+        "ic_launcher.png": 1031
+       },
+       "mipmap-xxxhdpi": {
+        "ic_launcher.png": 1443
+       },
+       "values-night": {
+        "styles.xml": 995
+       },
+       "values": {
+        "styles.xml": 996
+       }
+      }
+     },
+     "profile": {
+      "AndroidManifest.xml": 378
+     }
+    }
+   },
+   "build.gradle": 322,
+   "gradle.properties": 135,
+   "gradle": {
+    "wrapper": {
+     "gradle-wrapper.properties": 201
+    }
+   },
+   "settings.gradle": 833
+  },
+  "assets": {
+   "fonts": {
+    "InterDisplay-400.ttf": 125572,
+    "InterDisplay-500.ttf": 125664,
+    "InterDisplay-600.ttf": 125816,
+    "InterDisplay-700.ttf": 125988,
+    "InterDisplay-800.ttf": 126412,
+    "InterText-400.ttf": 125756,
+    "InterText-500.ttf": 125840,
+    "InterText-600.ttf": 126036,
+    "InterText-700.ttf": 126140,
+    "InterText-800.ttf": 126584,
+    "LICENSE-inter.txt": 4377
+   },
+   "icon.ico": 153569,
+   "icon.png": 104013,
+   "xiaoling.png": 1148287
+  },
+  "devtools_options.yaml": 184,
+  "lib": {
+   "l10n": {
+    "app_en.arb": 2351,
+    "app_localizations.dart": 8614,
+    "app_zh.arb": 2386
+   },
+   "main.dart": 56435,
+   "pages": {
+    "agent_page.dart": 23732,
+    "browser_page.dart": 1211,
+    "chat_page.dart": 78407,
+    "dashboard_page.dart": 64691,
+    "git_page.dart": 1507,
+    "growth_page.dart": 120512,
+    "model_store_page.dart": 131361,
+    "plugin_community.dart": 9137,
+    "plugins_page.dart": 60453,
+    "settings_page.dart": 124563,
+    "splash_page.dart": 14826,
+    "terminal_page.dart": 6240,
+    "training_page.dart": 120971,
+    "workflow_page.dart": 1277
+   },
+   "rpc": {
+    "client.dart": 20555,
+    "xiaoling.pb.dart": 195124,
+    "xiaoling.pbenum.dart": 433,
+    "xiaoling.pbgrpc.dart": 49858,
+    "xiaoling.pbjson.dart": 46243,
+    "xiaoling_client_ext.dart": 33842,
+    "xiaoling_ext.dart": 17249
+   },
+   "services": {
+    "local_store.dart": 8256,
+    "model_state.dart": 6921,
+    "sandbox.dart": 5945,
+    "viewer_port.dart": 5399
+   },
+   "theme": {
+    "glass.dart": 18657,
+    "locale_controller.dart": 1609,
+    "motion.dart": 4179,
+    "theme.dart": 89945,
+    "theme_controller.dart": 5361,
+    "tokens.dart": 12878,
+    "typography.dart": 16070
+   },
+   "updater.dart": 9844,
+   "widgets": {
+    "agent_creator.dart": 32558,
+    "agent_panel.dart": 38482,
+    "browser_panel.dart": 17762,
+    "code_editor.dart": 11950,
+    "code_search_panel.dart": 32924,
+    "code_viewer.dart": 11723,
+    "file_explorer.dart": 10289,
+    "git_panel.dart": 29240,
+    "knowledge_base_panel.dart": 19640,
+    "knowledge_graph_panel.dart": 14032,
+    "mcp_panel.dart": 18423,
+    "model_showcase.dart": 59055,
+    "notif_panel.dart": 20821,
+    "persona_panel.dart": 31308,
+    "plugin_store.dart": 17295,
+    "security_panel.dart": 21356,
+    "terminal_panel.dart": 14971,
+    "update_dialog.dart": 45187,
+    "workflow_builder.dart": 32694,
+    "xl_button.dart": 9969,
+    "xl_dialog.dart": 5845,
+    "xl_list_item.dart": 4988,
+    "xl_loss_chart.dart": 17225,
+    "xl_segmented_control.dart": 6203,
+    "xl_text_field.dart": 7186,
+    "xl_toast.dart": 6728
+   }
+  },
+  "linux": {
+   ".gitignore": 18,
+   "CMakeLists.txt": 5430,
+   "flutter": {
+    "CMakeLists.txt": 2815,
+    "generated_plugin_registrant.cc": 1371,
+    "generated_plugin_registrant.h": 303,
+    "generated_plugins.cmake": 837
+   },
+   "main.cc": 180,
+   "my_application.cc": 4424,
+   "my_application.h": 388
+  },
+  "macos": {
+   ".gitignore": 89,
+   "Flutter": {
+    "Flutter-Debug.xcconfig": 48,
+    "Flutter-Release.xcconfig": 48,
+    "GeneratedPluginRegistrant.swift": 771
+   },
+   "Runner.xcodeproj": {
+    "project.pbxproj": 26359,
+    "project.xcworkspace": {
+     "xcshareddata": {
+      "IDEWorkspaceChecks.plist": 238
+     }
+    },
+    "xcshareddata": {
+     "xcschemes": {
+      "Runner.xcscheme": 3655
+     }
+    }
+   },
+   "Runner.xcworkspace": {
+    "contents.xcworkspacedata": 152,
+    "xcshareddata": {
+     "IDEWorkspaceChecks.plist": 238
+    }
+   },
+   "Runner": {
+    "AppDelegate.swift": 201,
+    "Assets.xcassets": {
+     "AppIcon.appiconset": {
+      "Contents.json": 1291,
+      "app_icon_1024.png": 102994,
+      "app_icon_128.png": 5680,
+      "app_icon_16.png": 520,
+      "app_icon_256.png": 14142,
+      "app_icon_32.png": 1066,
+      "app_icon_512.png": 36406,
+      "app_icon_64.png": 2218
+     }
+    },
+    "Base.lproj": {
+     "MainMenu.xib": 23729
+    },
+    "Configs": {
+     "AppInfo.xcconfig": 605,
+     "Debug.xcconfig": 77,
+     "Release.xcconfig": 79,
+     "Warnings.xcconfig": 580
+    },
+    "DebugProfile.entitlements": 348,
+    "Info.plist": 1060,
+    "MainFlutterWindow.swift": 388,
+    "Release.entitlements": 240
+   },
+   "RunnerTests": {
+    "RunnerTests.swift": 290
+   }
+  },
+  "pubspec.lock": 26578,
+  "pubspec.yaml": 3720,
+  "windows": {
+   ".gitignore": 291,
+   "CMakeLists.txt": 4873,
+   "flutter": {
+    "CMakeLists.txt": 3742,
+    "generated_plugin_registrant.cc": 936,
+    "generated_plugin_registrant.h": 302,
+    "generated_plugins.cmake": 847
+   },
+   "runner": {
+    "CMakeLists.txt": 1796,
+    "Runner.rc": 3031,
+    "flutter_window.cpp": 2122,
+    "flutter_window.h": 928,
+    "main.cpp": 1261,
+    "resource.h": 432,
+    "resources": {
+     "app_icon.ico": 33772
+    },
+    "runner.exe.manifest": 602,
+    "utils.cpp": 1797,
+    "utils.h": 672,
+    "win32_window.cpp": 8534,
+    "win32_window.h": 3522
+   }
+  }
+ },
+ "main.py": 8821,
+ "packaging": {
+  "README.md": 5095,
+  "assemble_windows.py": 15282,
+  "backend.spec": 11088,
+  "build.py": 14289,
+  "build_single_exe.py": 5611,
+  "launcher.py": 11459,
+  "launcher.spec": 1772,
+  "linux": {
+   "AppRun": 431,
+   "build_appimage.sh": 2701,
+   "install_deps.sh": 1429,
+   "xiaoling.desktop": 331,
+   "xiaoling.png": 1148287
+  },
+  "macos": {
+   "build_dmg.sh": 2115,
+   "make_dmg.sh": 355
+  },
+  "requirements_frozen_xiaoling_pkg.txt": 1213,
+  "runtime_hook.py": 5518,
+  "termux": {
+   "install.sh": 1465
+  },
+  "windows": {
+   "README.md": 731,
+   "xiaoling.iss": 1645,
+   "xiaoling.nsi": 2198
+  },
+  "xiaoling.spec": 1545
+ },
+ "plugins": {
+  "builtin": {
+   "calendar_helper": {
+    "main.py": 5645,
+    "manifest.json": 308
+   },
+   "code_formatter": {
+    "main.py": 6051,
+    "manifest.json": 323
+   },
+   "code_review": {
+    "main.py": 8053,
+    "manifest.json": 331
+   },
+   "code_snippets": {
+    "main.py": 7323,
+    "manifest.json": 340
+   },
+   "file_organizer": {
+    "main.py": 9652,
+    "manifest.json": 328
+   },
+   "git_helper": {
+    "main.py": 5106,
+    "manifest.json": 310
+   },
+   "hello_world": {
+    "main.py": 268,
+    "manifest.json": 209
+   },
+   "note_taker": {
+    "main.py": 7718,
+    "manifest.json": 337
+   },
+   "pdf_reader": {
+    "main.py": 6438,
+    "manifest.json": 284
+   },
+   "rss_reader": {
+    "main.py": 12251,
+    "manifest.json": 320
+   },
+   "system_monitor": {
+    "main.py": 8104,
+    "manifest.json": 287
+   },
+   "todo_manager": {
+    "main.py": 7604,
+    "manifest.json": 330
+   },
+   "translator": {
+    "main.py": 4708,
+    "manifest.json": 300
+   },
+   "weather": {
+    "main.py": 4058,
+    "manifest.json": 296
+   },
+   "web_summarizer": {
+    "main.py": 3984,
+    "manifest.json": 277
+   }
+  }
+ },
+ "pytest.ini": 735,
+ "requirements-dev.txt": 683,
+ "requirements.txt": 3535,
+ "resources": {
+  "materials": {
+   "xiaoling.png": 164811
+  },
+  "sounds": {
+   "tool": {
+    "click.wav": 7982,
+    "error.wav": 7982,
+    "message.wav": 7982,
+    "notify.wav": 7982,
+    "remind.wav": 7982,
+    "start.wav": 7982,
+    "success.wav": 7982,
+    "wake.wav": 7982
+   }
+  },
+  "web": {
+   "vendor": {
+    "addons": {
+     "loaders": {
+      "GLTFLoader.js": 108522
+     },
+     "utils": {
+      "BufferGeometryUtils.js": 31906
+     }
+    },
+    "three-vrm.module.js": 2122515,
+    "three.module.js": 1272972
+   },
+   "viewer.html": 15643
+  }
+ },
+ "scripts": {
+  "gen_proto.py": 7389,
+  "make_sounds.py": 1485,
+  "publish.py": 13579,
+  "registry.json": 2086,
+  "setup.sh": 65796,
+  "start.sh": 559,
+  "vrm_lib.py": 17623,
+  "vrm_preview.py": 10547,
+  "vrm_to_fbx.py": 2457,
+  "xiaoling_avatar.py": 43976
+ },
+ "shared": {
+  "proto": {
+   "xiaoling.proto": 13524
+  }
+ },
+ "tests": {
+  "conftest.py": 3867,
+  "pytest.ini": 681,
+  "test_agent.py": 9103,
+  "test_agent_tools.py": 5767,
+  "test_browser_tool.py": 5452,
+  "test_contracts.py": 12155,
+  "test_distill.py": 29226,
+  "test_exec_gate.py": 12304,
+  "test_growth.py": 19311,
+  "test_growth_export_probe.py": 13423,
+  "test_growth_ops.py": 16543,
+  "test_imports.py": 2763,
+  "test_knowledge_base.py": 4387,
+  "test_memory.py": 16231,
+  "test_plugin_system.py": 4644,
+  "test_promotion_gate.py": 15971,
+  "test_renderer.py": 7938,
+  "test_resume.py": 29832,
+  "test_sandbox.py": 6481,
+  "test_sub_agent.py": 5492
+ },
+ "tools": {
+  "classify_added.py": 2153,
+  "contrast_audit.py": 6864,
+  "diff_detail.py": 3936,
+  "diff_vs_original.py": 4969,
+  "probe_viewer.js": 3992,
+  "push_repos.py": 9690
+ },
+ "website": {
+  "assets": {
+   "xiaoling.png": 1148287
+  },
+  "index.html": 60077
+ }
+}

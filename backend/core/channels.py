@@ -1,0 +1,1368 @@
+"""通信通道 - 统一管理所有外部消息通道
+
+支持：Webhook / Telegram / Discord / 飞书 / 邮件
+所有外部通道的网络调用均使用 requests，带 10 秒超时与 try-except，
+失败时优雅降级（返回 False / 跳过），不阻塞主程序。
+"""
+import asyncio
+import collections
+import json
+import logging
+import threading
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional
+
+import aiohttp
+import requests
+
+HTTP_TIMEOUT = 10
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Message:
+    """统一消息模型"""
+    channel: str
+    sender_id: str
+    sender_name: str
+    content: str
+    message_id: str = ""
+    timestamp: float = 0.0
+    metadata: dict = None
+
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+
+class ChannelBase(ABC):
+    """通信通道基类"""
+    name: str = "base"
+
+    def __init__(self, config: dict):
+        self.config = config or {}
+        self._running = False
+        self._message_handler = None
+        self.engine = None
+
+    @abstractmethod
+    async def start(self): pass
+
+    @abstractmethod
+    async def stop(self): pass
+
+    @abstractmethod
+    async def send(self, to: str = "", content: str = "") -> bool: pass
+
+    def set_message_handler(self, handler):
+        self._message_handler = handler
+
+    def set_engine(self, engine):
+        self.engine = engine
+
+    def _reply(self, text: str) -> str:
+        """收到外部消息后获取机器人回复（优先 engine.chat，同步）。"""
+        try:
+            if self.engine is not None and hasattr(self.engine, "chat"):
+                out = self.engine.chat(text)
+                if asyncio.iscoroutine(out):
+                    out = asyncio.run(out)
+                # engine.chat 契约是 (text, err) 元组；也兼容直接回字符串。
+                if isinstance(out, (tuple, list)):
+                    out = out[0] if out else ""
+                return str(out or "")
+        except Exception as e:
+            print(f"  [{self.name}] 生成回复失败: {e}")
+        return ""
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+
+# ===== Webhook（保留原有 aiohttp 真实实现）=====
+class WebhookChannel(ChannelBase):
+    name = "webhook"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.host = config.get("host", "0.0.0.0")
+        self.port = config.get("port", 9000)
+        self.path = config.get("path", "/webhook/xiaoling")
+        self._runner = None
+
+    async def start(self):
+        from aiohttp import web
+        app = web.Application()
+        app.router.add_post(self.path, self._handle)
+        app.router.add_get("/health", self._health)
+        self._runner = web.AppRunner(app)
+        await self._runner.setup()
+        site = web.TCPSite(self._runner, self.host, self.port)
+        await site.start()
+        self._running = True
+        print(f"  [Webhook] http://{self.host}:{self.port}{self.path}")
+
+    async def stop(self):
+        if self._runner:
+            await self._runner.cleanup()
+        self._runner = None
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        callback_url = self.config.get("callback_url")
+        if not callback_url:
+            return False
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, callback_url, to, content)
+
+    def _send_sync(self, callback_url: str, to: str, content: str) -> bool:
+        """真实向 callback_url 发起 HTTP POST（urllib，避免新增依赖）。"""
+        import urllib.request
+        try:
+            data = json.dumps(
+                {"to": to, "content": content}, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                callback_url, data=data,
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+                return 200 <= getattr(resp, "status", 200) < 300
+        except Exception:
+            return False
+
+    async def _handle(self, request):
+        from aiohttp import web
+        try:
+            data = await request.json()
+            msg = Message(
+                channel=self.name,
+                sender_id=str(data.get("user_id", "unknown")),
+                sender_name=data.get("user_name", "Unknown"),
+                content=data.get("text", ""),
+            )
+            if self._message_handler:
+                resp = await self._message_handler(msg)
+                return web.json_response({"reply": resp})
+            resp = self._reply(msg.content)
+            return web.json_response({"reply": resp})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+    async def _health(self, request):
+        from aiohttp import web
+        return web.json_response({"status": "ok"})
+
+
+# ===== Telegram =====
+class TelegramChannel(ChannelBase):
+    """Telegram Bot：sendMessage 发送 + getUpdates 长轮询接收（独立线程）。"""
+    name = "telegram"
+    API_BASE = "https://api.telegram.org"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.bot_token = str(config.get("bot_token", "") or "")
+        self.chat_id = str(config.get("chat_id", "") or "")
+        self._thread: Optional[threading.Thread] = None
+        self._stop_flag = threading.Event()
+        self._offset = 0
+
+    async def start(self):
+        if not self.bot_token:
+            print("  [Telegram] 未配置 bot_token，跳过启动")
+            return
+        self._stop_flag.clear()
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._poll_loop, name="telegram-poll", daemon=True)
+        self._thread.start()
+        print("  [Telegram] 已启动（getUpdates 轮询）")
+
+    async def stop(self):
+        self._stop_flag.set()
+        t = self._thread
+        if t and t.is_alive():
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, t.join, 5)
+        self._thread = None
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.bot_token:
+            return False
+        chat_id = str(to or self.chat_id or "")
+        if not chat_id:
+            return False
+        url = f"{self.API_BASE}/bot{self.bot_token}/sendMessage"
+        try:
+            r = requests.post(
+                url,
+                data={"chat_id": chat_id, "text": content},
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def _poll_loop(self):
+        offset = self._offset
+        while not self._stop_flag.is_set():
+            url = f"{self.API_BASE}/bot{self.bot_token}/getUpdates"
+            try:
+                r = requests.get(
+                    url,
+                    params={"timeout": 30, "offset": offset},
+                    timeout=HTTP_TIMEOUT + 30,
+                )
+                data = r.json()
+            except Exception:
+                time.sleep(3)
+                continue
+            if not isinstance(data, dict) or not data.get("ok"):
+                time.sleep(3)
+                continue
+            try:
+                for upd in data.get("result", []) or []:
+                    offset = max(offset, int(upd.get("update_id", 0)) + 1)
+                    msg = (upd.get("message")
+                           or upd.get("edited_message")
+                           or upd.get("channel_post")
+                           or {})
+                    chat = msg.get("chat", {}) or {}
+                    text = msg.get("text", "")
+                    if not text:
+                        continue
+                    reply = self._reply(text)
+                    if reply:
+                        self._send_sync(str(chat.get("id", "")), reply)
+            except Exception as e:
+                print(f"  [Telegram] 处理更新异常: {e}")
+        self._offset = offset
+
+
+# ===== Discord（Webhook 仅发送模式）=====
+class DiscordChannel(ChannelBase):
+    """Discord 自定义 Webhook：POST JSON 发送，不支持接收。"""
+    name = "discord"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.webhook_url = str(config.get("webhook_url", "") or "")
+
+    async def start(self):
+        if not self.webhook_url:
+            print("  [Discord] 未配置 webhook_url，跳过启动")
+            return
+        self._running = True
+        print("  [Discord] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.webhook_url:
+            return False
+        try:
+            r = requests.post(
+                self.webhook_url,
+                json={"content": content, "username": "晓灵"},
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code in (200, 204)
+        except Exception:
+            return False
+
+
+# ===== 飞书（自定义机器人 Webhook 仅发送模式）=====
+class FeishuChannel(ChannelBase):
+    """飞书自定义机器人 Webhook：POST msg_type=text 发送，不支持接收。"""
+    name = "feishu"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.webhook_url = str(config.get("webhook_url", "") or "")
+
+    async def start(self):
+        if not self.webhook_url:
+            print("  [飞书] 未配置 webhook_url，跳过启动")
+            return
+        self._running = True
+        print("  [飞书] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.webhook_url:
+            return False
+        try:
+            r = requests.post(
+                self.webhook_url,
+                json={"msg_type": "text", "content": {"text": content}},
+                timeout=HTTP_TIMEOUT,
+            )
+            data = r.json() if r.headers.get(
+                "Content-Type", "").startswith("application/json") else {}
+            return r.status_code == 200 and data.get("code", 0) == 0
+        except Exception:
+            return False
+
+
+# ===== WhatsApp（Business API / HTTP 桥接，仅发送模式）=====
+class WhatsAppChannel(ChannelBase):
+    """WhatsApp 通道（WhatsApp Business API 或 whatsapp-web.js HTTP 桥接）。
+
+    配置：api_url / token / phone_number_id / enabled。
+    """
+    name = "whatsapp"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_url = str(config.get("api_url", "") or "").rstrip("/")
+        self.token = str(config.get("token", "") or "")
+        self.phone_number_id = str(config.get("phone_number_id", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        self._running = True
+        print("  [WhatsApp] 通道已启动（仅发送模式，webhook 待接入）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.enabled or not self.api_url or not self.token:
+            return False
+        recipient = str(to or "")
+        if not recipient:
+            return False
+        try:
+            r = requests.post(
+                f"{self.api_url}/messages",
+                headers={"Authorization": f"Bearer {self.token}"},
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": recipient,
+                    "type": "text",
+                    "text": {"body": content},
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+
+# ===== Slack（Webhook + Bot API，仅发送模式）=====
+class SlackChannel(ChannelBase):
+    """Slack 通道：优先 incoming webhook，否则走 Bot API chat.postMessage。
+
+    配置：webhook_url / bot_token / channel / enabled。
+    """
+    name = "slack"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.webhook_url = str(config.get("webhook_url", "") or "")
+        self.bot_token = str(config.get("bot_token", "") or "")
+        self.channel = str(config.get("channel", "#general") or "#general")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        self._running = True
+        print("  [Slack] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.enabled:
+            return False
+        try:
+            if self.webhook_url:
+                r = requests.post(
+                    self.webhook_url,
+                    json={"text": content},
+                    timeout=HTTP_TIMEOUT,
+                )
+                return r.status_code == 200
+            elif self.bot_token:
+                r = requests.post(
+                    "https://slack.com/api/chat.postMessage",
+                    headers={"Authorization": f"Bearer {self.bot_token}"},
+                    json={"channel": self.channel, "text": content},
+                    timeout=HTTP_TIMEOUT,
+                )
+                return bool(r.json().get("ok", False))
+        except Exception:
+            return False
+        return False
+
+
+# ===== Signal（signal-cli REST API，仅发送模式）=====
+class SignalChannel(ChannelBase):
+    """Signal 通道（通过 signal-cli REST API）。
+
+    配置：api_url / phone_number / enabled。
+    """
+    name = "signal"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_url = str(config.get("api_url", "") or "").rstrip("/")
+        self.phone_number = str(config.get("phone_number", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        self._running = True
+        print("  [Signal] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.enabled or not self.api_url:
+            return False
+        recipient = str(to or "")
+        if not recipient:
+            return False
+        try:
+            r = requests.post(
+                f"{self.api_url}/v2/send",
+                json={
+                    "message": content,
+                    "number": self.phone_number,
+                    "recipients": [recipient],
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            return r.status_code == 201
+        except Exception:
+            return False
+
+
+# ===== 邮件（保留）=====
+class EmailChannel(ChannelBase):
+    name = "email"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.smtp_host = config.get("smtp_host", "")
+        self.smtp_port = config.get("smtp_port", 465)
+        self.email_addr = config.get("email_addr", "")
+        self.email_password = config.get("email_password", "")
+
+    async def start(self):
+        if not self.smtp_host:
+            return
+        self._running = True
+        print(f"  [邮件] 已启动: {self.email_addr}")
+
+    async def stop(self):
+        self._running = False
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        import smtplib
+        from email.mime.text import MIMEText
+        msg = MIMEText(content, "plain", "utf-8")
+        msg["From"] = self.email_addr
+        msg["To"] = to
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._send_sync, msg)
+            return True
+        except Exception:
+            return False
+
+    def _send_sync(self, msg):
+        import smtplib
+        server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port)
+        server.login(self.email_addr, self.email_password)
+        server.sendmail(self.email_addr, [msg["To"]], msg.as_string())
+        server.quit()
+
+
+# ===== 企业微信（自定义机器人 Webhook，仅发送模式）=====
+class WeComChannel(ChannelBase):
+    """企业微信群机器人 Webhook。
+
+    配置：webhook_url（完整地址）或 key（机器人密钥）/ enabled。
+    机器人 Webhook 只支持出站发送，无接收回调。
+    """
+    name = "wecom"
+    WEBHOOK_BASE = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.webhook_url = str(config.get("webhook_url", "") or "")
+        self.key = str(config.get("key", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if not self.webhook_url and not self.key:
+            print("  [企业微信] 未配置 webhook_url/key，跳过启动")
+            return
+        self._running = True
+        print("  [企业微信] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    def is_config_valid(self) -> bool:
+        return bool(self.webhook_url or self.key)
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.enabled or not content:
+            return False
+        url = self.webhook_url
+        if not url and self.key:
+            url = f"{self.WEBHOOK_BASE}?key={self.key}"
+        if not url:
+            return False
+        try:
+            r = requests.post(
+                url,
+                json={"msgtype": "text", "text": {"content": content}},
+                timeout=HTTP_TIMEOUT,
+            )
+            data = {}
+            try:
+                data = r.json()
+            except Exception:
+                pass
+            # 企业微信成功返回 errcode=0
+            return r.status_code == 200 and data.get("errcode", 0) == 0
+        except Exception:
+            return False
+
+
+# ===== 钉钉（自定义机器人 Webhook，仅发送模式）=====
+class DingTalkChannel(ChannelBase):
+    """钉钉群机器人 Webhook。
+
+    配置：access_token / secret（加签密钥，可选）/ enabled。
+    机器人 Webhook 只支持出站发送，无接收回调。
+    """
+    name = "dingtalk"
+    WEBHOOK_BASE = "https://oapi.dingtalk.com/robot/send"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.access_token = str(config.get("access_token", "") or "")
+        self.secret = str(config.get("secret", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if not self.access_token:
+            print("  [钉钉] 未配置 access_token，跳过启动")
+            return
+        self._running = True
+        print("  [钉钉] 通道已启动（仅发送模式）")
+
+    async def stop(self):
+        self._running = False
+
+    def is_config_valid(self) -> bool:
+        return bool(self.access_token)
+
+    def _signed_url(self) -> str:
+        """按钉钉加签规则生成带 sign 的 webhook 地址。"""
+        import base64
+        import hashlib
+        import hmac
+        import urllib.parse
+        try:
+            timestamp = str(round(time.time() * 1000))
+            string_to_sign = f"{timestamp}\n{self.secret}"
+            hmac_code = hmac.new(
+                self.secret.encode("utf-8"),
+                string_to_sign.encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).digest()
+            sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+            return (f"{self.WEBHOOK_BASE}?access_token={self.access_token}"
+                    f"&timestamp={timestamp}&sign={sign}")
+        except Exception:
+            return f"{self.WEBHOOK_BASE}?access_token={self.access_token}"
+
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, content)
+
+    def _send_sync(self, content: str = "") -> bool:
+        if not self.enabled or not self.access_token or not content:
+            return False
+        try:
+            url = self._signed_url() if self.secret else \
+                f"{self.WEBHOOK_BASE}?access_token={self.access_token}"
+            r = requests.post(
+                url,
+                json={"msgtype": "text", "text": {"content": content}},
+                timeout=HTTP_TIMEOUT,
+            )
+            data = {}
+            try:
+                data = r.json()
+            except Exception:
+                pass
+            # 钉钉成功返回 errcode=0
+            return r.status_code == 200 and data.get("errcode", 0) == 0
+        except Exception:
+            return False
+
+
+# ===== 微信公众号（客服消息发送 + 回调 webhook 接收）=====
+class WeChatOAChannel(ChannelBase):
+    """微信公众号通道。
+
+    发送：调用「客服消息接口」，需要 access_token（由 appid + secret 换取并缓存）。
+    接收：公众号服务器回调（GET 签名校验 + POST XML 消息推送），
+          本通道内置一个 aiohttp 小服务接收事件。
+
+    配置：appid / secret / token（回调校验令牌）/ host / port / path / enabled。
+    """
+    name = "wechat_oa"
+    TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
+    SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/custom/send"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.appid = str(config.get("appid", "") or "")
+        self.secret = str(config.get("secret", "") or "")
+        self.token = str(config.get("token", "") or "")
+        self.enabled = bool(config.get("enabled", False))
+        self.host = config.get("host", "0.0.0.0")
+        self.port = int(config.get("port", 9001))
+        self.path = config.get("path", "/wechat")
+        self._runner = None
+        self._access_token = ""
+        self._token_expires_at = 0.0
+
+    async def start(self):
+        if not self.enabled:
+            return
+        if not self.appid or not self.secret:
+            print("  [微信公众号] 未配置 appid/secret，跳过启动")
+            return
+        from aiohttp import web
+        try:
+            app = web.Application()
+            app.router.add_get(self.path, self._handle_verify)
+            app.router.add_post(self.path, self._handle_callback)
+            self._runner = web.AppRunner(app)
+            await self._runner.setup()
+            site = web.TCPSite(self._runner, self.host, self.port)
+            await site.start()
+            self._running = True
+            print(f"  [微信公众号] 回调地址 http://{self.host}:{self.port}{self.path}")
+        except Exception as e:
+            print(f"  [微信公众号] 启动回调服务失败: {e}")
+            self._running = False
+
+    async def stop(self):
+        if self._runner:
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                pass
+        self._runner = None
+        self._running = False
+
+    def is_config_valid(self) -> bool:
+        return bool(self.appid and self.secret)
+
+    # ---- access_token（带缓存）----
+    def _get_access_token(self) -> str:
+        try:
+            if self._access_token and time.time() < self._token_expires_at - 120:
+                return self._access_token
+            r = requests.get(
+                self.TOKEN_URL,
+                params={
+                    "grant_type": "client_credential",
+                    "appid": self.appid,
+                    "secret": self.secret,
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            data = r.json()
+            token = data.get("access_token")
+            if token:
+                self._access_token = token
+                self._token_expires_at = time.time() + int(data.get("expires_in", 7200))
+                return token
+            logger.warning(f"[微信公众号] 获取 access_token 失败: {data}")
+        except Exception as e:
+            print(f"  [微信公众号] 获取 access_token 异常: {e}")
+        return ""
+
+    # ---- 发送：客服消息 ----
+    async def send(self, to: str = "", content: str = "") -> bool:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send_sync, to, content)
+
+    def _send_sync(self, to: str = "", content: str = "") -> bool:
+        if not self.enabled or not content:
+            return False
+        openid = str(to or "")
+        if not openid:
+            return False
+        try:
+            token = self._get_access_token()
+            if not token:
+                return False
+            r = requests.post(
+                f"{self.SEND_URL}?access_token={token}",
+                json={
+                    "touser": openid,
+                    "msgtype": "text",
+                    "text": {"content": content},
+                },
+                timeout=HTTP_TIMEOUT,
+            )
+            data = r.json()
+            # 成功返回 errcode=0 / errmsg=ok
+            return r.status_code == 200 and data.get("errcode", 0) == 0
+        except Exception:
+            return False
+
+    # ---- 接收：回调校验与消息解析 ----
+    def _check_signature(self, signature: str, timestamp: str, nonce: str) -> bool:
+        import hashlib
+        try:
+            arr = sorted([self.token or "", timestamp or "", nonce or ""])
+            sha1 = hashlib.sha1("".join(arr).encode("utf-8")).hexdigest()
+            return bool(signature) and sha1 == signature
+        except Exception:
+            return False
+
+    @staticmethod
+    def _parse_incoming_xml(body: str) -> Message:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(body)
+
+        def _text(tag: str) -> str:
+            el = root.find(tag)
+            return el.text if el is not None and el.text else ""
+
+        # 微信被动回复 XML 里 ToUserName/FromUserName 需要**互换**（回给用户时
+        # To = 用户 openid / From = 公众号 appid），此前只抓了 FromUserName，
+        # 上层拿不到 appid 只能把 sender_id 填两边 —— 微信会拒收或投错，表现
+        # 成「配置都对但公众号不回话」。这里顺手把 ToUserName 存进 metadata。
+        return Message(
+            channel="wechat_oa",
+            sender_id=_text("FromUserName"),
+            sender_name=_text("FromUserName"),
+            content=_text("Content"),
+            message_id=_text("MsgId"),
+            metadata={"app_id": _text("ToUserName")},
+        )
+
+    @staticmethod
+    def _passive_reply_xml(from_user: str, to_user: str, text: str) -> str:
+        return (
+            f"<xml><ToUserName><![CDATA[{to_user}]]></ToUserName>"
+            f"<FromUserName><![CDATA[{from_user}]]></FromUserName>"
+            f"<CreateTime>{int(time.time())}</CreateTime>"
+            f"<MsgType><![CDATA[text]]></MsgType>"
+            f"<Content><![CDATA[{text}]]></Content></xml>"
+        )
+
+    async def _handle_verify(self, request):
+        from aiohttp import web
+        try:
+            if self._check_signature(
+                    request.query.get("signature", ""),
+                    request.query.get("timestamp", ""),
+                    request.query.get("nonce", "")):
+                return web.Response(text=request.query.get("echostr", ""))
+            return web.Response(text="forbidden", status=403)
+        except Exception:
+            return web.Response(text="error", status=500)
+
+    async def _handle_callback(self, request):
+        from aiohttp import web
+        try:
+            body = await request.text()
+            if not self._check_signature(
+                    request.query.get("signature", ""),
+                    request.query.get("timestamp", ""),
+                    request.query.get("nonce", "")):
+                return web.Response(text="forbidden", status=403)
+            msg = self._parse_incoming_xml(body)
+            reply_text = ""
+            if self._message_handler:
+                reply_text = await self._message_handler(msg)
+            else:
+                reply_text = self._reply(msg.content)
+            if reply_text:
+                # 被动回复：ToUserName=用户 openid（即原 From）、FromUserName=
+                # 公众号 appid（即原 To）。此前把 sender_id 同时填两边，微信
+                # 会把这条 XML 视为"发给自己的消息"而丢弃 —— 表现就是「配置
+                # 都对但公众号死活不回话」。
+                app_id = (msg.metadata or {}).get("app_id") or ""
+                xml = self._passive_reply_xml(
+                    app_id or msg.sender_id, msg.sender_id, reply_text)
+                return web.Response(text=xml, content_type="application/xml")
+            # 公众号要求兜底返回 success，否则会重试推送
+            return web.Response(text="success")
+        except Exception as e:
+            print(f"  [微信公众号] 回调处理异常: {e}")
+            return web.Response(text="success")
+
+    async def receive(self):
+        """接收入口说明：公众号消息由 _handle_callback 异步接收；
+        本方法仅用于显式触发一次空轮询占位，实际消息推送由微信服务器发起。
+        """
+        return self._running
+
+
+# ===== 通道管理器 =====
+CHANNEL_REGISTRY = {
+    "webhook": WebhookChannel,
+    "telegram": TelegramChannel,
+    "discord": DiscordChannel,
+    "feishu": FeishuChannel,
+    "whatsapp": WhatsAppChannel,
+    "slack": SlackChannel,
+    "signal": SignalChannel,
+    "email": EmailChannel,
+    "wecom": WeComChannel,
+    "dingtalk": DingTalkChannel,
+    "wechat_oa": WeChatOAChannel,
+}
+
+
+class ChannelManager:
+    """统一管理所有通信通道。
+
+    配置每次现读磁盘（core.config.load()），不在构造时拍快照 ——
+    此前 `channels:set` 写盘后，管理器仍读旧快照，表现为「开关点了没反应」
+    （与 security_center 双实例那次是同一类病）。
+
+    生命周期跑在**独立常驻事件循环**上（`self._loop`）。此前 RPC 用
+    `asyncio.run(mgr.start_all())`，`asyncio.run` 一返回就把循环关掉，
+    aiohttp 的 Webhook/公众号 HTTP 接收服务器随循环一起死 —— 界面显示
+    「已启动」，实际从没在监听。这里改为 run_coroutine_threadsafe，
+    循环活到进程结束。
+    """
+
+    def __init__(self, config: dict = None):
+        self.config = config or {}
+        self.channels: Dict[str, ChannelBase] = {}
+        self._message_handler = None
+        self.engine = None
+        # 每个通道保留最近 100 条收发消息（用于状态面板排查）
+        self._msg_queues: Dict[str, "collections.deque"] = {}
+        self._last_msg_time: Dict[str, float] = {}
+        self._reconnect_attempts: Dict[str, int] = {}
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
+        self._loop_lock = threading.Lock()
+
+    def _live_config(self) -> dict:
+        try:
+            try:
+                from . import config as _cfg
+            except Exception:                                    # noqa: BLE001
+                from core import config as _cfg                  # type: ignore
+            return dict(_cfg.load() or {})
+        except Exception:                                        # noqa: BLE001
+            return dict(self.config or {})
+
+    def _channel_config(self, name: str) -> dict:
+        base = self._live_config()
+        cfg = dict(base.get(name, {}) or {})
+        flat = {
+            "webhook": {
+                "enabled": base.get("webhook_enabled", False),
+                "callback_url": base.get("webhook_callback_url", ""),
+                "host": base.get("webhook_host", "0.0.0.0"),
+                "port": base.get("webhook_port", 9000),
+                "path": base.get("webhook_path", "/webhook/xiaoling"),
+            },
+            "telegram": {
+                "enabled": base.get("telegram_enabled", False),
+                "bot_token": base.get("telegram_bot_token", ""),
+                "chat_id": base.get("telegram_chat_id", ""),
+            },
+            "discord": {
+                "enabled": base.get("discord_enabled", False),
+                "webhook_url": base.get("discord_webhook_url", ""),
+            },
+            "feishu": {
+                "enabled": base.get("feishu_enabled", False),
+                "webhook_url": base.get("feishu_webhook_url", ""),
+            },
+            "whatsapp": {
+                "enabled": base.get("whatsapp_enabled", False),
+                "api_url": base.get("whatsapp_api_url", ""),
+                "token": base.get("whatsapp_token", ""),
+                "phone_number_id": base.get("whatsapp_phone_number_id", ""),
+            },
+            "slack": {
+                "enabled": base.get("slack_enabled", False),
+                "webhook_url": base.get("slack_webhook_url", ""),
+                "bot_token": base.get("slack_bot_token", ""),
+                "channel": base.get("slack_channel", "#general"),
+            },
+            "signal": {
+                "enabled": base.get("signal_enabled", False),
+                "api_url": base.get("signal_api_url", ""),
+                "phone_number": base.get("signal_phone_number", ""),
+            },
+            "email": {
+                "enabled": base.get("email_enabled", False),
+                "smtp_host": base.get("smtp_host", ""),
+                "smtp_port": base.get("smtp_port", 465),
+                "email_addr": base.get("email_addr", ""),
+                "email_password": base.get("email_password", ""),
+            },
+            "wecom": {
+                "enabled": base.get("wecom_enabled", False),
+                "webhook_url": base.get("wecom_webhook_url", ""),
+                "key": base.get("wecom_key", ""),
+            },
+            "dingtalk": {
+                "enabled": base.get("dingtalk_enabled", False),
+                "access_token": base.get("dingtalk_access_token", ""),
+                "secret": base.get("dingtalk_secret", ""),
+            },
+            "wechat_oa": {
+                "enabled": base.get("wechat_oa_enabled", False),
+                "appid": base.get("wechat_oa_appid", ""),
+                "secret": base.get("wechat_oa_secret", ""),
+                "token": base.get("wechat_oa_token", ""),
+                "host": base.get("wechat_oa_host", "0.0.0.0"),
+                "port": base.get("wechat_oa_port", 9001),
+                "path": base.get("wechat_oa_path", "/wechat/oa"),
+            },
+        }.get(name, {})
+        for k, v in flat.items():
+            if k not in cfg or cfg.get(k) in (None, ""):
+                cfg[k] = v
+        return cfg
+
+    # ---- 常驻事件循环（HTTP 接收型通道必须活在同一个循环上）----
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        with self._loop_lock:
+            if self._loop is not None and self._loop.is_running():
+                return self._loop
+            loop = asyncio.new_event_loop()
+
+            def _run():
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            t = threading.Thread(target=_run, name="channels-loop", daemon=True)
+            t.start()
+            self._loop = loop
+            self._loop_thread = t
+            return loop
+
+    def _submit(self, coro, timeout: float = 15.0):
+        loop = self._ensure_loop()
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+        return fut.result(timeout=timeout)
+
+    async def start_all(self):
+        for name, cls in CHANNEL_REGISTRY.items():
+            cfg = self._channel_config(name)
+            if not cfg.get("enabled", False):
+                continue
+            existing = self.channels.get(name)
+            if existing is not None and existing.is_running:
+                continue
+            try:
+                ch = cls(cfg)
+                ch.set_message_handler(self._message_handler)
+                if self.engine is not None:
+                    ch.set_engine(self.engine)
+                await ch.start()
+                # 只在真跑起来才登记为「运行中」：缺凭据时 start() 只打印
+                # 「跳过启动」就返回，此前无条件登记让 UI 显示金色「运行中」，
+                # 而用户看到的其实是「连接没反应」——假状态比没有状态更糟。
+                if getattr(ch, 'is_running', False):
+                    self.channels[name] = ch
+                else:
+                    print(f"  [通道] {name} 未启动（凭据缺失或未连接），不记为运行中")
+            except Exception as e:
+                print(f"  [通道] {name} 启动失败: {e}")
+
+    async def stop_all(self):
+        for ch in list(self.channels.values()):
+            try:
+                await ch.stop()
+            except Exception:
+                pass
+        self.channels.clear()
+
+    async def restart_all(self):
+        await self.stop_all()
+        await self.start_all()
+
+    # ---- 同步包装：RPC 层用这些，绝不再 asyncio.run(start_all()) ----
+    def start_enabled(self):
+        """在当前常驻循环上启动已启用通道，返回状态字典。"""
+        return self._submit(self.start_all())
+
+    def stop_running(self):
+        """在当前常驻循环上停止全部通道。"""
+        return self._submit(self.stop_all())
+
+    def restart_channels(self):
+        return self._submit(self.restart_all())
+
+    def set_engine(self, engine):
+        self.engine = engine
+        for ch in self.channels.values():
+            ch.set_engine(engine)
+
+    def set_message_handler(self, handler):
+        self._message_handler = handler
+        for ch in self.channels.values():
+            ch.set_message_handler(handler)
+
+    def list_channels(self) -> List[dict]:
+        return [{"name": n, "running": c.is_running}
+                for n, c in self.channels.items()]
+
+    # ---- 通道状态监控 ----
+    def get_channel_status(self) -> dict:
+        """返回每个通道的状态字典：名称/enabled/connected/最后消息时间/消息数。"""
+        out = {}
+        for name, ch in self.channels.items():
+            q = self._msg_queues.get(name)
+            out[name] = {
+                "name": name,
+                "enabled": bool(self._channel_config(name).get("enabled", False)),
+                "connected": bool(ch.is_running),
+                "last_message_time": self._last_msg_time.get(name, 0.0),
+                "message_count": len(q) if q else 0,
+            }
+        return out
+
+    # ---- 消息队列（最近收发记录）----
+    def record_message(self, channel_name: str, direction: str,
+                       content: str) -> None:
+        """记录一条发送/接收消息到对应通道的环形队列。"""
+        q = self._msg_queues.setdefault(
+            channel_name, collections.deque(maxlen=100))
+        q.append({"direction": direction, "content": str(content)[:200],
+                  "time": time.time()})
+        self._last_msg_time[channel_name] = time.time()
+
+    def get_recent_messages(self, channel_name: str, limit: int = 20) -> list:
+        """取某通道最近的消息记录。"""
+        q = self._msg_queues.get(channel_name)
+        if not q:
+            return []
+        return list(q)[-max(1, limit):]
+
+    # ---- 通道重连 ----
+    def _reconnect_channel(self, channel_name: str) -> None:
+        """对断开的通道尝试重连（最多 3 次，间隔 5 秒）。"""
+        attempts = self._reconnect_attempts.get(channel_name, 0)
+        if attempts >= 3:
+            print(f"  [通道] {channel_name} 重连失败达上限，放弃")
+            return
+        cfg = self._channel_config(channel_name)
+        if not cfg.get("enabled", False):
+            return
+        cls = CHANNEL_REGISTRY.get(channel_name)
+        if cls is None:
+            return
+
+        async def _do_reconnect():
+            try:
+                ch = cls(cfg)
+                ch.set_message_handler(self._message_handler)
+                if self.engine is not None:
+                    ch.set_engine(self.engine)
+                await ch.start()
+                self.channels[channel_name] = ch
+                self._reconnect_attempts[channel_name] = 0
+                print(f"  [通道] {channel_name} 重连成功")
+            except Exception as e:
+                self._reconnect_attempts[channel_name] = attempts + 1
+                print(f"  [通道] {channel_name} 重连失败({attempts + 1}/3): {e}")
+                threading.Timer(5.0, self._reconnect_channel,
+                                args=[channel_name]).start()
+
+        try:
+            self._submit(_do_reconnect(), timeout=20.0)
+        except Exception as e:
+            self._reconnect_attempts[channel_name] = attempts + 1
+            threading.Timer(5.0, self._reconnect_channel,
+                            args=[channel_name]).start()
+
+
+# ============================================================================
+# 增量完善（v0.0.1）：消息模板 / 通道统计 / 消息去重 / 失败重试队列
+# 说明：以下均为独立新增类，不改动上方既有通道实现与方法签名。
+# ============================================================================
+import hashlib as _hashlib                                              # noqa: E402
+import re as _re                                                        # noqa: E402
+
+
+class MessageTemplate:
+    """通用消息模板：支持 {var} 占位符替换与缺省值兜底。
+
+    用法:
+        t = MessageTemplate("{user} 你好，当前进度 {progress}%")
+        t.render({"user": "小明", "progress": 42})
+        # -> "小明 你好，当前进度 42%"
+    """
+
+    _VAR_RE = _re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+    def __init__(self, template: str):
+        self.template = str(template or "")
+
+    def render(self, variables: dict = None) -> str:
+        """按 variables 替换占位符；缺失变量替换为空串，绝不抛异常。"""
+        try:
+            vars_map = variables or {}
+
+            def _sub(m):
+                val = vars_map.get(m.group(1), "")
+                return str(val) if val is not None else ""
+
+            return self._VAR_RE.sub(_sub, self.template)
+        except Exception:                                              # noqa: BLE001
+            return self.template
+
+    @staticmethod
+    def safe_render(template: str, variables: dict = None) -> str:
+        """静态便捷方法：一次成型的模板渲染。"""
+        try:
+            return MessageTemplate(template).render(variables)
+        except Exception:                                              # noqa: BLE001
+            return str(template or "")
+
+
+class ChannelStats:
+    """按通道统计发送数 / 失败数 / 成功率 / 平均耗时。线程安全。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._data: Dict[str, dict] = {}
+
+    def record(self, channel: str, ok: bool, latency_ms: float) -> None:
+        """记录一次发送结果。"""
+        try:
+            c = str(channel or "unknown")
+            with self._lock:
+                d = self._data.setdefault(
+                    c, {"sent": 0, "failed": 0, "total_ms": 0.0})
+                d["sent"] += 1
+                if not ok:
+                    d["failed"] += 1
+                d["total_ms"] += max(0.0, float(latency_ms or 0.0))
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def summary(self, channel: str = "") -> dict:
+        """返回某通道或全部通道的统计摘要。"""
+        try:
+            with self._lock:
+                if channel:
+                    d = self._data.get(str(channel))
+                    return self._summarize(str(channel), d) if d else {}
+                return {n: self._summarize(n, d)
+                        for n, d in self._data.items()}
+        except Exception:                                              # noqa: BLE001
+            return {}
+
+    @staticmethod
+    def _summarize(name: str, d: dict) -> dict:
+        try:
+            sent = int(d.get("sent", 0))
+            failed = int(d.get("failed", 0))
+            ok_cnt = sent - failed
+            avg = (float(d.get("total_ms", 0.0)) / sent) if sent else 0.0
+            return {"channel": name, "sent": sent, "failed": failed,
+                    "success_rate": round(ok_cnt / sent, 4) if sent else 0.0,
+                    "avg_ms": round(avg, 2)}
+        except Exception:                                              # noqa: BLE001
+            return {"channel": name}
+
+    def reset(self, channel: str = "") -> None:
+        """清空某通道或全部通道的统计。"""
+        try:
+            with self._lock:
+                if channel:
+                    self._data.pop(str(channel), None)
+                else:
+                    self._data.clear()
+        except Exception:                                              # noqa: BLE001
+            pass
+
+
+class MessageDeduplicator:
+    """基于 (channel, content) 哈希的发送去重。
+
+    时间窗口内相同内容视为重复，避免重复推送；采用 OrderedDict 实现
+    LRU 淘汰，防止条目无限增长。
+    """
+
+    def __init__(self, window_sec: float = 60.0, max_entries: int = 512):
+        self.window_sec = max(1.0, float(window_sec))
+        self.max_entries = max(16, int(max_entries))
+        self._seen: "collections.OrderedDict" = collections.OrderedDict()
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _key(channel: str, content: str) -> str:
+        raw = f"{channel}|{content}".encode("utf-8", "ignore")
+        return _hashlib.md5(raw).hexdigest()
+
+    def is_duplicate(self, channel: str, content: str) -> bool:
+        """若窗口内已发送过相同内容，返回 True。"""
+        try:
+            now = time.time()
+            key = self._key(channel, content)
+            with self._lock:
+                self._gc(now)
+                ts = self._seen.get(key)
+                return ts is not None and (now - ts) < self.window_sec
+        except Exception:                                              # noqa: BLE001
+            return False
+
+    def mark_sent(self, channel: str, content: str) -> None:
+        """记录一次发送，供后续去重判断。"""
+        try:
+            now = time.time()
+            key = self._key(channel, content)
+            with self._lock:
+                self._gc(now)
+                self._seen[key] = now
+                self._seen.move_to_end(key)
+                while len(self._seen) > self.max_entries:
+                    self._seen.popitem(last=False)
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def _gc(self, now: float) -> None:
+        try:
+            expired = [k for k, ts in self._seen.items()
+                       if (now - ts) >= self.window_sec]
+            for k in expired:
+                self._seen.pop(k, None)
+        except Exception:                                              # noqa: BLE001
+            pass
+
+
+class RetryQueue:
+    """失败消息重试队列：记录发送失败的消息，支持指数退避重试。
+
+    持久化于内存（重启即清空）；每条消息最多重试 max_retries 次。
+    所有方法均带 try-except，队列异常不影响主发送流程。
+    """
+
+    def __init__(self, max_retries: int = 3, backoff_base: float = 2.0):
+        self.max_retries = max(0, int(max_retries))
+        self.backoff_base = max(1.0, float(backoff_base))
+        self._items: Dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def enqueue(self, channel: str, to: str, content: str) -> str:
+        """入队一条失败消息，返回消息 id；失败返回空串。"""
+        try:
+            msg_id = _hashlib.md5(
+                f"{channel}|{to}|{content}|{time.time()}".encode(
+                    "utf-8", "ignore")).hexdigest()[:16]
+            now = time.time()
+            with self._lock:
+                self._items[msg_id] = {
+                    "id": msg_id, "channel": channel, "to": to,
+                    "content": content, "retries": 0,
+                    "next_try": now, "created_at": now,
+                }
+            return msg_id
+        except Exception:                                              # noqa: BLE001
+            return ""
+
+    def ready(self) -> list:
+        """返回当前可重试的消息列表（已到达 next_try 时间）。"""
+        try:
+            now = time.time()
+            with self._lock:
+                return [dict(it) for it in self._items.values()
+                        if it["next_try"] <= now]
+        except Exception:                                              # noqa: BLE001
+            return []
+
+    def ack(self, msg_id: str) -> None:
+        """重试成功，从队列移除该消息。"""
+        try:
+            with self._lock:
+                self._items.pop(msg_id, None)
+        except Exception:                                              # noqa: BLE001
+            pass
+
+    def fail(self, msg_id: str) -> int:
+        """记录一次失败：递增次数并按指数退避设定下次重试；超限移除返回 0。"""
+        try:
+            with self._lock:
+                it = self._items.get(msg_id)
+                if not it:
+                    return 0
+                it["retries"] += 1
+                if it["retries"] > self.max_retries:
+                    self._items.pop(msg_id, None)
+                    return 0
+                delay = self.backoff_base ** it["retries"]
+                it["next_try"] = time.time() + delay
+                return it["retries"]
+        except Exception:                                              # noqa: BLE001
+            return 0
+
+    def pending_count(self) -> int:
+        """当前队列中待重试消息总数。"""
+        try:
+            with self._lock:
+                return len(self._items)
+        except Exception:                                              # noqa: BLE001
+            return 0

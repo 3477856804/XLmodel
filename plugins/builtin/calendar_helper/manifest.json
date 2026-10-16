@@ -1,0 +1,11 @@
+{
+  "name": "calendar_helper",
+  "version": "0.0.1",
+  "description": "日历助手：今天/星期/倒计时/日期差，基于 Python datetime 真实计算",
+  "author": "xiaoling",
+  "category": "productivity",
+  "entry": "main.py",
+  "permissions": [],
+  "min_app_version": "0.0.1",
+  "enabled": false
+}
