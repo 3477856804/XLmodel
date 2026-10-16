@@ -642,6 +642,49 @@ def _handle_deps_cmd(cmd: str) -> str:
     return _err(f'未知子命令：{op}（可用：status / install <包...> [force]）')
 
 
+def _handle_env_cmd(cmd: str) -> str:
+    """运行时环境自举：env:status / env:retry / env:use-cpu / env:use-gpu /
+    env:reinstall（core.runtime_env）。
+
+    与 deps: 的区别：deps 走 pip（源码态），本命令族走纯标准库 wheel
+    下载通道，**打包态（无 pip）同样可用**。前端 SplashPage 轮询
+    env:status，state==ready 才进主页；下载中是 downloading 态带
+    真实进度（percent / bytes_done / bytes_total / speed_bps）。
+    """
+    import json as _json
+
+    def _err(msg):
+        return _json.dumps({"ok": False, "error": str(msg)}, ensure_ascii=False)
+
+    try:
+        try:
+            from core import runtime_env as _re
+        except Exception:                                    # noqa: BLE001
+            from backend.core import runtime_env as _re     # type: ignore
+    except Exception as e:                                   # noqa: BLE001
+        return _err(f'运行时环境模块不可用：{type(e).__name__}: {e}')
+
+    op = (cmd or '').strip().lower()
+    try:
+        if op in ('', 'status'):
+            return _json.dumps(_re.status(), ensure_ascii=False, default=str)
+        if op == 'retry':
+            return _json.dumps(_re.retry(), ensure_ascii=False, default=str)
+        if op in ('use-cpu', 'cpu'):
+            return _json.dumps(_re.switch_flavor('cpu'),
+                               ensure_ascii=False, default=str)
+        if op in ('use-gpu', 'gpu', 'auto'):
+            return _json.dumps(_re.switch_flavor(None),
+                               ensure_ascii=False, default=str)
+        if op == 'reinstall':
+            return _json.dumps(_re.reinstall(), ensure_ascii=False, default=str)
+        return _err(f'未知子命令：{op}（可用：status / retry / '
+                    'use-cpu / use-gpu / reinstall）')
+    except Exception as e:                                   # noqa: BLE001
+        logger.exception('env command failed: %s', cmd)
+        return _err(f'env 命令异常：{type(e).__name__}: {e}')
+
+
 def _handle_api_cmd(cmd: str) -> str:
     """统一「外部 API 配置」指令族。返回 JSON 字符串。
 
@@ -3422,6 +3465,11 @@ class XiaoLingServicer(pb_grpc.XiaoLingServicer):
                 return pb.CommandReply(output=_handle_update_cmd(cmd[len('update:'):]))
             if cmd.startswith('deps:'):
                 return pb.CommandReply(output=_handle_deps_cmd(cmd.split(':', 1)[1]))
+            if cmd.startswith('env:'):
+                # 运行时环境自举（GPU→CUDA torch / 无 GPU→CPU torch）。
+                # 与 deps: 互补：deps 走 pip 只服务源码态；env 走纯标准库
+                # wheel 通道，打包态（无 pip）才是它的主战场。
+                return pb.CommandReply(output=_handle_env_cmd(cmd.split(':', 1)[1]))
             if cmd.startswith('api:'):
                 # 统一「外部 API 配置」：设置页 API 配置选项卡、蒸馏老师端、
                 # Agent 用 API 操作应用，都走这一套（core.api_config）。

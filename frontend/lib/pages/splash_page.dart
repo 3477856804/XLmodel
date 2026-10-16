@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/theme.dart';
@@ -34,6 +36,15 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
   Timer? _stageTimer;
   int _stageIdx = 0;
   bool _showVersion = false;
+
+  // ---- 运行时环境自举（GPU→CUDA 版 torch / 无 GPU→CPU 版，就绪才进主页）----
+  // 后端 env:status 回报的状态机：idle→detecting→downloading→
+  // installing→ready|error。下载态带真实进度（percent/bytes/speed）。
+  String? _envPhase;                  // 后端阶段文案（null=还没到这一步）
+  double? _envPercent;                // 0~1 真实下载进度
+  String? _envError;                  // 非空 = 停在本页展示错误与操作按钮
+  Map<String, dynamic>? _envInfo;     // 最近一次 env:status 全量详情
+  int _envFail = 0;                   // 查询连续失败计数（后端未起时容忍几次）
 
   @override
   void initState() {
@@ -107,6 +118,13 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
     }
     if (!mounted) return;
 
+    // 运行时环境自举：检测 GPU → 按需下载对应版本 PyTorch（GPU 版或
+    // CPU 版）→ 就绪后才继续。下载中是真实进度；失败则停在本页，
+    // 展示错误与「重试 / 改用 CPU 版」按钮，绝不带病进主页。
+    final envOk = await _ensureRuntimeEnv();
+    if (!envOk) return;
+    if (!mounted) return;
+
     setState(() => _stageIdx = 2);
     final modelReady = st != null && st.model.isNotEmpty;
     await Future.delayed(Duration(milliseconds: modelReady ? 300 : 500));
@@ -127,6 +145,172 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
         ),
       );
     }
+  }
+
+  /// 轮询后端 env:status，直到运行环境就绪。
+  /// 返回 true = 可以继续启动流程；false = 失败（已展示错误与操作按钮）。
+  Future<bool> _ensureRuntimeEnv() async {
+    if (Platform.environment['FLUTTER_TEST'] == '1') return true;
+    while (true) {
+      if (!mounted) return false;
+      try {
+        final out = await XlClient.stub.commandOutput(
+          'env:status',
+          opt: const XlCallOptions(
+              timeout: Duration(seconds: 12), silent: true),
+        );
+        final st = json.decode(out) as Map<String, dynamic>;
+        final state = (st['state'] ?? 'idle').toString();
+        if (state == 'ready') {
+          setState(() {
+            _envPhase = '运行环境就绪';
+            _envPercent = 1.0;
+            _envError = null;
+            _envInfo = st;
+          });
+          return true;
+        }
+        if (state == 'error') {
+          setState(() {
+            _envError = (st['error'] ?? '运行环境初始化失败').toString();
+            _envInfo = st;
+          });
+          return false;
+        }
+        setState(() {
+          _envInfo = st;
+          _envPhase = (st['phase'] ?? '正在初始化运行环境…').toString();
+          final p = st['percent'];
+          _envPercent = (p is num) ? p.toDouble().clamp(0.0, 1.0) : null;
+        });
+      } catch (e) {
+        // 后端可能还没完全起来（Process 刚 spawn）：容忍几次再报错
+        _envFail++;
+        if (_envFail >= 6) {
+          setState(() => _envError = '无法查询运行环境状态：$e');
+          return false;
+        }
+      }
+      await Future.delayed(const Duration(milliseconds: 900));
+    }
+  }
+
+  Future<void> _envAction(String cmd) async {
+    setState(() {
+      _envError = null;
+      _envPhase = cmd == 'env:use-cpu' ? '正在切换到 CPU 版 PyTorch…' : '正在重试…';
+      _envPercent = null;
+    });
+    _envFail = 0;
+    try {
+      await XlClient.stub.commandOutput(cmd,
+          opt: const XlCallOptions(
+              timeout: Duration(seconds: 10), silent: true));
+    } catch (_) {}
+    final ok = await _ensureRuntimeEnv();
+    if (ok && mounted) _go();   // 就绪后继续原本被中断的启动流程
+  }
+
+  String _fmtBytes(num? b) {
+    if (b == null || b <= 0) return '';
+    final v = b.toDouble();
+    if (v < 1024) return '${v.toStringAsFixed(0)}B';
+    if (v < 1024 * 1024) return '${(v / 1024).toStringAsFixed(1)}KB';
+    if (v < 1024 * 1024 * 1024) return '${(v / 1048576).toStringAsFixed(1)}MB';
+    return '${(v / 1073741824).toStringAsFixed(2)}GB';
+  }
+
+  /// 下载详情行：已下载/总量 · 速度 · 当前 wheel 名
+  String _envDetail() {
+    final st = _envInfo;
+    if (st == null) return '';
+    final parts = <String>[];
+    final done = (st['bytes_done'] as num?)?.toDouble() ?? 0;
+    final total = (st['bytes_total'] as num?)?.toDouble() ?? 0;
+    if (total > 0) parts.add('${_fmtBytes(done)} / ${_fmtBytes(total)}');
+    final speed = (st['speed_bps'] as num?)?.toDouble() ?? 0;
+    if (speed > 1024) parts.add('${_fmtBytes(speed)}/s');
+    final wheels = st['wheels'];
+    if (wheels is List) {
+      for (final w in wheels) {
+        if (w is Map && (w['done'] ?? 0) < (w['size'] ?? 0)) {
+          parts.add('${w['name'] ?? ''}');
+          break;
+        }
+      }
+    }
+    return parts.join('  ·  ');
+  }
+
+  /// 环境初始化失败卡片：说明 + 重试 +（GPU 档时）改用 CPU 版。
+  Widget _buildEnvErrorCard(XlPalette p) {
+    final isGpu = _envInfo?['flavor'] == 'gpu';
+    return Container(
+      margin: const EdgeInsets.only(top: 22),
+      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(maxWidth: 340),
+      decoration: AppTheme.neuXs(context, r: XlRadius.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.cloud_off_rounded, size: 18, color: p.red),
+              const SizedBox(width: 8),
+              Text(
+                '运行环境初始化失败',
+                style: TextStyle(
+                    color: p.text1,
+                    fontSize: XlFont.label,
+                    fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _envError!,
+            style: TextStyle(color: p.text2, fontSize: XlFont.caption, height: 1.6),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _envAction('env:retry'),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('重试'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: p.pink,
+                  foregroundColor: p.btnInk,
+                  textStyle: const TextStyle(
+                      fontSize: XlFont.label, fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (isGpu)
+                OutlinedButton.icon(
+                  onPressed: () => _envAction('env:use-cpu'),
+                  icon: const Icon(Icons.memory_rounded, size: 16),
+                  label: const Text('改用 CPU 版'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: p.text1,
+                    side: BorderSide(color: p.text3.withOpacity(0.5)),
+                    textStyle: const TextStyle(
+                        fontSize: XlFont.label, fontWeight: FontWeight.w600),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '首次运行需下载 PyTorch（${isGpu ? 'GPU 版约 3~5GB' : 'CPU 版约 200MB'}），'
+            '下载完成后自动进入，请保持网络畅通。',
+            style: TextStyle(color: p.text3, fontSize: XlFont.caption, height: 1.5),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -286,6 +470,8 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: 54),
+                  // 运行时环境自举期间用后端回报的真实进度；其余阶段
+                  // 仍是原有的固定动画（纯视觉，不假装是真实进度）。
                   SizedBox(
                     width: 220,
                     height: 14,
@@ -300,10 +486,12 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                           child: AnimatedBuilder(
                             animation: _progressAnim,
                             builder: (_, __) {
+                              final v = _envPercent ??
+                                  _progressAnim.value.clamp(0.0, 1.0);
                               return Align(
                                 alignment: Alignment.centerLeft,
                                 child: FractionallySizedBox(
-                                  widthFactor: _progressAnim.value.clamp(0.0, 1.0),
+                                  widthFactor: v.clamp(0.0, 1.0),
                                   child: Container(
                                     decoration: BoxDecoration(
                                       gradient: p.gradBrand,
@@ -355,14 +543,20 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  // env 自举期间显示后端真实阶段文案（含下载详情），
+                  // 就绪或失败后交回原有的固定阶段串。
                   SizedBox(
                     height: 20,
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 350),
                       transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
                       child: Text(
-                        _loadStages[_stageIdx],
-                        key: ValueKey(_stageIdx),
+                        (_envPhase != null && _envError == null && _stageIdx <= 1)
+                            ? _envPhase!
+                            : _loadStages[_stageIdx],
+                        key: ValueKey((_envPhase != null && _envError == null && _stageIdx <= 1)
+                            ? _envPhase
+                            : _stageIdx),
                         style: TextStyle(
                           fontSize: XlFont.label,
                           color: p.text3,
@@ -372,6 +566,23 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+                  // 下载详情：已下载/总量 · 速度 · 当前 wheel
+                  if (_envPhase != null && _envError == null && _envDetail().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _envDetail(),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: XlFont.caption,
+                          color: p.text3,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  // 失败态：错误详情 + 重试 / 改用 CPU 版。绝不带病进主页。
+                  if (_envError != null)
+                    _buildEnvErrorCard(p),
                 ],
               ),
             ),

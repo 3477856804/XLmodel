@@ -65,6 +65,37 @@ hiddenimports = (
 # 插件是 importlib.util 动态加载的，静态分析看不到，逐个显式登记
 hiddenimports += ['plugins.builtin.hello_world.main']
 
+# ---- torch 运行时才导入的 stdlib（2026-10-17 实测补充）----
+# 背景：venv(xiaoling_pkg) 里没有 torch，PyInstaller 的 Analysis 从未
+# 分析过 torch 的导入图；而 torch 是**运行时下载**进沙箱 site-cpu 的，
+# `import torch` 执行时才会 import 下面这些 stdlib 模块。冻结态 PYZ 里
+# 没有它们 → `环境自举失败：No module named 'timeit'`（实测第一个踩的
+# 就是 timeit，来自 torch/_inductor 一系的 import）。
+# 清单来源：venv python 对着沙箱 site-cpu 实测 `import torch` +
+# torch.nn/optim + zeros/randn/cuda.is_available 的导入追踪（76 个顶层
+# 模块），与 PYZ/base_library.zip/顶层 pyd 三方差集。
+# 注意两点：
+#   1) 追踪里出现的 _ast/_pickle/_heapq/_datetime/_csv/_contextvars/
+#      _blake2/_opcode/_tokenize/_typing/atexit/binascii/cmath/gc 全是
+#      sys.builtin_module_names 内建模块（静态链进 python312.dll，冻结态
+#      天然可用），PyInstaller 会静默跳过，列在这里只为将来换构建环境时
+#      兜底；**不含** torch/torchgen（随 wheel 进 site-cpu，由 runtime_env
+#      注入 sys.path）。
+#   2) unittest 同时出现在下方 excludes（裁剪体积用）—— torch 的导入链
+#      确实会碰到它，两处必须一致：这里登记就必须从 excludes 移除。
+hiddenimports += [
+    'timeit',                    # 实测第一个缺失，torch/_inductor 一系
+    'unittest',                  # torch.testing 一系（已从 excludes 移除）
+    'unittest.mock',             # torch 运行时（非 import 期）import，
+                                 # modulegraph 静态分析看不到
+    'heapq', 'linecache', 'traceback',   # _heapq 等 C 扩展的纯 Python 包装
+    'ctypes.util',               # GPU 档 torch.cuda 经 ctypes 找驱动库
+    # 以下为内建模块的兜底登记（当前构建环境下 PyInstaller 静默跳过）
+    '_ast', '_blake2', '_contextvars', '_csv', '_datetime', '_heapq',
+    '_opcode', '_pickle', '_tokenize', '_typing',
+    'atexit', 'binascii', 'cmath', 'gc',
+]
+
 # ---------------------------------------------------------------- 数据文件
 # 格式：(源路径, 产物内相对路径)
 #
@@ -130,6 +161,49 @@ def _data_dir(rel: str, dest: str | None = None):
     return [(p, dest or rel)]
 
 
+def _backend_sources():
+    """backend/ 源码兜底拷贝（**逐个文件**收集，排除运行时下载目录）。
+
+    main.py 会把 sys.path 指向该目录，源码里大量 `from core.xxx import ...`
+    靠它解析；即使 meta path 别名兜底失灵，核心功能也不会静默失效。
+
+    为什么不能像早年那样整目录 `_data_dir('backend', 'backend')`：
+    backend/.deps/ 是 runtime_env（运行时环境自举）在**源码态**下载
+    torch 的落点（CPU 版 1.5GB / GPU 版 8GB+）。整目录拷贝会把它扫进
+    产物 —— 2026-10-17 实测：测试残留的 site-cpu（含 torch_cpu.dll
+    170MB）被打进包，且其中一个 dll 还被提升成 binaries（F-26）。
+    冻结态的设计恰恰是在沙箱里重新下载，包里绝不该带 torch。
+    __pycache__/pyc 同属构建残留，一并排除；空目录显式保留。
+    """
+    out = []
+    base = os.path.join(PROJECT_ROOT, 'backend')
+    if not os.path.isdir(base):
+        print('[backend.spec] 跳过不存在的源码目录：backend')
+        return out
+    skip_dirs = {'.deps', '__pycache__'}
+    n_skip = 0
+    for root, dirs, files in os.walk(base):
+        if '.deps' in root.split(os.sep):
+            continue
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        rel = os.path.relpath(root, base)
+        dest = 'backend' if rel == '.' else os.path.join('backend', rel)
+        if not dirs and not files:
+            out.append((root, dest))          # 保留空目录（如 backend/plugins）
+            continue
+        for f in sorted(files):
+            if f.endswith(('.pyc', '.pyo')):
+                continue
+            src = os.path.join(root, f)
+            if os.path.getsize(src) > 5 * 1024**3:
+                n_skip += 1
+                continue
+            out.append((src, dest))
+    if n_skip:
+        print('[backend.spec] 跳过超大文件 %d 个（>5GB）' % n_skip)
+    return out
+
+
 datas = []
 # 3D 查看器：viewer.html + vendor(three.js / three-vrm / GLTFLoader / BufferGeometryUtils)
 # 桌面端真 3D 全靠它，少了任何一个 .js，WebView 里就是一片黑。
@@ -146,10 +220,9 @@ datas += _data_dir('plugins', 'plugins')
 datas += _data_dir('skills', 'skills')
 # proto 契约定义（保留原始 .proto，便于排查与后续重新生成）
 datas += _data_dir('shared/proto', 'shared/proto')
-# 源码兜底：把 backend/ 原样拷进产物。
-# main.py 会把 sys.path 指向该目录，源码里大量 `from core.xxx import ...`
-# 靠它解析；即使 meta path 别名兜底失灵，核心功能也不会静默失效。
-datas += _data_dir('backend', 'backend')
+# 源码兜底：把 backend/ 原样拷进产物（逐个文件收集，排除 .deps 运行时
+# 下载目录与 __pycache__，见 _backend_sources 的 F-26 说明）。
+datas += _backend_sources()
 datas += _vrm_only()
 datas += _star_core_plugins()
 datas += llama_datas
@@ -170,9 +243,13 @@ excludes = [
     'cv2', 'whisper', 'pyaudio', 'pytesseract',
     # ---- 科学计算 / 可视化：本项目用不到 ----
     'scipy', 'sklearn', 'pandas', 'matplotlib', 'tensorflow',
-    'jupyter', 'notebook', 'IPython', 'pytest', 'setuptools', 'wheel',
+    'jupyter', 'notebook', 'IPython', 'pytest',
+    # 注意：unittest/doctest/pydoc 不在此列 —— torch 运行时导入链需要
+    # unittest（torch.testing 一系），已改为 hiddenimports 显式登记
+    # （见上方「torch 运行时才导入的 stdlib」说明）。
+    'setuptools', 'wheel',
     'pip', 'PyInstaller', 'altgraph', 'pefile', 'win32ctypes',
-    'tkinter', 'unittest', 'doctest', 'pydoc',
+    'tkinter',
 ]
 
 # ---------------------------------------------------------------- Analysis

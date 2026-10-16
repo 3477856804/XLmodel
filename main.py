@@ -264,6 +264,30 @@ def main():
                 print(f"  [gRPC] 后端已启动：localhost:{args.port}"
                       "（等待 Flutter 前端连接）")
 
+        # ---- 运行时环境自举：GPU→CUDA 版 torch / 无 GPU→CPU 版 torch ----
+        # 与上面的 deps-autofetch 互补：deps 走 pip 只服务源码态；这里走
+        # backend/core/runtime_env.py 的纯标准库 wheel 通道，**打包态
+        # （产物里没有 pip、也没有 torch）同样可用**。后台幂等执行，
+        # 不阻塞 gRPC；前端 SplashPage 轮询 env:status，就绪后才进主页。
+        try:
+            import threading as _th_env
+
+            def _env_bootstrap():
+                try:
+                    from backend.core import runtime_env as _re
+                    r = _re.ensure_async()
+                    st = r if isinstance(r, dict) else {}
+                    if st.get('state') == 'ready':
+                        log.info('运行时环境已就绪：torch %s（%s 版）',
+                                 st.get('torch_version'), st.get('flavor'))
+                except Exception as _e:                       # noqa: BLE001
+                    log.info('运行时环境自举未执行（不影响启动）：%s', _e)
+
+            _th_env.Thread(target=_env_bootstrap, daemon=True,
+                           name='runtime-env').start()
+        except Exception as _e:                               # noqa: BLE001
+            log.info('运行时环境自举线程启动失败：%s', _e)
+
         # ---- Web 实测面板（主线程阻塞跑；同时托管 3D 查看器）----
         # 注意：Flutter 是用 `--no-web` 拉起本进程的，但桌面端的真 3D
         # 依赖本进程把 viewer.html / three.js / .vrm 通过 HTTP 吐给 WebView。
