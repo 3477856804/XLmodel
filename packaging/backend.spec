@@ -57,6 +57,10 @@ hiddenimports = (
     + ['backend.renderer.' + m for m in RENDERER_MODULES]
     + llama_hidden
     + collect_submodules('grpc')
+    # 这两个是「函数内惰性导入」的 TTS 运行时，静态分析扫不到，必须显式登记，
+    # 否则打包后 import edge_tts / import pyttsx3 直接 ModuleNotFoundError，
+    # 音色功能（在线 edge-tts + 离线 pyttsx3 兜底）在包内完全失效。
+    + ['edge_tts', 'edge_tts.exceptions', 'pyttsx3']
 )
 # 插件是 importlib.util 动态加载的，静态分析看不到，逐个显式登记
 hiddenimports += ['plugins.builtin.hello_world.main']
