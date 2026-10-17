@@ -46,10 +46,11 @@ jobs:
 
   build-linux:
     needs: prepare-release
-    # flutter_inappwebview_linux 0.1.0-beta.1 需要 WebKitGTK 2.44+ 的 API
-    # （WebKitNetworkSession / WebKitScriptMessageReply 等），22.04 只有 2.36，
-    # 必须用 24.04 的 libwebkit2gtk-4.1-dev（2.44+）。
-    runs-on: ubuntu-24.04
+    # flutter_inappwebview 已锁 6.1.5（无 Linux 原生实现），Linux 不再编译
+    # flutter_inappwebview_linux（其 WPE WebKit 2.40+ 依赖在 Ubuntu 官方源
+    # 无法满足：22.04 只有 2.36、24.04 无包），因此无需 WPE/WebKit 头文件，
+    # 回到 22.04 只需 GTK/GStreamer 基础依赖即可。
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,7 +59,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev liblzma-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev libwebkit2gtk-4.1-dev libwpewebkit-1.0-dev libwpebackend-fdo-1.0-dev
+          sudo apt-get install -y libgtk-3-dev liblzma-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev
       - name: Install Python deps
         run: |
           pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
@@ -83,21 +84,6 @@ jobs:
       - name: Build Flutter Linux
         run: |
           cd frontend && flutter pub get
-      - name: Patch flutter_inappwebview_linux CMake flags
-        run: |
-          # 前端 model_showcase 依赖 InAppWebView 加载本地 3D viewer，不能移除插件。
-          # flutter_inappwebview_linux 的 CMakeLists 用了编译器不认识的
-          # -Wno-deprecated-literal-operator 且被 -Werror 升级为硬错误。
-          # 注意：flutter build 每次都会重建 .plugin_symlinks（symlink），
-          # patch symlink 无效；必须 patch pub-cache 里的真实源文件。
-          PLUGIN_DIR="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_linux-*"
-          for f in $PLUGIN_DIR/linux/CMakeLists.txt; do
-            if [ -f "$f" ]; then
-              sed -i 's/-Wno-deprecated-literal-operator//g' "$f"
-              echo "Patched: $f"
-            fi
-          done
-          grep -r "deprecated-literal" $PLUGIN_DIR/linux/CMakeLists.txt 2>/dev/null && echo "FLAG STILL PRESENT" || echo "Flag removed OK"
       - name: Compile Linux
         run: |
           cd frontend && flutter build linux --release
@@ -297,26 +283,6 @@ jobs:
       - name: Build Flutter macOS
         run: |
           cd frontend && flutter pub get
-      - name: Patch flutter_inappwebview_macos deployment target
-        run: |
-          # 根本病根：插件 WebAuthenticationSession.swift 的 presentationAnchor 方法
-          # 标注 @available(macOS 10.15, *)，但 podspec 的 platform 是 10.14，
-          # 协议一致性检查冲突。Pods 工程的部署目标来自 podspec（不是 project.pbxproj），
-          # 必须把 podspec 升到 11.0（与 Runner 的 MACOSX_DEPLOYMENT_TARGET=11.0 一致）。
-          # 注意：不能去改 Swift 的 @available——presentationAnchor 签名里用了
-          # ASWebAuthenticationSession 类型（本身 10.15+ 才有），标 10.14 反而报
-          # "only available in macOS 10.15 or newer"。部署目标 11.0 后 10.15 注解
-          # 自动满足协议一致性检查，Swift 源文件保持原样即可。
-          PODSPEC="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos.podspec"
-          if [ -f "$PODSPEC" ]; then
-            # 实际写法是 s.platform = :osx, '10.14'（不是 platform :osx）
-            sed -i '' "s/s.platform = :osx, '[0-9.]*'/s.platform = :osx, '11.0'/" "$PODSPEC"
-            grep "s.platform = :osx" "$PODSPEC" || echo "WARN: s.platform line not found!"
-            echo "Podspec patched to 11.0"
-          else
-            echo "Podspec not found"
-            find "$HOME/.pub-cache" -name "*.podspec" -path "*flutter_inappwebview*" 2>/dev/null || true
-          fi
       - name: Compile macOS
         run: |
           cd frontend && flutter build macos --release

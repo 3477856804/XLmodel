@@ -4,7 +4,6 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
-  flutter_inappwebview_linux
   screen_retriever_linux
   window_manager
 )
