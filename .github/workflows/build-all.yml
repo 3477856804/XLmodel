@@ -80,13 +80,14 @@ jobs:
       - name: Build Flutter Linux
         run: |
           cd frontend && flutter pub get
-      - name: Remove flutter_inappwebview_linux from build
+      - name: Patch flutter_inappwebview_linux CMake flags
         run: |
-          # 从生成的插件注册和CMake中移除flutter_inappwebview_linux
-          sed -i '/flutter_inappwebview_linux/d' frontend/linux/flutter/ephemeral/generated_plugin_registrant.cc 2>/dev/null || true
-          sed -i '/flutter_inappwebview_linux/d' frontend/linux/flutter/ephemeral/CMakeLists.txt 2>/dev/null || true
-          rm -rf frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux 2>/dev/null || true
-          echo "Removed flutter_inappwebview_linux"
+          # 前端 model_showcase 依赖 InAppWebView 加载本地 3D viewer，不能移除插件。
+          # flutter_inappwebview_linux 的 CMakeLists 用了 GCC/Clang 不认识的
+          # -Wno-deprecated-literal-operator 且被 -Werror 升级为硬错误，
+          # 直接把它从生成的插件 CMake 里删掉。
+          find frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux -name "CMakeLists.txt" -exec sed -i 's/-Wno-deprecated-literal-operator//g' {} \;
+          grep -r "deprecated-literal" frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux/linux/CMakeLists.txt 2>/dev/null && echo "FLAG STILL PRESENT" || echo "Flag removed OK"
       - name: Compile Linux
         run: |
           cd frontend && flutter build linux --release
@@ -149,6 +150,7 @@ jobs:
         run: |
           pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts torch
       - name: Bundle backend
+        shell: bash
         env:
           # XIAOLING_ONEFILE=1 → packaging/backend.spec 产出单个 dist/backend(.exe)，
           # 便于下面一步直接 `cp dist/backend $BUNDLE/backend` / `Copy-Item dist\backend.exe`。
@@ -157,7 +159,10 @@ jobs:
           # 动作库、内置插件（plugin.json 缺了插件会静默全废）、shared/proto 与
           # llama_cpp 运行时（ggml 的 DLL/so，缺了 GGUF 加载即崩）；同时也排除了
           # torch/transformers（累计 4.2G，全项目均为函数内延迟导入，缺席不影响启动）。
+          # PYTHONIOENCODING=utf-8：backend.spec 的 _data_dir() 会打印中文日志，
+          # Windows 默认 cp1252 编码会抛 UnicodeEncodeError。
           XIAOLING_ONEFILE: "1"
+          PYTHONIOENCODING: "utf-8"
         run: |
           pyinstaller packaging/backend.spec --noconfirm --clean --distpath dist --workpath build/pyi
           ls -lh dist/backend*
@@ -276,17 +281,31 @@ jobs:
       - name: Build Flutter macOS
         run: |
           cd frontend && flutter pub get
-      - name: Patch flutter_inappwebview_macos Swift
+      - name: Patch flutter_inappwebview_macos deployment target
         run: |
+          # 根本病根：插件 WebAuthenticationSession.swift 的 presentationAnchor 方法
+          # 标注 @available(macOS 10.15, *)，但 podspec 的 platform 是 10.14，
+          # 协议一致性检查冲突。Pods 工程的部署目标来自 podspec（不是 project.pbxproj），
+          # 必须把 podspec 升到 11.0（与 Runner 的 MACOSX_DEPLOYMENT_TARGET=11.0 一致）。
+          PODSPEC="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos.podspec"
+          if [ -f "$PODSPEC" ]; then
+            sed -i '' "s/platform :osx, '[0-9.]*'/platform :osx, '11.0'/" "$PODSPEC"
+            grep "platform :osx" "$PODSPEC"
+            echo "Podspec patched to 11.0"
+          else
+            echo "Podspec not found"
+            find "$HOME/.pub-cache" -name "*.podspec" -path "*flutter_inappwebview*" 2>/dev/null || true
+          fi
+          # 顺带处理 Swift 源文件：把 presentationAnchor 前的 @available(macOS 10.15, *)
+          # 放宽到 10.14，双保险（部署目标已是 11.0，此改动只是消除协议检查告警）。
           SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
           if [ -f "$SWIFT" ]; then
-            awk '/ASWebAuthenticationPresentationContextProviding/ && !/available/ {print "@available(macOS 10.14, *)"} {print}' "$SWIFT" > /tmp/patched.swift
+            awk '{if($0 ~ /@available\(macOS 10.15, \*\)/) {getline nl; if(nl ~ /public func presentationAnchor/) {print "    @available(macOS 10.14, *)"; print nl; next} else {print; print nl; next}} print}' "$SWIFT" > /tmp/patched.swift
             mv /tmp/patched.swift "$SWIFT"
-            grep -n "available\|ASWebAuthentication" "$SWIFT" | head -5
-            echo "Patched"
+            grep -n "available\|presentationAnchor" "$SWIFT" | head -5
+            echo "Swift patched"
           else
             echo "Swift file not found"
-            find "$HOME/.pub-cache" -name "WebAuthenticationSession.swift" 2>/dev/null || true
           fi
       - name: Compile macOS
         run: |
