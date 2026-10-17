@@ -100,6 +100,16 @@ jobs:
           cp packaging/linux/xiaoling.desktop "$APPDIR/xiaoling.desktop"
           cp packaging/linux/AppRun "$APPDIR/AppRun" && chmod +x "$APPDIR/AppRun"
           cp packaging/linux/xiaoling.png "$APPDIR/xiaoling.png"
+          # linuxdeploy 只接受 8~512 的方形图标；xiaoling.png 是 1280x1280，
+          # 直接缩放成 256x256 再喂给它（Python3 + Pillow 已在上面装好）。
+          python3 - <<PY
+          from PIL import Image
+          im = Image.open("$APPDIR/xiaoling.png").convert("RGBA")
+          im = im.resize((256, 256), Image.LANCZOS)
+          im.save("/tmp/xiaoling-256.png")
+          print("resized to 256x256")
+          PY
+          cp /tmp/xiaoling-256.png "$APPDIR/xiaoling.png"
           # 下载 linuxdeploy（CI 无 FUSE，加 --appimage-extract-and-run）
           curl -L -o /tmp/linuxdeploy.AppImage \
             "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
