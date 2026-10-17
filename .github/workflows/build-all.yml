@@ -46,7 +46,10 @@ jobs:
 
   build-linux:
     needs: prepare-release
-    runs-on: ubuntu-22.04
+    # flutter_inappwebview_linux 0.1.0-beta.1 需要 WebKitGTK 2.44+ 的 API
+    # （WebKitNetworkSession / WebKitScriptMessageReply 等），22.04 只有 2.36，
+    # 必须用 24.04 的 libwebkit2gtk-4.1-dev（2.44+）。
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,7 +58,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev libwpewebkit-1.0-dev libwpebackend-fdo-1.0-dev
+          sudo apt-get install -y libgtk-3-dev liblzma-dev ninja-build libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev libwebkit2gtk-4.1-dev libwpewebkit-1.0-dev libwpebackend-fdo-1.0-dev
       - name: Install Python deps
         run: |
           pip install grpcio grpcio-tools protobuf Pillow numpy requests aiohttp pyinstaller transformers edge-tts
@@ -300,6 +303,10 @@ jobs:
           # 标注 @available(macOS 10.15, *)，但 podspec 的 platform 是 10.14，
           # 协议一致性检查冲突。Pods 工程的部署目标来自 podspec（不是 project.pbxproj），
           # 必须把 podspec 升到 11.0（与 Runner 的 MACOSX_DEPLOYMENT_TARGET=11.0 一致）。
+          # 注意：不能去改 Swift 的 @available——presentationAnchor 签名里用了
+          # ASWebAuthenticationSession 类型（本身 10.15+ 才有），标 10.14 反而报
+          # "only available in macOS 10.15 or newer"。部署目标 11.0 后 10.15 注解
+          # 自动满足协议一致性检查，Swift 源文件保持原样即可。
           PODSPEC="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos.podspec"
           if [ -f "$PODSPEC" ]; then
             # 实际写法是 s.platform = :osx, '10.14'（不是 platform :osx）
@@ -309,17 +316,6 @@ jobs:
           else
             echo "Podspec not found"
             find "$HOME/.pub-cache" -name "*.podspec" -path "*flutter_inappwebview*" 2>/dev/null || true
-          fi
-          # 顺带处理 Swift 源文件：把 presentationAnchor 前的 @available(macOS 10.15, *)
-          # 放宽到 10.14，双保险（部署目标已是 11.0，此改动只是消除协议检查告警）。
-          SWIFT="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos/Sources/flutter_inappwebview_macos/WebAuthenticationSession/WebAuthenticationSession.swift"
-          if [ -f "$SWIFT" ]; then
-            awk '{if($0 ~ /@available\(macOS 10.15, \*\)/) {getline nl; if(nl ~ /public func presentationAnchor/) {print "    @available(macOS 10.14, *)"; print nl; next} else {print; print nl; next}} print}' "$SWIFT" > /tmp/patched.swift
-            mv /tmp/patched.swift "$SWIFT"
-            grep -n "available\|presentationAnchor" "$SWIFT" | head -5
-            echo "Swift patched"
-          else
-            echo "Swift file not found"
           fi
       - name: Compile macOS
         run: |
