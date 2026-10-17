@@ -83,11 +83,18 @@ jobs:
       - name: Patch flutter_inappwebview_linux CMake flags
         run: |
           # 前端 model_showcase 依赖 InAppWebView 加载本地 3D viewer，不能移除插件。
-          # flutter_inappwebview_linux 的 CMakeLists 用了 GCC/Clang 不认识的
-          # -Wno-deprecated-literal-operator 且被 -Werror 升级为硬错误，
-          # 直接把它从生成的插件 CMake 里删掉。
-          find frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux -name "CMakeLists.txt" -exec sed -i 's/-Wno-deprecated-literal-operator//g' {} \;
-          grep -r "deprecated-literal" frontend/linux/flutter/ephemeral/.plugin_symlinks/flutter_inappwebview_linux/linux/CMakeLists.txt 2>/dev/null && echo "FLAG STILL PRESENT" || echo "Flag removed OK"
+          # flutter_inappwebview_linux 的 CMakeLists 用了编译器不认识的
+          # -Wno-deprecated-literal-operator 且被 -Werror 升级为硬错误。
+          # 注意：flutter build 每次都会重建 .plugin_symlinks（symlink），
+          # patch symlink 无效；必须 patch pub-cache 里的真实源文件。
+          PLUGIN_DIR="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_linux-*"
+          for f in $PLUGIN_DIR/linux/CMakeLists.txt; do
+            if [ -f "$f" ]; then
+              sed -i 's/-Wno-deprecated-literal-operator//g' "$f"
+              echo "Patched: $f"
+            fi
+          done
+          grep -r "deprecated-literal" $PLUGIN_DIR/linux/CMakeLists.txt 2>/dev/null && echo "FLAG STILL PRESENT" || echo "Flag removed OK"
       - name: Compile Linux
         run: |
           cd frontend && flutter build linux --release
@@ -187,9 +194,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist\win-pkg" | Out-Null
           Copy-Item "$releaseDir\*" "dist\win-pkg\" -Recurse -Force
           # 重命名主程序：frontend.exe 对使用者毫无辨识度。
+          # 注意：flutter create --platforms=windows 会用 pubspec name(xiaoling)
+          # 重新生成 Windows 工程，产物是 xiaoling.exe 而非 frontend.exe，
+          # 所以按"非 backend.exe 的主 exe"来定位，避免硬编码错名字。
           # 必须与 packaging/assemble_windows.py 保持一致（那里也叫 小凌.exe），
           # 否则本地包与 CI 包的主程序名字不一样，排障时会对不上。
-          Move-Item "dist\win-pkg\frontend.exe" "dist\win-pkg\小凌.exe" -Force
+          $mainExe = Get-ChildItem "dist\win-pkg\*.exe" | Where-Object { $_.Name -ne 'backend.exe' } | Select-Object -First 1
+          if ($mainExe -and $mainExe.Name -ne '小凌.exe') {
+            Move-Item $mainExe.FullName "dist\win-pkg\小凌.exe" -Force
+          }
           dir dist\win-pkg
       - name: Build Inno Setup installer
         shell: bash
@@ -289,8 +302,9 @@ jobs:
           # 必须把 podspec 升到 11.0（与 Runner 的 MACOSX_DEPLOYMENT_TARGET=11.0 一致）。
           PODSPEC="$HOME/.pub-cache/hosted/pub.dev/flutter_inappwebview_macos-1.2.0-beta.3/macos/flutter_inappwebview_macos.podspec"
           if [ -f "$PODSPEC" ]; then
-            sed -i '' "s/platform :osx, '[0-9.]*'/platform :osx, '11.0'/" "$PODSPEC"
-            grep "platform :osx" "$PODSPEC"
+            # 实际写法是 s.platform = :osx, '10.14'（不是 platform :osx）
+            sed -i '' "s/s.platform = :osx, '[0-9.]*'/s.platform = :osx, '11.0'/" "$PODSPEC"
+            grep "s.platform = :osx" "$PODSPEC" || echo "WARN: s.platform line not found!"
             echo "Podspec patched to 11.0"
           else
             echo "Podspec not found"
